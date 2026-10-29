@@ -13,3 +13,8 @@ lm-core = { path = "../lm-core" }
 # The client's `audio.*` rules travel in a TOML file, like the agents' do.
 serde = { version = "1", features = ["derive"] }
 toml = "1"
+# The prosody sidecar: the capture goes out as WAV and the measured tracks
+# come back as JSON. ureq 3.x is the same blocking client the Thor's
+# System One calls use, with a per-host connection pool.
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+serde_json = "1"

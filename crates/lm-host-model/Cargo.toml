@@ -14,6 +14,8 @@ license.workspace = true
 lm-agents = { path = "../lm-agents" }
 lm-core = { path = "../lm-core" }
 lm-tools = { path = "../lm-tools" }
+# The voice service: the microphone path, the ASR and the prosody port.
+lm-voice = { path = "../lm-voice" }
 
 [dev-dependencies]
 # The tests build the question pack a model is asked, to answer it.

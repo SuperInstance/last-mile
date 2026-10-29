@@ -33,8 +33,15 @@ use std::fmt;
 use std::path::Path;
 
 pub mod bark;
+pub mod human;
+pub mod prosody;
 
 pub use bark::{bark_key, BarkCache, DEFAULT_BARK_CAP};
+pub use human::{
+    build_human_utterance, build_human_utterance_at, check_mic, mic_health, Capture, MicHealth,
+    DEFAULT_ASR_SAMPLE_RATE, DEFAULT_TICK_HZ, DEFAULT_ZERO_FRACTION_MAX_Q16, PROSODY_FRAME_MS,
+};
+pub use prosody::{ProsodyService, DEFAULT_TIMEOUT_MS as PROSODY_TIMEOUT_MS, SCORE_PATH};
 
 /// The environment variable that names the Riva base URL.
 pub const ENV_RIVA_BASE: &str = "LM_RIVA_BASE";
@@ -176,13 +183,20 @@ impl fmt::Display for VoiceError {
 impl std::error::Error for VoiceError {}
 
 /// A text-to-speech backend.
-pub trait Tts {
+///
+/// The backends are `Send + Sync` because the host keeps one in an ECS
+/// resource: the voice service is a handle the world shares, not a
+/// thread's private state.
+pub trait Tts: Send + Sync {
     /// Speak a line.
     fn synthesize(&self, req: &TtsRequest) -> Result<TtsClip, VoiceError>;
 }
 
 /// A speech-to-text backend.
-pub trait Asr {
+///
+/// The backend is `Send + Sync` because the host keeps one in an ECS
+/// resource.
+pub trait Asr: Send + Sync {
     /// Listen to a capture and write down what was said.
     fn transcribe(&self, pcm: &[i16], sample_rate: u32) -> Result<Transcript, VoiceError>;
 }
@@ -228,7 +242,10 @@ impl Default for MeasuredProsody {
 /// as a local HTTP sidecar on the ProArt (Task 6), because a Rust port
 /// would freeze one snapshot of that science into a second implementation
 /// and drift from it.
-pub trait ProsodyPort {
+///
+/// The port is `Send + Sync` because the host keeps one in an ECS
+/// resource.
+pub trait ProsodyPort: Send + Sync {
     /// Measure a capture.
     fn measure(&self, pcm: &[i16], sample_rate: u32) -> Result<MeasuredProsody, VoiceError>;
 }
@@ -688,8 +705,8 @@ mod tests {
     use lm_core::header::Header;
     use lm_core::sim::Sim;
     use lm_core::utterance::{Addressee, Intent, Prosody, Word};
-    use std::cell::Cell;
-    use std::rc::Rc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
 
     /// The shipped reflex, so the round in the test really plays.
     const DEFAULT_REFLEX: &str = include_str!("../../../assets/reflexes/default.rhai");
@@ -700,19 +717,19 @@ mod tests {
     /// has taken the backend by value.
     #[derive(Clone, Default)]
     pub(crate) struct CountingTts {
-        calls: Rc<Cell<u32>>,
+        calls: Arc<AtomicU32>,
     }
 
     impl CountingTts {
         /// How many times the backend was asked to speak.
         pub(crate) fn calls(&self) -> u32 {
-            self.calls.get()
+            self.calls.load(Ordering::Relaxed)
         }
     }
 
     impl Tts for CountingTts {
         fn synthesize(&self, _req: &TtsRequest) -> Result<TtsClip, VoiceError> {
-            self.calls.set(self.calls.get() + 1);
+            self.calls.fetch_add(1, Ordering::Relaxed);
             Ok(TtsClip {
                 pcm: vec![0; 16],
                 sample_rate: 16_000,
@@ -815,7 +832,11 @@ mod tests {
             .speak(&req, &line, speaker_place, far, sim.world(), &h.talk)
             .expect("no error");
         assert!(clip.is_none(), "an inaudible line is not spoken");
-        assert_eq!(calls.get(), 0, "an inaudible line costs no TTS call");
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            0,
+            "an inaudible line costs no TTS call"
+        );
 
         // And the utterance still happened in the sim: the audio is for
         // the human, and the sim never depends on it.
@@ -836,7 +857,11 @@ mod tests {
             .speak(&req, &line, speaker_place, near, sim.world(), &h.talk)
             .expect("no error");
         assert!(clip.is_some(), "a line in earshot is spoken");
-        assert_eq!(calls.get(), 1, "the line reached the TTS once");
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            1,
+            "the line reached the TTS once"
+        );
     }
 
     #[test]

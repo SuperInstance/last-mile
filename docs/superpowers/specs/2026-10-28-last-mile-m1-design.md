@@ -152,7 +152,7 @@ All are parameters. During a round, think requests are quilt *reaction/conversat
 
 **Human:**
 - *Possess/release* any agent (the same decision interface as agents, D10 lesson 10), or spectate (free camera, follow an agent).
-- Push-to-talk to Riva ASR → utterance (prosody capture is M2). Negations in commands are refused, not interpreted (D29).
+- Push-to-talk to Riva ASR → utterance (human prosody capture is **M1**, not M2: `communicator` is reused as a local service on the ProArt — D53). Negations in commands are refused, not interpreted (D29).
 - Optional **tutor ladder** (⚙ `human.tutor = off | ladder`): verbs unlock as the human uses earlier ones (D29).
 
 **Audio:**
@@ -206,11 +206,11 @@ All are parameters. During a round, think requests are quilt *reaction/conversat
 1. **Core:** workspace, `lm-core` (fixed point, worldgen L0, sim, rules, view, decision menus and rolls, lane conditioning, Rhai reflexes and blocks, log/hash), `lm-proto`, `lm-tools` headless runner plus replay, golden vectors. *Done when:* headless 2-squad rounds with reflex-only agents replay bit-exact.
 2. **Host plus 2D:** the `lm-host` sequencer, the 2D map and piano roll, human possess/spectate, local agents on reflex. *Done when:* you can play a round on the ProArt.
 3. **Thor agent host:** mirror sim over QUIC (the ProArt dials), adaptive lead, cognition loop, least-use-first queue, decision-model client (stub, then d1-2B; point and presence modes after spike S1), refusals and intent TTL, budgets plus HUD with reflex share. *Done when:* agents think on the Thor and late thoughts fall back cleanly.
-4. **Talk:** utterance scores, hearing physics, Riva TTS for audible lines, barks, push-to-talk ASR, half-duplex gate, pre-drafted replies, optional tutor ladder. *Done when:* squads coordinate by talking and you hear them.
+4. **Talk:** utterance scores, hearing physics, Riva TTS for audible lines, barks, push-to-talk ASR, human prosody capture (the local `communicator` service, D53), half-duplex gate, pre-drafted replies, optional tutor ladder. *Done when:* squads coordinate by talking and you hear them.
 5. **Rounds and learning:** the round flow, between-round screen (order uptake, uptake by speaker, words per successful order, misread rate, airtime, reflex share), `lm-router` with a System-2 squad review → lexicon in the harness plus vector DB, sealed predictions with held-out eval seeds, harness tags, change-request deposits. *Done when:* round N+1 uses lessons from round N.
 6. **3D plus archive:** the retro-modern 3D view (L0), Orin `lm-archive` verification. *Done when:* the full M1 loop runs on all three boxes.
 
-**Out of M1 (planned later):** self-re-harness sessions and gates (M2); pre-render L1–L3, the asset bank and 👍/👎 on assets (M2); human prosody capture and formant voices (M2); Studio mode, A/B and MIDI control surfaces (M3+); EdenLive replays (spike first).
+**Out of M1 (planned later):** self-re-harness sessions and gates (M2); pre-render L1–L3, the asset bank and 👍/👎 on assets (M2); human formant voices (M2); Studio mode, A/B and MIDI control surfaces (M3+); EdenLive replays (spike first).
 
 ## 11. Parameters (defaults)
 

@@ -32,6 +32,7 @@
 //! Build and run it with Windows cargo via `scripts/win-build.sh`; this WSL
 //! toolchain has none of Bevy's Linux system libraries.
 
+mod audio_plugin;
 mod hud_plugin;
 mod input_plugin;
 mod map_plugin;
@@ -264,6 +265,7 @@ fn main() -> AppExit {
         sim_plugin::SimPlugin::new(tick_hz),
         map_plugin::MapPlugin,
         input_plugin::InputPlugin,
+        audio_plugin::VoicePlugin,
         hud_plugin::HudPlugin,
         roll_plugin::RollPlugin,
     ))

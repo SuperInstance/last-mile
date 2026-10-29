@@ -38,8 +38,14 @@ pub mod map;
 pub mod record;
 pub mod roll;
 pub mod scrub;
+// The human's voice: the commands, the tutor ladder and the score.
+pub mod voice;
 
 // Re-exported at the end of the file, so the parallel phase-2 tasks (4: map,
 // 5: roll + scrub) can add their own without touching these lines.
 pub use input::{InputError, InputEvent, InputState, Viewer};
 pub use map::{AgentDraw, BeaconDraw, FogState, MapModel};
+pub use turn::{TurnDetector, TurnRules, MAX_TALK_MS, TURN_END_MS, VOICE_STOP_MS};
+pub use voice::{
+    CommandOutcome, CommandParser, CommandRefusal, HumanVoice, TutorLadder, TutorMode, VoiceRefusal,
+};

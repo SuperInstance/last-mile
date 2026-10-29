@@ -20,3 +20,5 @@ lm-core = { path = "../lm-core" }
 lm-host-model = { path = "../lm-host-model" }
 # The shipped reflex, so the host plays the same round the headless tools do.
 lm-tools = { path = "../lm-tools" }
+# The voice service: the microphone path, the ASR and the prosody port.
+lm-voice = { path = "../lm-voice" }
