@@ -9,7 +9,7 @@
 # target/ (the mirror keeps its own, so Windows rebuilds are incremental),
 # .git/ and runs/ — and runs cargo there.
 #
-# usage: bash scripts/win-build.sh <cargo args...>
+# usage: bash scripts/win-build.sh [branch] <cargo args...>
 # example:
 #   bash scripts/win-build.sh run -p lm-host --release -- \
 #       --screenshot 'C:\Users\casey\src\shot1.png' --frames 30
@@ -20,7 +20,23 @@ WSL_DIR=/mnt/c/Users/casey/src/last-mile-build
 CARGO_BIN='C:\Users\casey\.cargo\bin'
 
 if [ "$#" -lt 1 ]; then
-    echo "usage: bash scripts/win-build.sh <cargo args...>" >&2
+    echo "usage: bash scripts/win-build.sh [branch] <cargo args...>" >&2
+    exit 2
+fi
+
+# The plan's interface is `win-build.sh <branch> [cargo args…]`. The branch is
+# accepted and ignored: this script mirrors the worktree it is run from, and
+# that worktree is already on the branch. A leading token that is not a cargo
+# subcommand is therefore dropped, so both spellings work.
+case " build check clippy test doc fmt run bench clean tree " in
+    *" $1 "*) ;;
+    *)
+        shift
+        ;;
+esac
+
+if [ "$#" -lt 1 ]; then
+    echo "usage: bash scripts/win-build.sh [branch] <cargo args...>" >&2
     exit 2
 fi
 

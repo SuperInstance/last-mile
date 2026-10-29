@@ -41,7 +41,7 @@ use lm_core::fixed::Pos;
 use lm_core::header::Header;
 use lm_core::log::{Recorder, RoundLog};
 use lm_core::rules::{Event, SimError};
-use lm_core::sched::{Reject, Sequencer};
+use lm_core::sched::{Reject, SchedStats, Sequencer};
 use lm_core::sim::Sim;
 
 /// What one tick of the host produced.
@@ -73,6 +73,8 @@ pub struct HostLoop {
     sequencer: Sequencer,
     /// The round being written down.
     recorder: Recorder,
+    /// The header of the round: its parameters, roster and rules.
+    header: Header,
     /// The tick that is about to be simulated.
     next_tick: Tick,
     /// Where every agent stood before the last tick, for the renderer.
@@ -102,6 +104,7 @@ impl HostLoop {
             sim,
             sequencer,
             recorder,
+            header: h.clone(),
             next_tick: h.start_tick,
             prev_positions: Vec::new(),
             human_seq: BTreeMap::new(),
@@ -161,6 +164,24 @@ impl HostLoop {
     /// The world as it stands.
     pub fn sim(&self) -> &Sim {
         &self.sim
+    }
+
+    /// The header of the round: its parameters, its roster and its rules.
+    ///
+    /// The header is the round's identity (the sim's own copy of it is
+    /// private), and a host needs it to say what the round is: how fast it
+    /// ticks, how long it may run, who plays and how many squads there are.
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
+    /// How the sequencer is coping.
+    ///
+    /// The three counters are the ones a host shows a person: the decisions
+    /// that landed on the tick they asked for, the ones that landed later,
+    /// and the ones that were too late to be used at all.
+    pub fn sched_stats(&self) -> SchedStats {
+        self.sequencer.stats()
     }
 
     /// The round log so far: a copy of the recorder's state.
@@ -275,6 +296,17 @@ mod tests {
         let mut h = round(1);
         h.ruleset = "capture-the-flag".to_owned();
         assert!(matches!(HostLoop::new(h), Err(SimError::UnknownRuleset(_))));
+    }
+
+    /// The host loop lives in a resource of the Bevy client, and a resource
+    /// has to be `Send + Sync` to be shared safely between the systems that
+    /// read it. The ruleset of the round is the one thing that could have
+    /// stopped that, so the bound is asserted here rather than discovered on
+    /// the Windows build.
+    #[test]
+    fn the_host_loop_can_be_shared_between_threads() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<HostLoop>();
     }
 
     #[test]

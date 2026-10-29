@@ -118,7 +118,13 @@ impl StateHash for Event {
 /// The sim owns the clock and the agents; the ruleset owns the outcome. It is
 /// asked once per tick, after the agents have moved, with the agents in the
 /// tick's rotating order, and it answers with the events of that tick.
-pub trait Ruleset: StateHash {
+///
+/// The ruleset is `Send + Sync` so that a round can be owned by a host that
+/// runs its systems on more than one thread: the Bevy client (phase 2) keeps
+/// the whole simulation in a resource, and a resource has to be `Send + Sync`
+/// to be safe to share between the systems that read it. The only ruleset,
+/// `Beacons`, is plain data and satisfies the bound without a change.
+pub trait Ruleset: StateHash + Send + Sync {
     /// Play one tick of the rules.
     ///
     /// `order` holds the indices of `agents` in the order they act this tick

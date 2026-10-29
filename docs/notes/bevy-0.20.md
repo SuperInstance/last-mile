@@ -206,7 +206,7 @@ fn hello_panel(mut contexts: EguiContexts) -> Result {
   `.min_size`, `.max_size`, `.exact_size`, `.show_separator_line`.
 - The egui crate itself is re-exported as `bevy_egui::egui` (0.36.2).
 
-## Gizmos — **[source only]** (first map-drawing use: Task 6)
+## Gizmos — **[compiled]** (Task 6: the map's rings and the agents' facing)
 
 ```rust
 use bevy::prelude::*; // Gizmos is in the prelude via bevy_gizmos
@@ -229,6 +229,117 @@ fn draw_agents(mut gizmos: Gizmos) {
   Colors accept `impl Into<Color>`, so `Color::srgb` palette constants work.
   2D gizmo coordinates are world metres — exactly the `f32` metres
   `lm-host-model::map` produces.
+- **The 2D shapes are outlines, not fills:** `circle_2d` draws a line loop.
+  A filled disc is a sprite with a disc texture (below), not a gizmo.
+- Gizmos are drawn **on top of the sprites**: they join the `Transparent2d`
+  phase with `sort_key: FloatOrd(f32::INFINITY)`
+  (`bevy_gizmos_render/src/pipeline_2d.rs:332`), and sprites are sorted by
+  their own `translation().z` (`bevy_sprite_render/src/render/mod.rs:502`).
+  That is also how the layers are ordered: give a sprite a bigger `z` to put
+  it in front (the 2D sprite pipeline does not write depth:
+  `depth_write_enabled: false`, `depth_compare: GreaterEqual`).
+
+## Sprites as bodies: a disc of your own — **[compiled]** (Task 6)
+
+```rust
+use bevy::asset::RenderAssetUsages;
+use bevy::image::{Image, ImageSampler};
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+
+let mut data = vec![0u8; (SIZE * SIZE * 4) as usize];   // RGBA, one byte per channel
+let mut image = Image::new(
+    Extent3d { width: SIZE, height: SIZE, depth_or_array_layers: 1 },
+    TextureDimension::D2,
+    data,
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::default(),
+);
+image.sampler = ImageSampler::linear();
+let handle = images.add(image);        // Assets::add, not insert
+```
+
+- `Assets::insert(id, asset)` needs an id; **`Assets::add(asset) -> Handle`**
+  is the one that hands back a handle (`bevy_asset/src/assets.rs:401`).
+- `Image::new(size, dimension, data, format, usages)` wants the pixel bytes
+  up front (`bevy_image/src/image.rs:1123`); `RenderAssetUsages::default()`
+  is `MAIN_WORLD | RENDER_WORLD`, so the texture reaches the GPU.
+- `Image` is in the prelude, but **`ImageSampler` is not** — it lives in
+  `bevy::image::ImageSampler`. `Extent3d`, `TextureDimension` and
+  `TextureFormat` are **not** in the prelude either: they come from
+  `bevy::render::render_resource`.
+- A sprite with a texture is `Sprite { image: handle, custom_size: Some(..),
+  color: .., ..default() }`: the field is `image` (not `texture`), and
+  `custom_size` is the size in world units.
+- `Sprite::from_color(colour, size)` uses the default white texture and
+  needs no image at all — that is how the tile layer is drawn.
+
+## Two queries may not fight over a component — **[compiled]** (Task 6)
+
+Two systems may not both write the same component; two *queries inside one
+system* may not either, unless their filters make them disjoint:
+
+```
+error[B0001]: Query<(&mut Sprite, ...)> accesses component(s) Sprite in a
+way that conflicts with a previous system parameter.
+```
+
+The way out is one query over a tag component, or `Without<T>` filters that
+prove the sets apart. The map uses one query over a `Body` enum
+(`Fog(index) | Agent(id) | Beacon(index)`), which is easier to read too.
+
+## The camera's projection — **[compiled]** (Task 6)
+
+```rust
+for mut projection in &mut projections {          // Query<&mut Projection, With<Camera>>
+    if let Projection::Orthographic(orthographic) = &mut *projection {
+        orthographic.scale = scale;               // world units per pixel
+    }
+}
+```
+
+- `Projection` and `OrthographicProjection` are in the prelude
+  (`bevy_camera::prelude`). `Projection::Orthographic(..)` is the variant;
+  `Camera2d` requires it with `scale: 1.0` (`default_2d`).
+- `scale` is **world units per pixel**: `scale = 0.2` shows 5 pixels a
+  metre. The camera's `Transform::translation` is the world point at the
+  centre of the window.
+
+## Input: the wheel is a message — **[compiled]** (Task 6)
+
+```rust
+fn read_input(mouse: Res<ButtonInput<MouseButton>>, mut wheel: MessageReader<MouseWheel>) {
+    let pressed = mouse.just_pressed(MouseButton::Left);
+    let scroll: f32 = wheel.read().map(|wheel| wheel.y).sum();
+}
+```
+
+- The buttons are a resource (`ButtonInput<T>`), with `pressed`,
+  `just_pressed`, `just_released` and `get_pressed()` (there is no
+  `read()` on `ButtonInput` in 0.20).
+- **The wheel is a message, not a button**: `MouseWheel` is not `Eq`/`Hash`,
+  so `ButtonInput<MouseWheel>` does not compile. Read it with
+  `MessageReader<MouseWheel>`.
+- `PrimaryWindow` is in `bevy::window::PrimaryWindow`;
+  `window.cursor_position()` gives the pointer in logical pixels.
+
+## egui 0.36: the corners of a rect — **[compiled]** (Task 6)
+
+- `egui::Rect` keeps its corners in `min` and `max` (`emath/src/rect.rs:25`):
+  `rect.min.x`, `rect.max.y`. There are no `x_min`/`y_min` **fields** (only
+  `width()` and `height()` methods).
+- `Painter::rect_filled(rect, corner_radius, colour)` takes
+  `impl Into<CornerRadius>`, and `CornerRadius` has `From<f32>`, so `0.0` is
+  a square corner.
+- `Painter::text(pos, anchor, text, font_id, colour)` lays the text out
+  itself; `FontId` is `Clone` but not `Copy`.
+- `Ui::allocate_exact_size(size, sense) -> (Rect, Response)` is the way to
+  get a canvas of a known size to paint in.
+- egui has its own `Vec2` (emath) and Bevy has another (glam): they are
+  different types. Use `egui::vec2(..)` and `egui::pos2(..)` inside egui
+  calls, and `bevy::prelude::Vec2` everywhere else.
+- `Panel::top(..)`/`Panel::bottom(..)` take the same builders as
+  `Panel::left(..)` (`.resizable`, `.default_size`, `.exact_size`, ..), and
+  `exact_size` on a top or bottom panel is its **height**.
 
 ## Building lm-host (why a Windows-only crate) — **[compiled]**
 
