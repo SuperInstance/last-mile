@@ -9,10 +9,18 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 | **Jetson Orin Nano Super** (2 TB NVMe) | Archive: round logs, content-addressed asset bank, headless replay verification. It yields to Casey's desktop |
 | **Cloud subscriptions** (Claude, MiniMax, Kimi, z.ai, plus Jev/Clef APIs) | Slow "System 2" thinking and teacher-side judging, spent from per-provider allotments |
 
-**Status (2026-10-28):** **Phase 1 core: headless rounds replay bit-exact.** A headless, fixed-point, deterministic simulation of a 2-squad "Beacons" round, played by reflex-only agents and replayed tick by tick to the same hashes. Building on branch [`phase1-core`](https://github.com/SuperInstance/last-mile/tree/phase1-core).
-- Thirteen of fifteen plan tasks are merged, with 176 tests green in debug and release.
-- Remaining: `lm branch` (Task 15), the permanent "watch a stretch, change one thing, re-run" test.
-- Plan: [`docs/superpowers/plans/2026-10-28-m1-phase1-core.md`](docs/superpowers/plans/2026-10-28-m1-phase1-core.md).
+**Status (2026-10-29):** the trunk is [`m1-integration`](https://github.com/SuperInstance/last-mile/tree/m1-integration). Every phase branch is merged into it, and `bash scripts/check.sh` passes.
+
+| Phase | State |
+|---|---|
+| 1. Core | Done: headless, fixed-point, deterministic rounds replay bit-exact. `lm branch` rewinds, changes one thing and re-runs |
+| 2. Host | Done (Casey's hands-on acceptance pending): the Bevy map, piano roll, HUD and replay on the ProArt |
+| 3. Agents | Done: agents think on the Thor's d1 models in the host. d1-2B is the default fast tier (D62) |
+| 4. Talk | Tasks 1-5, 7 and 8 merged (utterances, notation, hearing physics, agents speaking, the voice crate, the half-duplex gate, talk metrics). Task 6 (human voice in) is partly done; Task 9 (integration) is open |
+| 5. Learning | All 8 tasks' headless parts merged: metrics, router, sealed ledger, review, held-out eval, deposits, Rhai rulesets, and `lm learn` (round N+1 uses round N's lesson). The host's between-round screen is open |
+| 6. 3D + archive | Render Tasks 1-5 and archive Tasks 9-12 merged. The Bevy 3D view (Tasks 6-8) is in progress |
+
+Measured facts that shape the design live in [`docs/design/decisions.md`](docs/design/decisions.md) (D1–D66), for example: draws are mirror ties, not timeouts (D63), and the Thor serves about 9 decisions/s on d1-2B, roughly one thought per agent per second (decision-daw x5).
 
 ## Core ideas (one line each)
 - **The game is the score.** As with MIDI, a tiny stream of decisions is the whole game. Renderers are instruments: a better one sounds richer but never changes the rhythm.
@@ -76,19 +84,25 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 | Crate | What it is | Rule |
 |---|---|---|
 | [`lm-core`](crates/lm-core/src/lib.rs) | The deterministic simulation: fixed-point math, worldgen, LOS, JPS, decisions and sequencer, lane conditioner, agents with safe branches, fog-of-war views and menus, Beacons rules (native and scripted), sandboxed Rhai reflexes, the hash-chained round log | No floats, no unordered containers, no clock, no network. Overflow checks on in release |
-| [`lm-proto`](crates/lm-proto/src/lib.rs) | Wire messages, a strict postcard codec, the version handshake | No transport yet (QUIC comes in phase 3) |
-| [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI (the crate is `lm-tools`, the binary it builds is `lm`): `run`, `replay`, `diff`, `golden` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
+| [`lm-proto`](crates/lm-proto/src/lib.rs) | Wire messages, a strict postcard codec, the version handshake | |
+| [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI (the crate is `lm-tools`, the binary it builds is `lm`): `run`, `replay`, `diff`, `golden`, `branch`, `learn` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
 | [`lm-learn`](crates/lm-learn/src/lib.rs) | The between-round learning loop: the metrics of a round, the sealed-prediction ledger, the reviewer's proposal and its strict parsing, the held-out evaluation, the deposits, and the [`flow`](crates/lm-learn/src/flow.rs) that chains them into one auditable round | No floats, no clock, no network of its own: the keys stay in `lm-router` |
 | [`lm-archive`](crates/lm-archive/src/lib.rs) | The Orin archive: the `lm-archive` command and the crate behind it — the flat store (rounds, reports, state, every file written atomically), the framed `lm_proto::Msg` ingest, the headless verifier that replays a round and checks every state hash, the service (accept loop, a thread per connection, a verification worker with a bounded queue), the yielding to the desktop (`nice`/`ionice`, applied by re-executing the process) and the cross-architecture golden check | No floats, no clock in the round, std-only networking. A round is never rewritten |
+| [`lm-agents`](crates/lm-agents/src/lib.rs) | How agents think: gates, plain-language facts, System One calls to the Thor's d1 models or the Jev cloud tier, the least-use-first queue, the Mind and its tier table, utterances | Network is optional: the stub and the reflex keep a round playable offline |
+| [`lm-host-model`](crates/lm-host-model/src/lib.rs) | The host's logic without a screen: the round, the map and replay models, the agents' wiring, turn detection | Pure logic, tested in the gate |
+| [`lm-host`](crates/lm-host/src/main.rs) | The Windows-only Bevy app around `lm-host-model` | Doesn't build in WSL: `bash scripts/win-build.sh build -p lm-host --release` |
+| [`lm-router`](crates/lm-router/src/lib.rs) | The cloud purse: provider adapters with metered allotments, cold pools and config-order fallback | Keys come from `~/.config/last-mile/secrets.env` and are never logged |
+| [`lm-render`](crates/lm-render/src/lib.rs) | Bevy-free rendering logic: the palette, the chunk mesh builder, the greedy mesher, chunk hashes, the agent figure | No GPU needed; tested in the gate |
+| [`lm-voice`](crates/lm-voice/src/lib.rs) | Speech: TTS/ASR traits, stubs, Riva placeholders, the bark cache, and an audibility gate so only lines the human can hear are spoken | |
 
 ## Repository map
 
 | Path | What |
 |---|---|
-| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D51) with reasons. **Start here.** |
+| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D66) with reasons. **Start here.** |
 | [`tests/golden.toml`](tests/golden.toml) | The pinned golden hashes of the headless rounds. Re-pin with `lm golden --write`, and say in the commit why the world moved |
 | [`docs/superpowers/specs/`](docs/superpowers/specs/2026-10-28-last-mile-m1-design.md) | The Milestone 1 design spec |
-| [`docs/superpowers/plans/`](docs/superpowers/plans/2026-10-28-m1-phase1-core.md) | The Phase 1 implementation plan (TDD tasks) |
+| [`docs/superpowers/plans/`](docs/superpowers/plans/) | The implementation plans: [phase 1](docs/superpowers/plans/2026-10-28-m1-phase1-core.md), [2](docs/superpowers/plans/2026-10-28-m1-phase2-host.md), [3](docs/superpowers/plans/2026-10-28-m1-phase3-agents.md), [4](docs/superpowers/plans/2026-10-29-m1-phase4-talk.md), [5](docs/superpowers/plans/2026-10-28-m1-phase5-learning.md), [6](docs/superpowers/plans/2026-10-29-m1-phase6-3d-archive.md) |
 | [`docs/research/forclaude2/`](docs/research/forclaude2/00-overview.md) | Research digests: the MIDI principle, the MIDI Maze source study, utterance scores, EdenLive, pre-render-ahead, self-harnessing agents |
 | [`docs/handoffs/`](docs/handoffs/orin-archive-and-golden.md) | Handoffs to the other boxes: building the archive on the Orin, running the golden check there and on the Thor, and running the service under `systemd --user` |
 | [`docs/research/fleet/`](docs/research/fleet/00-overview.md) | Casey's other repos (COLOR SQUAD, thor-firstline, the whole-house quilt, Syzygy…), decision models, where it all leads |
