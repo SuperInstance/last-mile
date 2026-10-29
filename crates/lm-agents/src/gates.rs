@@ -713,6 +713,7 @@ mod tests {
     fn answers_for(gate: &str, answer: Answer) -> Answers {
         Answers {
             per_gate: BTreeMap::from([(gate.to_string(), answer)]),
+            unsure: BTreeMap::new(),
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,
@@ -986,6 +987,7 @@ beacon = "walk to beacon {beacon}"
         per_gate.insert("aim".to_string(), choice(&probs));
         let answers = Answers {
             per_gate,
+            unsure: BTreeMap::new(),
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,

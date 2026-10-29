@@ -96,7 +96,20 @@ pub trait SysOne {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Answers {
     /// One answer per gate, keyed by the gate id.
+    ///
+    /// A gate the backend is not sure about is not in here: it is in
+    /// [`Answers::unsure`] instead, and it makes no decision of its own
+    /// (D26).
     pub per_gate: BTreeMap<String, Answer>,
+    /// The gates the backend is not sure about, with their confidence.
+    ///
+    /// The confidence rule is per gate, not per pack: an unsure gate never
+    /// takes another gate's decision with it. A gate that chooses a line
+    /// that the model was unsure about silences the line and leaves the
+    /// move alone; a gate that chooses a move the model was unsure about
+    /// refuses the move and leaves the line alone.
+    #[serde(default)]
+    pub unsure: BTreeMap<String, f32>,
     /// The model that answered: the id this backend asked for.
     pub model: String,
     /// The tokens the pack cost.
@@ -151,6 +164,9 @@ pub enum Refusal {
     /// is a bug in the pack, not a refusal by the model.
     InvalidPack(String),
     /// The answer was less confident than this backend's threshold.
+    ///
+    /// The rule is per gate: the gate that was unsure makes no decision of
+    /// its own, and every unsure gate is a refusal of its own (D26).
     LowConfidence(f32),
     /// The menu changed between the question and the answer.
     MenuChanged,
@@ -365,9 +381,9 @@ impl SysOne for ThorBackend {
         validate_pack(questions).map_err(|e| Refusal::InvalidPack(e.to_string()))?;
         let body = request_body(&self.model, state, questions);
         let (text, latency_ms) = post_pack(&self.agent, &self.url(), None, &body, deadline)?;
-        let answers = parse_answers(&text, &self.model, latency_ms)?;
+        let mut answers = parse_answers(&text, &self.model, latency_ms)?;
         check_answered(&answers, questions)?;
-        check_confidence(&answers, self.min_confidence)?;
+        split_unsure(&mut answers, self.min_confidence);
         Ok(answers)
     }
 
@@ -477,9 +493,9 @@ impl SysOne for JevBackend {
             &body,
             deadline,
         )?;
-        let answers = parse_answers(&text, &self.model, latency_ms)?;
+        let mut answers = parse_answers(&text, &self.model, latency_ms)?;
         check_answered(&answers, questions)?;
-        check_confidence(&answers, self.min_confidence)?;
+        split_unsure(&mut answers, self.min_confidence);
         Ok(answers)
     }
 
@@ -905,6 +921,7 @@ fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
 
     Ok(Answers {
         per_gate,
+        unsure: BTreeMap::new(),
         model: "stub".to_owned(),
         input_tokens: 64,
         latency_ms: 0,
@@ -1068,6 +1085,7 @@ fn parse_answers(body: &str, model: &str, latency_ms: u32) -> Result<Answers, Re
 
     Ok(Answers {
         per_gate,
+        unsure: BTreeMap::new(),
         model: model.to_string(),
         input_tokens: u32::try_from(input_tokens).unwrap_or(u32::MAX),
         latency_ms,
@@ -1197,28 +1215,36 @@ fn derived_confidence(probs: &BTreeMap<String, f32>) -> Result<f32, Refusal> {
     Ok(largest / sum)
 }
 
-/// Refuse an answer that is less confident than the backend's threshold.
+/// Split the answers into the ones the backend stands behind and the ones it
+/// does not.
 ///
 /// The threshold belongs to the backend, never to the answer: two models are
 /// never averaged and never share a floor (Thor handoff §3.6). A `noul` has
-/// no confidence — its value is the belief itself — so it is never refused
+/// no confidence — its value is the belief itself — so it is never unsure
 /// here.
-fn check_confidence(answers: &Answers, min_confidence: f32) -> Result<(), Refusal> {
-    let lowest = answers
+///
+/// The rule is **per gate**, and that is the point: the pack-level minimum
+/// used to veto the whole pack, so one unsure gate took every other gate's
+/// decision with it. The attention gate alone — ten options, so unsure by
+/// nature — refused the Thor's every answer. Now a gate the backend is not
+/// sure about is moved out of the answers and into
+/// [`Answers::unsure`], and it makes no decision of its own (D26).
+fn split_unsure(answers: &mut Answers, min_confidence: f32) {
+    let unsure: Vec<(String, f32)> = answers
         .per_gate
-        .values()
-        .filter_map(|answer| match answer {
-            Answer::Choice { confidence, .. } | Answer::Score { confidence, .. } => {
-                Some(*confidence)
-            }
-            Answer::Noul(_) => None,
+        .iter()
+        .filter_map(|(id, answer)| {
+            let confidence = match answer {
+                Answer::Choice { confidence, .. } | Answer::Score { confidence, .. } => *confidence,
+                Answer::Noul(_) => return None,
+            };
+            (confidence < min_confidence).then(|| (id.clone(), confidence))
         })
-        .fold(f32::INFINITY, f32::min);
-
-    if lowest < min_confidence {
-        return Err(Refusal::LowConfidence(lowest));
+        .collect();
+    for (id, _) in &unsure {
+        answers.per_gate.remove(id);
     }
-    Ok(())
+    answers.unsure = unsure.into_iter().collect();
 }
 
 /// A pack that came back empty is not an answer.
@@ -1629,7 +1655,10 @@ mod tests {
     }
 
     #[test]
-    fn low_confidence_is_refusal() {
+    fn an_unsure_gate_makes_no_decision() {
+        // The rule is per gate: the gate the model was unsure about is not
+        // an answer any more, and it takes no other gate's decision with
+        // it. The pack itself is not refused.
         let reply = r#"{
           "answers": {
             "action": {
@@ -1637,20 +1666,39 @@ mod tests {
               "choice": "advance",
               "probabilities": { "hide": 0.7, "advance": 0.2, "scout": 0.1 },
               "confidence": 0.2
+            },
+            "speech": {
+              "type": "choice",
+              "choice": "callout",
+              "probabilities": { "callout": 0.9, "statement": 0.1 },
+              "confidence": 0.9
             }
           }
         }"#;
         let mock = MockServer::start(200, reply.to_string(), Duration::ZERO);
-        let backend = ThorBackend::new("http://127.0.0.1", mock.port(), "d1-3B").without_proxy();
+        let backend = ThorBackend::new("http://127.0.0.1", mock.port(), "d1-3B")
+            .without_proxy()
+            .with_min_confidence(0.5);
 
-        let result = backend.ask(state(), &questions(), deadline());
+        let answers = backend
+            .ask(state(), &questions(), deadline())
+            .expect("the pack is not refused");
 
-        match result {
-            Err(Refusal::LowConfidence(confidence)) => {
-                assert!(close(confidence, 0.2), "got {confidence}");
-            }
-            other => panic!("expected a low-confidence refusal, got {other:?}"),
-        }
+        assert!(
+            !answers.per_gate.contains_key("action"),
+            "the unsure gate is not an answer: {:?}",
+            answers.per_gate
+        );
+        assert!(
+            answers.per_gate.contains_key("speech"),
+            "the sure gate is still an answer: {:?}",
+            answers.per_gate
+        );
+        assert!(
+            close(answers.unsure["action"], 0.2),
+            "the unsure gate keeps its confidence: {:?}",
+            answers.unsure
+        );
     }
 
     #[test]
@@ -1843,6 +1891,7 @@ mod tests {
                     confidence: 1.0,
                 },
             )]),
+            unsure: BTreeMap::new(),
             model: "stub".to_string(),
             input_tokens: 0,
             latency_ms: 0,

@@ -1,5 +1,14 @@
 # GATES-TUNING — making the default gates confident enough to drive play (2026-10-29)
 
+> **Later, and it matters for the numbers below.** This document measures the
+> *move* gate over the phase-3 pack and the 400 ms deadline that was shipped
+> then. Both have moved since: the deadline is 2400 ms, the think budgets are
+> 45 and 60 ticks, and the confidence rule is **per gate** — an unsure gate is
+> dropped and makes no decision of its own, instead of the pack's lowest
+> confidence vetoing the whole pack. The talk gates' own numbers, and what
+> they say about the agents' silence, are in
+> [crates/lm-agents/tests/talk_on_thor.md](../../../crates/lm-agents/tests/talk_on_thor.md).
+
 The finding this answers (phase 3 Task 7): against the real Thor d1-3B
 (`http://192.168.0.78:8093`, System One, no auth) the default question pack
 (`assets/harness/default/gates.toml`: a "what now?" choice over the bare menu)

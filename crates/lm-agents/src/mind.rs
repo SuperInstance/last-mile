@@ -1126,6 +1126,17 @@ impl Mind {
                 Vec::new()
             }
             Ok(answers) => {
+                // The confidence rule, per gate: a gate the backend was not
+                // sure about makes no decision of its own. The gate is not
+                // in the answers any more, so a gate that chose a line
+                // silences the line and leaves the move alone, and a gate
+                // that chose a move refuses the move and leaves the line
+                // alone (D26/D49). Every one of them is a refusal, and a
+                // refusal is logged.
+                for confidence in answers.unsure.values() {
+                    self.refusals
+                        .push((now, Refusal::LowConfidence(*confidence)));
+                }
                 if self.policy.verdict_cache {
                     self.cache
                         .insert((flight.req.situation_key, flight.menu.id), answers.clone());
@@ -1504,6 +1515,7 @@ mod tests {
                     confidence: 0.9,
                 },
             )]),
+            unsure: BTreeMap::new(),
             model: "stub".to_owned(),
             input_tokens: 64,
             latency_ms: 0,

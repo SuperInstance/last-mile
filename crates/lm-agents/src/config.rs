@@ -75,6 +75,11 @@ pub struct AgentsConfig {
     /// The deadline follows the pack: the eleven-question pack of phase 4
     /// is a longer prompt than the one gate of phase 3, and a deadline
     /// that fits the old pack would refuse every real answer.
+    ///
+    /// Measured on the Thor's d1-2B: the eleven-question pack costs 600 ms
+    /// on an idle box and 1400 ms when the box is busy, so the deadline has
+    /// to clear the slow case and not only the median
+    /// (crates/lm-agents/tests/talk_on_thor.md).
     pub request_timeout_ms: u32,
     /// How strongly a squad's shared usage counts in queue priority (D16).
     pub squad_weight: f32,
@@ -137,7 +142,13 @@ impl Default for AgentsConfig {
                 ("clef-flash".to_owned(), 8096),
             ]),
             min_confidence: BTreeMap::from([
-                ("thor-d1-2b".to_owned(), 0.60),
+                // The d1-2B's own calibration, measured over a round: the
+                // move gate answers 0.80-0.94 confident, but the attention
+                // gate — ten options, so unsure by nature — answers
+                // 0.29-0.64. The floor is per gate now, so it has to clear
+                // the model's weakest gate and not only its best one
+                // (crates/lm-agents/tests/talk_on_thor.md).
+                ("thor-d1-2b".to_owned(), 0.30),
                 ("thor-d1-3b".to_owned(), 0.55),
                 ("jev".to_owned(), 0.5),
             ]),
@@ -146,7 +157,7 @@ impl Default for AgentsConfig {
             mode: "auto".to_owned(),
             presence_hz: 10,
             max_questions: 11,
-            request_timeout_ms: 1_200,
+            request_timeout_ms: 2_400,
             squad_weight: 0.5,
             budget_calls_per_round: 400,
             on_exhaust: "reflex".to_owned(),
@@ -198,7 +209,7 @@ mod tests {
         assert_eq!(
             c.min_confidence,
             BTreeMap::from([
-                ("thor-d1-2b".to_owned(), 0.60),
+                ("thor-d1-2b".to_owned(), 0.30),
                 ("thor-d1-3b".to_owned(), 0.55),
                 ("jev".to_owned(), 0.5),
             ])
@@ -222,7 +233,7 @@ mod tests {
                 c.stale_enemy_ticks,
                 c.ally_range_cells
             ),
-            (11, 1_200, 0.5, 400, "reflex", 6, 4)
+            (11, 2_400, 0.5, 400, "reflex", 6, 4)
         );
         assert_eq!(
             (

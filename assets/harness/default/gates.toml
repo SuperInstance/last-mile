@@ -159,7 +159,18 @@ description = "the moment is urgent: an enemy can see you within 6 cells, or a b
 id = "intention_present"
 type = "noul"
 options_from = "fixed"
-instructions = "Is this moment worth an urgent tone?"
+# The presence gate of the intention gate asks the question the gate means:
+# is there something for the squad to hear about this moment at all? It used
+# to ask "is this moment worth an urgent tone?", which is a question about
+# urgency — and the model answered it truthfully: 0.02 in a quiet moment and
+# 0.62 in a fight. Read as "is this even here?", a truthful "no" silenced
+# every line in every quiet moment, and the agents never spoke
+# (crates/lm-agents/tests/talk_on_thor.md).
+#
+# The wording now asks for the moment's news whatever its tone: the model
+# answers 0.15 in a quiet moment, 0.89 in a fight and 0.14 when the agent is
+# alone, so the gate discriminates the moment without muting the squad.
+instructions = "Is there something for your squad to hear about this moment?"
 
 [[gates]]
 id = "intent"

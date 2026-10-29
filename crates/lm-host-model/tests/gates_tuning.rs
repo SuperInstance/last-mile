@@ -231,8 +231,6 @@ struct Measurement {
     answered: usize,
     /// How many calls were refused for being too slow.
     timeouts: usize,
-    /// How many calls were refused for being too unsure.
-    unsure: usize,
     /// How many calls were refused for any other reason, by the reason.
     refused: BTreeMap<String, usize>,
     /// The round trip of the calls, in milliseconds.
@@ -284,10 +282,10 @@ fn measure(
                 measurement.timeouts += 1;
                 continue;
             }
-            Err(Refusal::LowConfidence(_)) => {
-                measurement.unsure += 1;
-                continue;
-            }
+            // A pack is not refused for being unsure any more: the rule is
+            // per gate now, so an unsure gate is dropped and the pack that
+            // carries it still comes back. The floor is applied below, to
+            // the move gate's own confidence.
             Err(refusal) => {
                 *measurement.refused.entry(refusal.to_string()).or_default() += 1;
                 continue;
@@ -375,15 +373,13 @@ fn report(name: &str, measurement: &Measurement) {
     latencies.sort_by(f32::total_cmp);
 
     println!("--- {name} ---");
-    let refused =
-        measurement.timeouts + measurement.unsure + measurement.refused.values().sum::<usize>();
+    let refused = measurement.timeouts + measurement.refused.values().sum::<usize>();
     println!(
-        "answered {} of {}, refused {} (too slow {}, too unsure {}, other {})",
+        "answered {} of {}, refused {} (too slow {}, other {})",
         measurement.answered,
         measurement.answered + refused,
         refused,
         measurement.timeouts,
-        measurement.unsure,
         measurement.refused.values().sum::<usize>()
     );
     for (reason, count) in &measurement.refused {

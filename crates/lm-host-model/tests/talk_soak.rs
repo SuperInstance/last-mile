@@ -112,11 +112,11 @@ fn settle(host: &mut HostLoop) {
 /// The confidence floor is pinned low on purpose. The test proves the
 /// *pipeline* — the question, the answer, the decision, the log — and
 /// leaves the calibration where it belongs: a decision about the floor is
-/// Casey's, not the test's. The pack's own confidence is measured
-/// separately, in `tests/gates_tuning.rs` and written up in
-/// docs/research/poc/thor/GATES-TUNING.md: the "what should you do now?"
-/// pack scored 0.20-0.57 (p10-p50), and the pack that states the squad's
-/// doctrine as a rule scores 0.40-0.91 with a median of 0.87.
+/// Casey's, not the test's. The floor is a rule per gate now, so at 0.15 no
+/// gate of the d1-2B is ever dropped and the presence gates alone decide
+/// whether a line is spoken; the model's own numbers are measured in
+/// `lm-agents`'s `tests/talk_on_thor.rs` and written up in
+/// crates/lm-agents/tests/talk_on_thor.md.
 fn live_round_on_thor(header: &Header) -> Agents {
     let harness = default_harness();
     let cfg = AgentsConfig::default();
