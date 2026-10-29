@@ -16,6 +16,7 @@
 pub mod config;
 pub mod facts;
 pub mod gates;
+pub mod harness;
 pub mod queue;
 pub use queue::{Budgets, LeastUseQueue, Popped, ThinkReq};
 pub mod sysone;
