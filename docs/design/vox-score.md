@@ -195,3 +195,52 @@ A game player doesn't move every muscle in both legs. The stick says *that way, 
 **Prior art to check in E0:** subsumption architecture (Brooks, 1986); game locomotion (motion matching, procedural IK, NaturalMotion Euphoria); learned controllers with style (DeepMimic, AMP); and, closest of all, the dual-system robot foundation models (NVIDIA GR00T N1's "System 1 / System 2", Figure's Helix). The Thor is built to run those models. The claim here is not the hierarchy, which is established. The claim is **a shared, named mark vocabulary that crosses tiers and modalities, with System One as a closed-choice gamepad and System Two learning the dials by sealed prediction**.
 
 **E9:** in last-mile's 3D view, agents get tier-0 procedural locomotion, a System One gamepad pack (speed class, stance, step choices) and System Two patches (hurried / cautious / weary). Pass: (a) no frame ever waits on a decision, with the fallback counts reported; (b) a viewer can name the patch from motion alone, which is the perception inverse.
+
+## 14. The last mile: conform any voice to the score
+
+MIDI never made a sound. It carried instructions all the way to the end, and **the device at the end** (a synth, a sampler, a drum machine) turned them into sound in time. That end device is the last mile. Vox Score works the same way. Everything above (dials, marks, tiers, the full score) exists to carry *intended performance* right up to the last mile. At the last mile, any voice generator can be the skin: skald/Riva, the LPC voice, or a commercial service.
+
+The generator does not have to understand the score. **We conform its output to the score:**
+
+```
+intended score (L2 marks + L1 gestures)
+        │
+generator (any: Riva, a cloud TTS, ...) ──► audio ──► analyzer (L0/L1, §4)
+                                                │
+                              measured score ◄──┘
+        │
+   diff (intended − measured, per channel, per gesture)
+        │
+   conformer (classic DSP, streaming) ──► audio that performs the intended score
+```
+
+The conformer is the speech counterpart of a pitch-correction tool, but for *every* channel, not just pitch, and driven by meaning rather than by a musical key:
+
+| Channel off-target | Correction (established DSP) |
+|---|---|
+| pitch contour / end glide | F0 modification (PSOLA or a source-filter vocoder), applied per gesture |
+| tempo, syllable durations, pauses | time-scale modification (WSOLA), with pauses inserted or shortened |
+| dynamics and attack | gain envelope per syllable (sharpen or soften the onset) |
+| brightness / pressed vs. breathy | spectral tilt filter, noise mix |
+| tension | small formant shift or bandwidth change |
+
+**It's tiered, like everything else, and it never waits:**
+- **Small diffs** are corrected in the stream at the last mile.
+- **Large diffs**, beyond what DSP can do without artifacts, go back up one tier: the generator is asked again with better hints (style, SSML, a different voice), in time for the *next* line.
+- **If the re-ask is late**, the corrected original plays.
+
+**What this buys:**
+1. **Words stay fixed while the delivery changes.** The ears experiment found that Riva's emotion styles change the words themselves ("hold" → "Old!"). Rendering neutral and conforming to [urgent] keeps the words and adds the urgency.
+2. **Generators become interchangeable instruments.** Every vendor's output is measured against the same score and conformed to it, so a character sounds like *itself* across engines, and a generator can be swapped without re-tuning the game.
+3. **Fine-grained control that generators don't expose.** Most TTS gives a style name or a slider. The conformer gives syllable-level control over every channel, driven by the decision model's marks, as the line plays.
+4. **The same pipe works for a human voice,** with consent: a player's line can be cleaned up or matched to the moment, which is the perception side of §12 running the other way.
+
+**Honesty:**
+- Heavy DSP correction sounds processed. The tier boundary (what to correct vs. what to re-ask) must be set by measurement, with E3's ASR check and a listening test.
+- Commercial TTS is an outward-facing service. Sending lines to one is a per-deployment choice, never a default.
+
+**E10:** render neutral skald lines; conform them to targets (calm/ordinary/urgent, order/question) using marks only. Pass:
+- **Words kept:** ASR word accuracy stays within 2 points of the unconformed line.
+- **Delivery lands:** the conformed audio, analyzed again, falls in the target class ≥ 80%.
+- **Cheaper than re-rendering:** latency per line is well under a re-render.
+- **A listening comparison:** conformed vs. Riva's own style for the same target.
