@@ -1,0 +1,450 @@
+{
+  "format": "otherhere.thor-index.v1",
+  "host": "thor.local",
+  "generatedAt": "2026-10-29T11:31:28-0800",
+  "services": [
+    {
+      "port": 8097,
+      "name": "decision tier (OpenAI-shaped)",
+      "for": "the four local decision models behind one OpenAI chat API",
+      "call": "POST /v1/chat/completions  {model, messages}",
+      "note": "d1-2B is the reflex tier (98.4% on text packs); clef-flash is the accuracy champion",
+      "url": "http://thor.local:8097",
+      "up": true,
+      "ms": 2.3,
+      "detail": {
+        "status": "ok",
+        "models": [
+          "d1-omni-600M",
+          "d1-2B",
+          "d1-3B",
+          "clef-flash"
+        ]
+      }
+    },
+    {
+      "port": 8093,
+      "name": "d1-3B",
+      "for": "a decision model, slower than d1-2B and no better here",
+      "call": "POST /v1/systemone",
+      "url": "http://thor.local:8093",
+      "up": true,
+      "ms": 0.8,
+      "detail": {
+        "status": "ok"
+      }
+    },
+    {
+      "port": 8094,
+      "name": "d1-2B",
+      "for": "the reflex tier \u2014 text decisions, 20-105 ms",
+      "call": "POST /v1/systemone",
+      "url": "http://thor.local:8094",
+      "up": true,
+      "ms": 4.0,
+      "detail": {
+        "status": "ok"
+      }
+    },
+    {
+      "port": 8095,
+      "name": "d1-omni-600M",
+      "for": "triage gate only \u2014 fastest, weak on photographs",
+      "call": "POST /v1/systemone",
+      "url": "http://thor.local:8095",
+      "up": true,
+      "ms": 0.7,
+      "detail": {
+        "status": "ok"
+      }
+    },
+    {
+      "port": 8096,
+      "name": "clef-flash",
+      "for": "the accuracy champion \u2014 100% on text packs, too slow for a per-tick reflex",
+      "call": "POST /v1/systemone",
+      "url": "http://thor.local:8096",
+      "up": true,
+      "ms": 3.2,
+      "detail": {
+        "status": "ok"
+      }
+    },
+    {
+      "port": 8098,
+      "name": "capture service",
+      "for": "every asset the Thor can make, served on notice by hash",
+      "call": "GET /places/registry.json, then GET /places/<tier path>",
+      "note": "the tiers are content-addressed; the client checks byte count and sha256",
+      "url": "http://thor.local:8098",
+      "up": true,
+      "ms": 1.1,
+      "detail": {
+        "status": "ok",
+        "captures": 5,
+        "tiers": 16,
+        "placeAssets": 3,
+        "problems": 0
+      }
+    },
+    {
+      "port": 8099,
+      "name": "geometry service",
+      "for": "what is here? \u2014 a photograph in, a depth map and the intrinsics out",
+      "call": "POST /geometry?num_tokens=1200&mask=0  (image bytes in)",
+      "note": "MoGe ViT-Large, MIT; 72 ms warm; the payload is depth + intrinsics, not a point map",
+      "url": "http://thor.local:8099",
+      "up": true,
+      "ms": 1.6,
+      "detail": {
+        "status": "ok",
+        "model": "moge-vitl",
+        "numTokens": 1200,
+        "device": "cuda:0",
+        "stats": {
+          "queries": 16,
+          "errors": 0,
+          "total_infer_s": 2.9458518028259277
+        }
+      }
+    },
+    {
+      "port": 8001,
+      "name": "coder",
+      "for": "code \u2014 Qwen3-Coder-30B-A3B-Instruct, 82 tok/s warm",
+      "call": "POST /v1/chat/completions",
+      "url": "http://thor.local:8001",
+      "up": true,
+      "ms": 0.5,
+      "detail": {
+        "status": "ok"
+      }
+    },
+    {
+      "port": 8077,
+      "name": "jev-rack",
+      "for": "perception, not decisions \u2014 I-JEPA and V-JEPA 2",
+      "call": "POST /v1/systemone",
+      "url": "http://thor.local:8077",
+      "up": true,
+      "ms": 1.7,
+      "detail": {
+        "ok": true,
+        "device": "cuda",
+        "loaded": {
+          "ijepa": true,
+          "vjepa2": true,
+          "judge": true
+        }
+      }
+    }
+  ],
+  "assets": {
+    "registry": "http://thor.local:8098/places/registry.json",
+    "captures": [
+      {
+        "family": "lincoln-street-relief",
+        "version": "1.0.0",
+        "tiers": [
+          {
+            "tier": "card",
+            "bytes": 2576,
+            "path": "assets/lincoln-street-relief/1.0.0/card.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/lincoln-street-relief/1.0.0/card.webp",
+            "hash": "f941d1ff5f07a33afe73bbcc20184042a536c1328a0eeffb8199a87ddc904919"
+          },
+          {
+            "tier": "model",
+            "bytes": 162696,
+            "path": "assets/lincoln-street-relief/1.0.0/model.glb",
+            "contentType": "model/gltf-binary",
+            "url": "http://thor.local:8098/places/assets/lincoln-street-relief/1.0.0/model.glb",
+            "hash": "37342390dfce75f17286af0a5dc04976e20b39c593ef558c80d458f3c6851029"
+          }
+        ]
+      },
+      {
+        "family": "sitka-dock-boat",
+        "version": "1.0.0",
+        "tiers": [
+          {
+            "tier": "card",
+            "bytes": 826,
+            "path": "assets/sitka-dock-boat/1.0.0/card.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/sitka-dock-boat/1.0.0/card.webp",
+            "hash": "f5c910fdd63f2d12cfe75c8635e3e3317f05c719c1e25b89b5de34b952b50cd9"
+          },
+          {
+            "tier": "impostor",
+            "bytes": 2206,
+            "path": "assets/sitka-dock-boat/1.0.0/impostor.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/sitka-dock-boat/1.0.0/impostor.webp",
+            "hash": "6da510945af87a5703bf1bfcc819b27d9e0758bcf6a8a931625743861239502e"
+          },
+          {
+            "tier": "splat",
+            "bytes": 173246,
+            "path": "assets/sitka-dock-boat/1.0.0/splat.spz",
+            "contentType": "model/gaussian-splat",
+            "url": "http://thor.local:8098/places/assets/sitka-dock-boat/1.0.0/splat.spz",
+            "hash": "a43dd1ccf2d1412f9608014c4371bbf545def985f2be8fb190e84b0aa6070d62"
+          }
+        ]
+      },
+      {
+        "family": "sitka-oconnell-bridge",
+        "version": "1.0.0",
+        "tiers": [
+          {
+            "tier": "card",
+            "bytes": 1498,
+            "path": "assets/sitka-oconnell-bridge/1.0.0/card.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/sitka-oconnell-bridge/1.0.0/card.webp",
+            "hash": "827050a45302c4a8b0a1a6ccf657ad0c478f9ba102711b6d650edcecf5ec4078"
+          },
+          {
+            "tier": "impostor",
+            "bytes": 3126,
+            "path": "assets/sitka-oconnell-bridge/1.0.0/impostor.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/sitka-oconnell-bridge/1.0.0/impostor.webp",
+            "hash": "3ea04dcb1952656c531534d6d5e83914bdb1d0bd8c91e4ee5c9052aa5d03986e"
+          },
+          {
+            "tier": "splat",
+            "bytes": 166837,
+            "path": "assets/sitka-oconnell-bridge/1.0.0/splat.spz",
+            "contentType": "model/gaussian-splat",
+            "url": "http://thor.local:8098/places/assets/sitka-oconnell-bridge/1.0.0/splat.spz",
+            "hash": "b851f03c757145a8418ad77be8faa60327f2fef9d97e19b785320402ca7b3189"
+          }
+        ]
+      },
+      {
+        "family": "smoke-dock",
+        "version": "1.0.0",
+        "tiers": [
+          {
+            "tier": "card",
+            "bytes": 2682,
+            "path": "assets/smoke-dock/1.0.0/card.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/smoke-dock/1.0.0/card.webp",
+            "hash": "a29fbbc658d7415171e0e7b42b1b675f9b195fbac716a2245d2ef7b736f912e8"
+          },
+          {
+            "tier": "impostor",
+            "bytes": 5714,
+            "path": "assets/smoke-dock/1.0.0/impostor.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/smoke-dock/1.0.0/impostor.webp",
+            "hash": "c551c494e13ba47c0614f642a1949492445822c1b0002041999561fc5fb7b427"
+          },
+          {
+            "tier": "splat",
+            "bytes": 168831,
+            "path": "assets/smoke-dock/1.0.0/splat.spz",
+            "contentType": "model/gaussian-splat",
+            "url": "http://thor.local:8098/places/assets/smoke-dock/1.0.0/splat.spz",
+            "hash": "ef47b124df9c66e5427f98e7a138ab3c60edf9b51a6afd86a3aaffcdc5e8e0ad"
+          }
+        ]
+      },
+      {
+        "family": "st-michaels-spar3d",
+        "version": "1.0.0",
+        "tiers": [
+          {
+            "tier": "card",
+            "bytes": 6122,
+            "path": "assets/st-michaels-spar3d/1.0.0/card.webp",
+            "contentType": "image/webp",
+            "url": "http://thor.local:8098/places/assets/st-michaels-spar3d/1.0.0/card.webp",
+            "hash": "8310703cdac403a1f6daa367304c1215db41e58d4f9d8a9f04915a82c03c8c7a"
+          },
+          {
+            "tier": "model",
+            "bytes": 168980,
+            "path": "assets/st-michaels-spar3d/1.0.0/model.glb",
+            "contentType": "model/gltf-binary",
+            "url": "http://thor.local:8098/places/assets/st-michaels-spar3d/1.0.0/model.glb",
+            "hash": "145d065a50db577d5acb5a7414d70c5f688656e2a78b6b6b74258aa742c92d9d"
+          }
+        ]
+      }
+    ],
+    "tiers": 13,
+    "placeAssets": [
+      {
+        "place": "sitka.json",
+        "family": "st-michaels-cathedral",
+        "tier": "splat",
+        "bytes": 193512,
+        "hash": "e1cfb70d0972b178e694ae06d427f081c2d51e2e7c5480f4edaca894a0364c62",
+        "path": "assets/st-michaels-cathedral/1.0.0/splat.spz",
+        "url": "http://thor.local:8098/places/assets/st-michaels-cathedral/1.0.0/splat.spz"
+      },
+      {
+        "place": "sitka.json",
+        "family": "st-michaels-cathedral",
+        "tier": "impostor",
+        "bytes": 70214,
+        "hash": "8aebce4cf17b3a8756cf7527c0104b5ba3f7235a4fcef22a59c0072ec277f1e8",
+        "path": "assets/st-michaels-cathedral/1.0.0/impostor.webp",
+        "url": "http://thor.local:8098/places/assets/st-michaels-cathedral/1.0.0/impostor.webp"
+      },
+      {
+        "place": "sitka.json",
+        "family": "st-michaels-cathedral",
+        "tier": "card",
+        "bytes": 26360,
+        "hash": "2e40455358c28203185ef0b3b0b37f6c7d8237bfd3321ff3dbb88e282152088c",
+        "path": "assets/st-michaels-cathedral/1.0.0/card.webp",
+        "url": "http://thor.local:8098/places/assets/st-michaels-cathedral/1.0.0/card.webp"
+      }
+    ]
+  },
+  "decisionModels": [
+    "d1-omni-600M",
+    "d1-2B",
+    "d1-3B",
+    "clef-flash"
+  ],
+  "tools": [
+    {
+      "command": "depth-place",
+      "for": "one photograph -> a place asset (relief mesh, painted by UV)",
+      "example": "depth-place --image photo.jpg --outdir out --name lincoln --grid 200 120 --targets 40000",
+      "cost": "3.3 s, 50-162 KB finished",
+      "present": true,
+      "path": "/home/caseydigennaro/sitka-distill/pipeline/depth-place"
+    },
+    {
+      "command": "finish-asset",
+      "for": "any generated mesh -> a game-ready mesh under the 192,000 B budget",
+      "example": "finish-asset --source mesh.glb --outdir out --targets 10000 --texture-size 512",
+      "cost": "1.2-3.9 s per size",
+      "present": true,
+      "path": "/home/caseydigennaro/sitka-distill/pipeline/finish-asset"
+    },
+    {
+      "command": "publish-model",
+      "for": "a finished mesh -> a capture the registry will serve (with a card)",
+      "example": "publish-model --source out/cathedral.glb --family st-michaels --height-m 14 --card",
+      "cost": "seconds",
+      "present": true,
+      "path": "/home/caseydigennaro/sitka-distill/pipeline/publish-model"
+    },
+    {
+      "command": "asset-capture",
+      "for": "the original capture pipeline: a walk around a place -> a gaussian field",
+      "example": "asset-capture --name dock --family sitka-dock-boat",
+      "cost": "an hour of compute, and a person with a camera",
+      "present": true,
+      "path": "/home/caseydigennaro/sitka-distill/pipeline/asset-capture"
+    }
+  ],
+  "proofs": [
+    {
+      "command": "~/d1-lab/verify_meshopt_glb.mjs",
+      "for": "decode a finished GLB the way the browser will, and check the geometry",
+      "present": true
+    },
+    {
+      "command": "~/d1-lab/research/prove_model_from_proart.py",
+      "for": "fetch every model tier from the ProArt and verify and decode it there",
+      "present": true
+    },
+    {
+      "command": "~/d1-lab/render_relicam.py",
+      "for": "render a relief from a photograph's own camera, to compare with the photograph",
+      "present": true
+    },
+    {
+      "command": "~/d1-lab/compare_photo.py",
+      "for": "PSNR and a difference image between a render and the photograph it came from",
+      "present": true
+    }
+  ],
+  "shelf": [
+    {
+      "name": "Hunyuan3D-2",
+      "bytes": 14434981880
+    },
+    {
+      "name": "Hunyuan3D-2.1",
+      "bytes": 14909683275
+    },
+    {
+      "name": "Nemotron-Labs-Diffusion-8B",
+      "bytes": 17140894924
+    },
+    {
+      "name": "Qwen3-Coder-30B-A3B-Instruct-GGUF",
+      "bytes": 18556689568
+    },
+    {
+      "name": "TRELLIS-image-large",
+      "bytes": 3299240850
+    },
+    {
+      "name": "TripoSG",
+      "bytes": 7946494238
+    },
+    {
+      "name": "TripoSR",
+      "bytes": 1679825527
+    },
+    {
+      "name": "clef-flash",
+      "bytes": 7654486752
+    },
+    {
+      "name": "d1-2B",
+      "bytes": 2049272160
+    },
+    {
+      "name": "d1-3B",
+      "bytes": 3457891008
+    },
+    {
+      "name": "d1-omni-600M",
+      "bytes": 669998816
+    },
+    {
+      "name": "depth-anything",
+      "bytes": 1341395338
+    },
+    {
+      "name": "dinov2-giant-local",
+      "bytes": 4546006416
+    },
+    {
+      "name": "moge-vitl",
+      "bytes": 1256826033
+    },
+    {
+      "name": "stable-fast-3d",
+      "bytes": 4024311017
+    },
+    {
+      "name": "stable-point-aware-3d",
+      "bytes": 7326973119
+    },
+    {
+      "name": "tiny-smoke",
+      "bytes": 397294837
+    }
+  ],
+  "system": {
+    "MemTotal": 131856986112,
+    "MemAvailable": 40810303488,
+    "disk_total": 1004162105344,
+    "disk_free": 304036003840,
+    "uptime_s": 343419
+  }
+}
