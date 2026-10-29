@@ -167,3 +167,31 @@ The same encoding (§5: running status, deltas, rests) keeps a face to a few hun
 - **E7, the synoptic view:** extend the piano roll into a multi-staff score for agents, using their own decisions first (they already have intents and talk), then the voice staff from Vox Score. Pass: a reviewer can tell from the score alone which of two deliveries was the urgent one.
 - **E8, one score drives voice and face:** an agent's line renders voice and avatar face from the same L2 marks in the 3D view. Pass: in a blind A/B, viewers judge the expression as coherent more often than with independent voice and animation.
 - **E0 is extended** to FACS, MPEG-4 FAP/FBA, ARKit blendshapes, VRM/VMC, OSC, BVH and Live Link.
+
+## 13. Who plays the score: engine, gamepad, and director
+
+A game player doesn't move every muscle in both legs. The stick says *that way, this fast*. The buttons say *jump, crouch*. The engine's locomotion system turns that into footfalls, balance, foot placement and arm swing. The same three-tier split governs every staff in this design. It is also last-mile's existing split: reflexes, System One and System Two (D26, D55-D56).
+
+| Tier | Rate | Who | What it controls | Synth comparison |
+|---|---|---|---|---|
+| **0 Engine** | 60–120 Hz | scripted, procedural, deterministic | the low-order motion: the gait cycle, foot IK, balance, breathing, blinks, saccades, lip shapes from the voice's L0 | oscillators and envelopes |
+| **1 Gamepad** | 10–15 Hz | **System One** (d1 closed-choice gates) | a small controller state: heading, speed class, stance, a look-at target, gesture triggers, and *choices at the moment* (step over the puddle / around left / around right) | playing notes, the mod wheel |
+| **2 Director** | per event to per round | **System Two** (the leader, the learning flow, a human) | **the patch and the intent**: "hurry, you're late" → marks [rushed, pressed]; tuning tier-0 and tier-1 parameters from what was observed | choosing and editing the patch |
+
+**The marks are the language between the tiers.** A System Two order is written in marks, and every staff's renderer reads the same marks. "Hurry, you're late" → [rushed, pressed] sets the gait patch (run, a longer stride, a forward lean), the voice patch (a brisker tempo, sharper attacks), the face (strained) and System One's priors (the gate options re-weight toward *step over* rather than *around*). One instruction makes the whole body coherent.
+
+**Example: the puddle.**
+1. Tier 0 is walking.
+2. Perception flags an obstacle two steps ahead.
+3. System One is asked one 3-option gate (about 80 ms on d1-2B, D70): over / around-left / around-right, plus a stride adjustment.
+4. Tier 0 executes it by re-planning the next two footfalls with IK.
+5. If System One is late, tier 0's reflex default applies (shorten the stride, go around). The body never waits ("late AI falls back to reflexes", the doctrine we already have).
+6. If System Two has set [rushed], the prior favours *over*, and the stride stays long.
+
+**Fine-tuning by observation.** Between rounds (D64–D66), System Two reads the outcomes and proposes parameter changes as sealed predictions. For example: "step-over succeeded at widths ≤ 0.45 m, so raise the over-threshold from 0.35; predicted: fewer detours, no more stumbles". Tier 0's scripts stay simple and deterministic; their dials are learned.
+
+**Perception runs the same tiers in reverse.** Observed footfalls and posture are tier-0 frames. The observed gait choices are tier-1 gestures. The marks inferred from them ([rushed, pressed], or [halting, guarded] for a limp) are what System Two reasons over: *they're hurrying, they must be late*.
+
+**Prior art to check in E0:** subsumption architecture (Brooks, 1986); game locomotion (motion matching, procedural IK, NaturalMotion Euphoria); learned controllers with style (DeepMimic, AMP); and, closest of all, the dual-system robot foundation models (NVIDIA GR00T N1's "System 1 / System 2", Figure's Helix). The Thor is built to run those models. The claim here is not the hierarchy, which is established. The claim is **a shared, named mark vocabulary that crosses tiers and modalities, with System One as a closed-choice gamepad and System Two learning the dials by sealed prediction**.
+
+**E9:** in last-mile's 3D view, agents get tier-0 procedural locomotion, a System One gamepad pack (speed class, stance, step choices) and System Two patches (hurried / cautious / weary). Pass: (a) no frame ever waits on a decision, with the fallback counts reported; (b) a viewer can name the patch from motion alone, which is the perception inverse.
