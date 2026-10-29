@@ -1,5 +1,11 @@
 [workspace]
 members = ["crates/*"]
+# `lm-host` is Windows-only: Bevy needs alsa, udev and x11 to build on Linux
+# and this WSL toolchain has none of them, so bare `cargo` commands here
+# (build/test/clippy with no package flags) skip it via default-members.
+# Build it on Windows instead: `bash scripts/win-build.sh build -p lm-host`.
+# Details: docs/notes/bevy-0.20.md, "Building lm-host".
+default-members = ["crates/lm-core", "crates/lm-proto", "crates/lm-tools"]
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,13 @@
+[package]
+name = "lm-host"
+description = "The ProArt host app: Bevy 0.20 drawing for the last-mile sim."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Pinned exactly: docs/notes/bevy-0.20.md records the API facts for these
+# versions, and later tasks build on the notes rather than re-guessing.
+bevy = "=0.20.1"
+bevy_egui = "=0.43.1"
