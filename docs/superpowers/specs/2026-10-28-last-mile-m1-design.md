@@ -1,7 +1,7 @@
 # last-mile Milestone 1: design spec
 
-**Date:** 2026-10-28 · **Status:** written and refined with fleet research (D23–D36); awaiting user review
-**Decision log:** [`docs/design/decisions.md`](../../design/decisions.md) (D1–D36) · **Research:** [`docs/research/forclaude2/`](../../research/forclaude2/00-overview.md), [`docs/research/fleet/`](../../research/fleet/00-overview.md)
+**Date:** 2026-10-28 · **Status:** written and refined with fleet research (D23–D41); awaiting user review
+**Decision log:** [`docs/design/decisions.md`](../../design/decisions.md) (D1–D41) · **Research:** [`docs/research/forclaude2/`](../../research/forclaude2/00-overview.md), [`docs/research/fleet/`](../../research/fleet/00-overview.md)
 
 ## 1. Goal
 
@@ -50,8 +50,9 @@ ProArt (Windows, native)            Thor (aarch64 Linux)              Orin (aarc
 - **Time:** the sim tick (⚙ default 30 Hz) is the only authoritative clock. Rendering interpolates between ticks.
 - **Fixed point:** positions = `(chunk: IVec3, offset: i32 units of 1/1024 m)`; angles are `u16`; trig comes from tables. **No floats anywhere in `lm-core` sim state or logic.**
 - **Round header:** `{proto_version, seed, world_params, ruleset_hash, roster[agent → squad, role, voice, harness_commit], budgets, exchange_table, params, start_tick}`. Membership is frozen for the round.
-- **Decision:** `{apply_tick, source, seq, kind, provenance}`, where kind is one of `ActionOn | ActionOff | Control | Program | Utterance | Intent | Marker | Roll`. Provenance records reflex, system1 (model, tokens, latency, situation key), system2 (provider, tokens) or human.
+- **Decision:** `{apply_tick, source, seq, kind, provenance}`, where kind is one of `ActionOn | ActionOff | Control | Program | Utterance | Intent | Marker | Roll | Lane`. Provenance records reflex, system1 (model, tokens, latency, situation key), system2 (provider, tokens) or human.
 - **Roll (D23):** `{menu_id, options, p: [u16], seed_stream}`. `lm-core` rolls it at `apply_tick` with the agent's seeded RNG stream and applies the chosen option. Every mirror rolls identically. Field names follow the quilt's `ROLL` shape (D36).
+- **Lane (D38):** `{gate, values: [u8]}`: one presence-mode sample of a gate's probabilities. `lm-core` conditions lanes in fixed point (EMA ⚙ α, then a deadband with hysteresis ⚙ width). An action changes only when a lane leaves its deadband.
 - **Intent TTL (D26):** `Intent` decisions carry `ttl_ticks` (⚙ 300). When an intent expires, reflex defaults take over.
 - **Scheduling:** AI decisions request `apply_tick ≥ now + lead`. ⚙ `sched.lead_mode = adaptive` (D34): lead = clamp(measured one-way p99 + margin, ⚙ min 3, ⚙ max 9 ticks). With `fixed`, the lead is the minimum. The sequencer stamps the final tick: on time → as requested; late → next tick, with lateness logged; older than the stale window (⚙ 15 ticks) → dropped. **The sim never waits.**
 - **Integrity:** a state hash every ⚙ 30 ticks; hash-chained log segments. Replay = header + stamped decision stream, bit-exact.
@@ -74,7 +75,7 @@ ProArt (Windows, native)            Thor (aarch64 Linux)              Orin (aarc
 
 **Agent = data:**
 - identity (name, squad, role, voice)
-- **harness**: a git repo on the Thor, containing `prompts/`, `reflexes/*.rhai`, `tools/`, `policy.toml`, `lexicon.md`
+- **harness**: a git repo on the Thor, containing `prompts/`, `reflexes/*.rhai`, `blocks/*.rhai` (building blocks as levels, D40), `gates.toml` (typed questions, D37), `tools/`, `policy.toml`, `lexicon.md`
 - memory (a vector DB namespace with a quota)
 - lineage (commits)
 
@@ -87,16 +88,24 @@ The leader is a role flag plus the squad-plan duty.
 4. **Think.** Enqueue on the local model's **least-use-first queue**:
    - priority = this-round usage (⚙ unit tokens | gpu_ms; ⚙ squad weight; ⚙ decay),
    - batching window ⚙ 20 ms,
-   - constrained output: for actions, **a probability per option on the sim-provided menu** (D23, ⚙ `agent.s1_output`); for utterance text, direct structured output.
+   - **System-1 is a decision model (D37):** state (the typed summary) + the agent's gates (bool / choice / score; options generated from the sim's legal menu) → `p[]` per gate.
+     - choices are rolled (D23); scores are sampled or rounded; booleans are thresholded with hysteresis.
+     - the decision model picks the speech act, addressee, intent and affect; the wording comes from ⚙ `utter.realizer = template | llm | auto`.
+   - **Modes (D38):** ⚙ `s1.mode = point | presence | auto`. Point mode is the policy-triggered think. Presence mode evaluates the whole squad's gates as one batch at ⚙ `s1.presence_hz` and emits `Lane` decisions. `auto` uses presence mode while measured batch p99 + transit fits the period.
    - **Pre-drafting (D31):** an agent addressed by a teammate may enqueue its reply when the utterance *starts*, and target `apply_tick` just after it ends.
 5. **Act.** Decisions with `apply_tick` go to the sequencer.
    - Output that fails the schema is a **refusal** (D26): logged, no decision, the reflex keeps playing. There are never guessed defaults.
    - Each decision carries its **situation key** (D25), a hash of the summary features the policy used. This is the raw material for reflex promotion.
 
-**Models (D35, provisional until Casey's spec sheet):**
-- members: LFM2-1.2B (Thor :8092);
-- leaders: `qwen3.5:9b` (Ollama);
-- between-round operator: Qwen3-Coder-30B-A3B (:8001).
+**Models (D35/D37, provisional until spikes S1/S2 and Casey's spec sheet):**
+- member gates: **Liquid d1-2B** (local on the Thor);
+- leader gates: **Clef-flash** (local on the Thor, or the Workers AI pool);
+- optional cloud gate pool: TypeSafe Jev (Clef is Jev-API compatible);
+- utterance wording when `llm`: LFM2-1.2B (Thor :8092);
+- between-round operator: Qwen3-Coder-30B-A3B (:8001);
+- between-round judge: Clef-27B or cloud System-2.
+
+A stub backend (scripted `p[]`) covers phases 1–2.
 
 All are parameters. During a round, think requests are quilt *reaction/conversation* class, which preempts the Thor's production tenants (D36).
 
@@ -111,12 +120,13 @@ All are parameters. During a round, think requests are quilt *reaction/conversat
 - After the round: **one review per squad** produces a lexicon/doctrine diff, which is committed to the leader's and members' harness `lexicon.md` and stored in the vector DB.
 - The reviewer writes a **sealed prediction** of the diff's effect before it's evaluated on **held-out seeds** (D32).
 - Harnesses are tagged `round-<id>` after each round, and the next header pins their commits (D27).
-- *(Full self-re-harness sessions, automatic reflex promotion and COLOR SQUAD-style seasons are M2.)*
+- M1 logs every gate answer with its state hash and outcome, which is the training data for the trainer/student loop (D39).
+- *(Full self-re-harness sessions, automatic reflex promotion, gate authoring, overnight LoRA distillation, the image path (D41) and COLOR SQUAD-style seasons are M2.)*
 
 **Budgets and HUD:**
 - Per agent per round: System-1 usage (queue priority), cloud allotments by provider, reflex fuel, context allowance, storage quota, **airtime** (D31).
 - When a budget runs out: ⚙ `budget.on_exhaust = reflex | freeze` (D24).
-- The HUD also shows **reflex share**, the fraction of decisions served by reflexes (D25).
+- The HUD also shows the **model-vs-code dial**: the share of decision weight decided by code (reflexes, blocks, templates) versus a model, against a per-role ⚙ `dial.target` (D40). Reflex share is its extreme end (D25).
 - The ledger lives in `lm-core` rules plus router accounting, and every spend is logged.
 - **Real limits live only in `lm-router`** (provider windows, API-key caps). Agents see game allotments only.
 
@@ -193,9 +203,9 @@ All are parameters. During a round, think requests are quilt *reaction/conversat
 
 ## 10. Build phases inside M1 (each one is a usable stopping point)
 
-1. **Core:** workspace, `lm-core` (fixed point, worldgen L0, sim, rules, view, decision menus and rolls, log/hash, Rhai reflexes), `lm-proto`, `lm-tools` headless runner plus replay, golden vectors. *Done when:* headless 2-squad rounds with reflex-only agents replay bit-exact.
+1. **Core:** workspace, `lm-core` (fixed point, worldgen L0, sim, rules, view, decision menus and rolls, lane conditioning, Rhai reflexes and blocks, log/hash), `lm-proto`, `lm-tools` headless runner plus replay, golden vectors. *Done when:* headless 2-squad rounds with reflex-only agents replay bit-exact.
 2. **Host plus 2D:** the `lm-host` sequencer, the 2D map and piano roll, human possess/spectate, local agents on reflex. *Done when:* you can play a round on the ProArt.
-3. **Thor agent host:** mirror sim over QUIC (the ProArt dials), adaptive lead, cognition loop, least-use-first queue, model client (stub, then a real local model), refusals and intent TTL, budgets plus HUD with reflex share. *Done when:* agents think on the Thor and late thoughts fall back cleanly.
+3. **Thor agent host:** mirror sim over QUIC (the ProArt dials), adaptive lead, cognition loop, least-use-first queue, decision-model client (stub, then d1-2B; point and presence modes after spike S1), refusals and intent TTL, budgets plus HUD with reflex share. *Done when:* agents think on the Thor and late thoughts fall back cleanly.
 4. **Talk:** utterance scores, hearing physics, Riva TTS for audible lines, barks, push-to-talk ASR, half-duplex gate, pre-drafted replies, optional tutor ladder. *Done when:* squads coordinate by talking and you hear them.
 5. **Rounds and learning:** the round flow, between-round screen (order uptake, uptake by speaker, words per successful order, misread rate, airtime, reflex share), `lm-router` with a System-2 squad review → lexicon in the harness plus vector DB, sealed predictions with held-out eval seeds, harness tags, change-request deposits. *Done when:* round N+1 uses lessons from round N.
 6. **3D plus archive:** the retro-modern 3D view (L0), Orin `lm-archive` verification. *Done when:* the full M1 loop runs on all three boxes.
@@ -226,6 +236,13 @@ All are parameters. During a round, think requests are quilt *reaction/conversat
 | `cpu.affinity` | Zen 5 cores | client config |
 | `archive.buffer_cap` | 1 GB | client config |
 | `agent.s1_output` / `menu_max` | distribution (actions), direct (text) / 8 | header |
+| `s1.backend` | d1 (member) / clef_flash (leader); stub in tests | Thor config |
+| `s1.mode` / `presence_hz` | auto / 10 (PoC pending) | header |
+| `lane.alpha` / `lane.deadband` | 1/4 / 0.10 (PoC pending) | header |
+| `gates.max_questions` | 8 per agent (Clef limit 64) | harness |
+| `utter.realizer` | auto | header |
+| `dial.target` | per role | harness |
+| `s1.image_path` | off | header |
 | `agent.s1_fallback` | reflex | header |
 | `agent.models` (member / leader / operator) | LFM2-1.2B / qwen3.5:9b / Qwen3-Coder-30B | Thor config |
 | `intent.default_ttl_ticks` | 300 | header |
@@ -241,6 +258,7 @@ All are parameters. During a round, think requests are quilt *reaction/conversat
 ## 12. Open items (don't block phase 1)
 
 - The Thor model inventory: **partly answered** by the quilt's Stage 0 audit (fleet/01, D35). The spec sheet still decides the Riva port and voices, the vector DB, and any replacement for the D35 defaults.
+- Spikes S1/S2 (decision-model latency on the Thor and the 4050) set `s1.mode = auto` thresholds and confirm D37's model picks. Check d1's schema/API on its model card.
 - Network: wired Ethernet for the Thor is recommended (its Wi-Fi is the p99 storm source). The adaptive lead covers it until then.
 - Provider terms for subscription-backed automated use (research/12).
 - Windows toolchain: **checked.** Rust 1.99 is installed in WSL, and native `cargo` exists on Windows (`C:\Users\casey\.cargo\bin`). Plan: develop and test `lm-core`/`lm-proto` in WSL; build and run `lm-host` with Windows `cargo` from a Windows-side checkout (or a Windows path), not across `\\wsl.localhost` (UNC paths break `cmd`).
