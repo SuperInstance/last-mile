@@ -62,6 +62,19 @@ pub enum PaletteMode {
     Default,
 }
 
+impl PaletteMode {
+    /// The version of the palette, as the render cache's structure hash sees it.
+    ///
+    /// A palette is part of every mesh, so a changed palette is a changed
+    /// mesh: the version joins the chunk's structure hash, and it has to be
+    /// bumped whenever the colours of a variant change.
+    pub const fn version(&self) -> u32 {
+        match self {
+            PaletteMode::Default => 1,
+        }
+    }
+}
+
 /// DLSS quality settings
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum DlssQuality {
