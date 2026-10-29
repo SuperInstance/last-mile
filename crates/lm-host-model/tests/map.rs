@@ -20,12 +20,20 @@ use lm_host_model::map::{pos_m, FogState, MapModel, Viewer};
 use lm_tools::runner::DEFAULT_REFLEX;
 
 /// A one-chunk round: a 16 × 16 cell world with all eight agents and one
-/// beacon, so both squads stand inside each other's view range from the
-/// start and the fog rules bite quickly.
+/// pair of beacons, so both squads stand inside each other's view range
+/// from the start and the fog rules bite quickly.
+///
+/// The beacon count is even on purpose. The fairness fix (core commit
+/// 5595db9) lays the beacons out in 180°-mirrored pairs — an unpaired
+/// beacon would sit closer to one squad and bias the round — and
+/// `Params::validate` refuses an odd count, so a one-beacon round no
+/// longer starts at all. Two is the smallest legal count: one pair,
+/// straddling the centre, and the world stays as small and as quick to
+/// meet in as it was.
 fn small_round(seed: u64) -> Header {
     let mut h = Header::default_round(seed, DEFAULT_REFLEX);
     h.params.world_chunks = (1, 1);
-    h.params.beacons = 1;
+    h.params.beacons = 2;
     h
 }
 
@@ -47,6 +55,21 @@ fn cell_of(sim: &Sim, id: u16) -> CellXY {
     world
         .grid
         .cell_of(sim.agent(id).expect("the agent").pos, world.cell_units)
+}
+
+/// The beacons of the small round: one 180°-mirrored pair, the smallest
+/// layout the fairness fix allows.
+///
+/// The count is pinned so the beacon assertions below can never pass over an
+/// empty list — and so the fixture stays honest about what the round is.
+fn beacons_of(sim: &Sim) -> Vec<CellXY> {
+    let beacons = sim.world().beacons.clone();
+    assert_eq!(
+        beacons.len(),
+        2,
+        "the small round is set up with one pair of beacons"
+    );
+    beacons
 }
 
 #[test]
@@ -74,13 +97,17 @@ fn spectator_sees_all_enemies() {
         .iter()
         .all(|&(_, _, fog)| fog == FogState::Visible));
 
-    // The beacon is drawn at its cell centre, unheld so far.
-    assert_eq!(model.beacons.len(), 1);
-    let beacon = world.beacons[0];
-    let centre = world.grid.center(beacon, world.cell_units);
-    assert_eq!(model.beacons[0].cell, beacon);
-    assert_eq!(model.beacons[0].holder, None);
-    assert_eq!(model.beacons[0].pos_m, pos_m(centre, centre, 0.0));
+    // The beacons are drawn at their cell centres, unheld so far. The
+    // round's beacons are common knowledge, so every viewer draws every
+    // one of them, in world order.
+    let beacons = beacons_of(&sim);
+    assert_eq!(model.beacons.len(), beacons.len());
+    for (draw, &cell) in model.beacons.iter().zip(beacons.iter()) {
+        let centre = world.grid.center(cell, world.cell_units);
+        assert_eq!(draw.cell, cell);
+        assert_eq!(draw.holder, None);
+        assert_eq!(draw.pos_m, pos_m(centre, centre, 0.0));
+    }
 }
 
 #[test]
@@ -119,14 +146,16 @@ fn possessed_view_hides_unseen_enemy() {
             .expect("the squad cell is on the map");
         assert_eq!(*fog, FogState::Explored);
     }
-    let world = sim.world();
-    let beacon = world.beacons[0];
-    let (_, _, fog) = model
-        .cells
-        .iter()
-        .find(|&&(c, _, _)| c == beacon)
-        .expect("the beacon cell is on the map");
-    assert_eq!(*fog, FogState::Explored);
+    // The beacons are common knowledge, so every one of them is Explored
+    // for a possessing player — not only the one the squad is near.
+    for &beacon in &beacons_of(&sim) {
+        let (_, _, fog) = model
+            .cells
+            .iter()
+            .find(|&&(c, _, _)| c == beacon)
+            .expect("the beacon cell is on the map");
+        assert_eq!(*fog, FogState::Explored);
+    }
     assert!(model
         .cells
         .iter()
