@@ -27,6 +27,23 @@ impl ParamError {
 /// Upper bound on grid cells (2048 x 2048) so a hostile header can't crash worldgen.
 pub const MAX_GRID_CELLS: u64 = 4_194_304;
 
+/// The parameter fields a branch may change mid-round (`lm branch`).
+///
+/// These fields change how the round plays, not what the round is: the
+/// world, the roster, the schedule and the score all stay exactly as the
+/// log recorded them, so a branch can be verified tick by tick against the
+/// round it forked.
+pub const BRANCH_FIELDS: [&str; 8] = [
+    "speed_upt",
+    "view_range_cells",
+    "tag_range_units",
+    "stun_ticks",
+    "beacon_radius_units",
+    "lane_alpha_shift",
+    "lane_deadband_q16",
+    "script_fuel",
+];
+
 /// All tunables of a round (spec §11 / D20–D45).
 ///
 /// Fixed-point fields carry their scale in the name: `*_q16` are Q16
@@ -241,6 +258,60 @@ impl Params {
         }
         Ok(())
     }
+
+    /// Set one parameter field by name, mid-round.
+    ///
+    /// Only the fields on [`BRANCH_FIELDS`] — the ones that retune behaviour
+    /// without changing what the round is — may be set. `Ok(false)` means
+    /// the name is not one of them and nothing was changed; `Err` means the
+    /// value does not fit the field, or leaves the parameters invalid — and
+    /// again nothing was changed: the change is applied to a copy and only
+    /// committed when it validates.
+    pub fn set_branchable(&mut self, field: &str, value: i64) -> Result<bool, ParamError> {
+        let mut next = *self;
+        match field {
+            "speed_upt" => {
+                next.speed_upt = i32::try_from(value).map_err(|_| too_big("speed_upt"))?
+            }
+            "view_range_cells" => {
+                next.view_range_cells =
+                    u16::try_from(value).map_err(|_| too_big("view_range_cells"))?
+            }
+            "tag_range_units" => {
+                next.tag_range_units =
+                    i32::try_from(value).map_err(|_| too_big("tag_range_units"))?
+            }
+            "stun_ticks" => {
+                next.stun_ticks = u32::try_from(value).map_err(|_| too_big("stun_ticks"))?
+            }
+            "beacon_radius_units" => {
+                next.beacon_radius_units =
+                    i32::try_from(value).map_err(|_| too_big("beacon_radius_units"))?
+            }
+            "lane_alpha_shift" => {
+                next.lane_alpha_shift =
+                    u8::try_from(value).map_err(|_| too_big("lane_alpha_shift"))?
+            }
+            "lane_deadband_q16" => {
+                next.lane_deadband_q16 =
+                    u32::try_from(value).map_err(|_| too_big("lane_deadband_q16"))?
+            }
+            "script_fuel" => {
+                next.script_fuel = u64::try_from(value).map_err(|_| too_big("script_fuel"))?
+            }
+            _ => return Ok(false),
+        }
+        // A mid-round change may retune the round, never break it: the same
+        // rules that gate a fresh header gate a branch.
+        next.validate()?;
+        *self = next;
+        Ok(true)
+    }
+}
+
+/// The refusal for a value the field cannot hold.
+fn too_big(field: &'static str) -> ParamError {
+    ParamError::new(field, "the value does not fit the field")
 }
 
 impl StateHash for Params {
@@ -393,5 +464,58 @@ mod tests {
             ..Params::default()
         };
         assert_eq!(fast.validate().unwrap_err().field, "speed_upt");
+    }
+
+    #[test]
+    fn every_branch_field_applies() {
+        // Each whitelisted name is accepted and lands in its field; a value
+        // of 0 is valid for every one of them.
+        for field in BRANCH_FIELDS {
+            let mut p = Params::default();
+            assert_eq!(p.set_branchable(field, 0), Ok(true), "{field}");
+            assert!(p.validate().is_ok(), "{field}");
+        }
+        let mut p = Params::default();
+        p.set_branchable("speed_upt", 64)
+            .expect("the field applies");
+        assert_eq!(p.speed_upt, 64);
+        p.set_branchable("script_fuel", 5_000)
+            .expect("the field applies");
+        assert_eq!(p.script_fuel, 5_000);
+    }
+
+    #[test]
+    fn set_branchable_refuses_other_fields_and_bad_values() {
+        // Anything that shapes the round, rather than tuning it, is refused
+        // untouched.
+        for field in ["tick_hz", "squads", "beacons", "win_score", "nonsense"] {
+            let mut p = Params::default();
+            assert_eq!(p.set_branchable(field, 1), Ok(false), "{field}");
+        }
+        // Values the field cannot hold, or the round cannot take.
+        let mut p = Params::default();
+        assert_eq!(
+            p.set_branchable("speed_upt", 1 << 40).unwrap_err().field,
+            "speed_upt"
+        );
+        let mut p = Params::default();
+        assert_eq!(
+            p.set_branchable("view_range_cells", -1).unwrap_err().field,
+            "view_range_cells"
+        );
+        let mut p = Params::default();
+        assert_eq!(
+            p.set_branchable("lane_deadband_q16", 70_000)
+                .unwrap_err()
+                .field,
+            "lane_deadband_q16"
+        );
+        let mut p = Params::default();
+        assert_eq!(
+            p.set_branchable("speed_upt", -1).unwrap_err().field,
+            "speed_upt"
+        );
+        // A refused change leaves the parameters as they were.
+        assert_eq!(p, Params::default());
     }
 }

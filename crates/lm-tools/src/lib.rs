@@ -9,4 +9,5 @@
 //! same header and the same decisions always produce the same log, byte for
 //! byte. That is the whole point of the crate.
 
+pub mod branch;
 pub mod runner;
