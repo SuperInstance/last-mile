@@ -7,8 +7,14 @@ rust-version.workspace = true
 license.workspace = true
 
 # The host model is pure logic and may be tested in WSL, so it depends on the
-# core and on the headless runner -- and on nothing else. No Bevy, no windowing
-# stack, no clock: `lm-host` is a thin shell on top of this crate.
+# core, on the headless runner and on the agents -- and on nothing else. No
+# Bevy, no windowing stack, no clock: `lm-host` is a thin shell on top of this
+# crate.
 [dependencies]
+lm-agents = { path = "../lm-agents" }
 lm-core = { path = "../lm-core" }
 lm-tools = { path = "../lm-tools" }
+
+[dev-dependencies]
+# The tests build the question pack a model is asked, to answer it.
+serde_json = "1"

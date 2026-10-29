@@ -184,6 +184,24 @@ fn draw_roll(ui: &mut egui::Ui, roll: &CurrentRoll) {
                 mark_color(mark.kind),
             );
         }
+
+        // What the agent was thinking: the bar from the question to the
+        // answer. A thought that is still in flight ends where it was
+        // expected to land, and the bar grows as the answer takes its time.
+        if let Some(thoughts) = roll.thoughts.get(&lane.agent) {
+            for thought in thoughts {
+                let from = x_of(thought.asked);
+                let to = x_of(thought.landed.unwrap_or(thought.expected_land)).max(from + 1.0);
+                painter.rect_filled(
+                    egui::Rect::from_min_max(
+                        egui::pos2(from, bottom - 3.0),
+                        egui::pos2(to, bottom - 1.0),
+                    ),
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(240, 190, 90, 150),
+                );
+            }
+        }
     }
 }
 

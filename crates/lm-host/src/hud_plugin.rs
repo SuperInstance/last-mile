@@ -95,6 +95,24 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
                 "sched on-time {} late {} stale {}",
                 sched.on_time, sched.late, sched.stale
             ));
+
+            // The agents' counters: what they asked, what they refused, what
+            // is waiting, and how much model each of them used.
+            if let Some(stats) = host.agent_stats() {
+                ui.separator();
+                ui.label(format!(
+                    "agents think {} refused {} queue {}",
+                    stats.thinks, stats.refusals, stats.queue_len
+                ));
+                let usage: Vec<String> = stats
+                    .usage
+                    .iter()
+                    .map(|(agent, calls)| format!("a{agent}:{calls}"))
+                    .collect();
+                if !usage.is_empty() {
+                    ui.label(format!("calls {}", usage.join(" ")));
+                }
+            }
         } else {
             ui.label("replay");
         }

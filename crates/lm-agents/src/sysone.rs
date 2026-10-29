@@ -364,27 +364,60 @@ impl SysOne for JevBackend {
 ///
 /// The script is consumed in order; the last scripted outcome repeats once
 /// the script runs out, so a one-entry script means "always this".
+///
+/// A stub can also be built in *menu* mode ([`StubBackend::menu`]): it
+/// answers whatever menu it was asked about, with one probability per
+/// option. That is the stub a whole round needs, because the menu moves
+/// under the question as the world moves — a fixed script would answer a
+/// menu that is no longer there, and be refused (D26). The host's
+/// `--agents stub` mode and the end-to-end test use it.
 pub struct StubBackend {
     script: Mutex<StubScript>,
     calls: AtomicUsize,
+    confidence: f32,
 }
 
-/// The script of a [`StubBackend`]: what is left, and what to repeat.
-struct StubScript {
-    queue: VecDeque<(Duration, Result<Answers, Refusal>)>,
-    last: Option<(Duration, Result<Answers, Refusal>)>,
+/// What a [`StubBackend`] answers with.
+enum StubScript {
+    /// A fixed script, consumed in order.
+    Fixed {
+        queue: VecDeque<(Duration, Result<Answers, Refusal>)>,
+        last: Option<(Duration, Result<Answers, Refusal>)>,
+    },
+    /// Whatever menu the question carries.
+    Menu,
 }
 
 impl StubBackend {
     /// A backend that answers with `script`, in order.
     pub fn scripted(script: Vec<(Duration, Result<Answers, Refusal>)>) -> Self {
         Self {
-            script: Mutex::new(StubScript {
+            script: Mutex::new(StubScript::Fixed {
                 queue: script.into(),
                 last: None,
             }),
             calls: AtomicUsize::new(0),
+            confidence: 0.9,
         }
+    }
+
+    /// A backend that answers whatever menu it is asked about.
+    ///
+    /// The first option is the favourite and the rest share what is left, so
+    /// the answer is over exactly the menu of the question — never over a
+    /// menu that has moved (D26).
+    pub fn menu() -> Self {
+        Self {
+            script: Mutex::new(StubScript::Menu),
+            calls: AtomicUsize::new(0),
+            confidence: 0.9,
+        }
+    }
+
+    /// Set the confidence a menu answer reports.
+    pub fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = confidence;
+        self
     }
 
     /// How many times the stub was asked.
@@ -402,7 +435,7 @@ impl fmt::Debug for StubBackend {
 }
 
 impl SysOne for StubBackend {
-    fn ask(&self, _state: &str, _questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+    fn ask(&self, _state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
         self.calls.fetch_add(1, Ordering::SeqCst);
 
         let entry = {
@@ -410,12 +443,21 @@ impl SysOne for StubBackend {
                 .script
                 .lock()
                 .expect("the stub's script is not poisoned");
-            match script.queue.pop_front() {
-                Some(entry) => {
-                    script.last = Some(entry.clone());
-                    Some(entry)
+            match &mut *script {
+                StubScript::Menu => {
+                    // The menu of the question: the criteria of the move gate,
+                    // which is the shape the real models are asked over.
+                    let answers = menu_answer(questions, self.confidence)?;
+                    drop(script);
+                    return Ok(answers);
                 }
-                None => script.last.clone(),
+                StubScript::Fixed { queue, last } => match queue.pop_front() {
+                    Some(entry) => {
+                        *last = Some(entry.clone());
+                        Some(entry)
+                    }
+                    None => last.clone(),
+                },
             }
         };
         let Some((delay, result)) = entry else {
@@ -447,6 +489,40 @@ impl SysOne for StubBackend {
     fn name(&self) -> &str {
         "stub"
     }
+}
+
+/// The answer of a stub in menu mode: one probability per menu option.
+///
+/// The first option is the favourite and the rest share what is left.
+fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
+    let gate = questions
+        .get("move")
+        .ok_or_else(|| Refusal::Malformed("the pack has no move gate".to_string()))?;
+    let criteria = gate
+        .get("criteria")
+        .and_then(Value::as_object)
+        .ok_or_else(|| Refusal::Malformed("the gate has no criteria".to_string()))?;
+    if criteria.is_empty() {
+        return Err(Refusal::Malformed("the menu is empty".to_string()));
+    }
+
+    let count = criteria.len();
+    let mut probs = BTreeMap::new();
+    for (index, key) in criteria.keys().enumerate() {
+        let p = match (index, count) {
+            (0, 1) => 1.0,
+            (0, _) => 0.7,
+            (_, _) => 0.3 / (count - 1) as f32,
+        };
+        probs.insert(key.clone(), p);
+    }
+
+    Ok(Answers {
+        per_gate: BTreeMap::from([("move".to_owned(), Answer::Choice { probs, confidence })]),
+        model: "stub".to_owned(),
+        input_tokens: 64,
+        latency_ms: 0,
+    })
 }
 
 // ---------------------------------------------------------------- the plumbing

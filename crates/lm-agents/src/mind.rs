@@ -35,7 +35,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -556,7 +556,9 @@ pub struct Thought {
 /// closes its channel and joins the thread.
 pub struct Thinker {
     to_worker: Option<mpsc::Sender<Ask>>,
-    from_worker: mpsc::Receiver<Thought>,
+    // Behind a lock, so the thinker can be held by the host's round
+    // resource, which is shared between threads.
+    from_worker: Mutex<mpsc::Receiver<Thought>>,
     sent: Arc<AtomicUsize>,
     answered: Arc<AtomicUsize>,
     handle: Option<thread::JoinHandle<()>>,
@@ -601,7 +603,7 @@ impl Thinker {
             .expect("the thinker thread starts");
         Thinker {
             to_worker: Some(to_worker),
-            from_worker,
+            from_worker: Mutex::new(from_worker),
             sent: Arc::new(AtomicUsize::new(0)),
             answered,
             handle: Some(handle),
@@ -620,8 +622,12 @@ impl Thinker {
 
     /// Every thought that has come home since the last drain.
     pub fn drain(&self) -> Vec<Thought> {
+        let from_worker = self
+            .from_worker
+            .lock()
+            .expect("the thinker's inbox is not poisoned");
         let mut out = Vec::new();
-        while let Ok(thought) = self.from_worker.try_recv() {
+        while let Ok(thought) = from_worker.try_recv() {
             out.push(thought);
         }
         out

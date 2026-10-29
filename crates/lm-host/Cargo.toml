@@ -15,6 +15,7 @@ bevy_egui = "=0.43.1"
 # The host is a thin shell: everything it draws comes from the host model,
 # which is pure logic and is tested in WSL (lm-host itself cannot build
 # there -- Bevy needs system libraries Linux has not).
+lm-agents = { path = "../lm-agents" }
 lm-core = { path = "../lm-core" }
 lm-host-model = { path = "../lm-host-model" }
 # The shipped reflex, so the host plays the same round the headless tools do.

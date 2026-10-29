@@ -3965,6 +3965,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "lm-agents",
  "lm-core",
  "lm-host-model",
  "lm-tools",
@@ -3974,8 +3975,10 @@ dependencies = [
 name = "lm-host-model"
 version = "0.1.0"
 dependencies = [
+ "lm-agents",
  "lm-core",
  "lm-tools",
+ "serde_json",
 ]
 
 [[package]]

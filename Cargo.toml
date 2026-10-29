@@ -5,7 +5,16 @@ members = ["crates/*"]
 # (build/test/clippy with no package flags) skip it via default-members.
 # Build it on Windows instead: `bash scripts/win-build.sh build -p lm-host`.
 # Details: docs/notes/bevy-0.20.md, "Building lm-host".
-default-members = ["crates/lm-core", "crates/lm-proto", "crates/lm-tools"]
+#
+# Everything else is in: the agents and the host model are pure logic too, and
+# they belong to the gate.
+default-members = [
+    "crates/lm-core",
+    "crates/lm-proto",
+    "crates/lm-tools",
+    "crates/lm-agents",
+    "crates/lm-host-model",
+]
 resolver = "2"
 
 [workspace.package]

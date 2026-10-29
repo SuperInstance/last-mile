@@ -36,6 +36,9 @@
 
 use std::collections::BTreeMap;
 
+use lm_agents::mind::ThoughtRecord;
+use lm_agents::sink::{ChannelSink, DecisionInbox};
+use lm_agents::{AgentStats, Agents};
 use lm_core::decision::{Decision, Kind, Provenance, Source, Tick};
 use lm_core::fixed::Pos;
 use lm_core::header::Header;
@@ -81,6 +84,13 @@ pub struct HostLoop {
     prev_positions: Vec<(u16, Pos)>,
     /// The last `seq` the human used for each agent it played.
     human_seq: BTreeMap<u16, u32>,
+    /// The round's agents, when the host has them.
+    ///
+    /// They think on their own thread and hand their decisions over through
+    /// the inbox below; the host never calls a model itself.
+    agents: Option<Agents>,
+    /// Where the agents' decisions wait until the host picks them up.
+    inbox: Option<DecisionInbox>,
 }
 
 impl HostLoop {
@@ -108,7 +118,21 @@ impl HostLoop {
             next_tick: h.start_tick,
             prev_positions: Vec::new(),
             human_seq: BTreeMap::new(),
+            agents: None,
+            inbox: None,
         })
+    }
+
+    /// Attach the round's agents.
+    ///
+    /// The agents think on their own thread and hand their decisions over
+    /// through a channel; the host picks them up on the next tick and puts
+    /// them in the sequencer, where they are logged like every other
+    /// decision. A round without agents plays exactly as it did before.
+    pub fn attach_agents(&mut self, agents: Agents) {
+        let (sink, inbox) = ChannelSink::new();
+        self.agents = Some(agents.with_sink(Box::new(sink)));
+        self.inbox = Some(inbox);
     }
 
     /// Play one tick.
@@ -118,6 +142,11 @@ impl HostLoop {
     /// when the round is over: [`Sim::outcome`] says when that is.
     pub fn tick(&mut self) -> TickOut {
         let tick = self.next_tick;
+
+        // The agents think first, and their answers that came home are put in
+        // the sequencer now: a decision that is due lands on this tick, not
+        // on the next one.
+        self.run_agents(tick);
 
         // The decisions of this tick, in the canonical order.
         let applied = self.sequencer.drain(tick);
@@ -136,6 +165,72 @@ impl HostLoop {
             tick: out.tick,
             events: out.events,
             hash: out.hash,
+        }
+    }
+
+    /// Submit a decision one of the agents made.
+    ///
+    /// `arrived` is the tick the answer came home on: the first tick the
+    /// host had not simulated yet. The sequencer has the last word — a
+    /// decision for an agent that is not in the round, or a `seq` it has
+    /// seen before, is refused by name.
+    pub fn submit_agent(&mut self, decision: Decision, arrived: Tick) -> Result<Tick, Reject> {
+        self.sequencer.submit(decision, arrived)
+    }
+
+    /// What the round's agents did, in numbers.
+    ///
+    /// `None` when the round has no agents: the counters are then the
+    /// reflex's alone.
+    pub fn agent_stats(&self) -> Option<&AgentStats> {
+        self.agents.as_ref().map(Agents::stats)
+    }
+
+    /// The round's agents, when the host has them.
+    pub fn agents(&self) -> Option<&Agents> {
+        self.agents.as_ref()
+    }
+
+    /// The thought records of one agent (D55): what was asked, when, and
+    /// when the answer landed. The piano roll draws them as bars.
+    pub fn agent_thoughts(&self, agent: u16) -> &[ThoughtRecord] {
+        self.agents
+            .as_ref()
+            .map(|agents| agents.thoughts(agent))
+            .unwrap_or_default()
+    }
+
+    /// The thought records of every agent.
+    pub fn agent_thoughts_all(&self) -> BTreeMap<u16, Vec<ThoughtRecord>> {
+        self.agents
+            .as_ref()
+            .map(Agents::all_thoughts)
+            .unwrap_or_default()
+    }
+
+    /// How many questions are with the models right now.
+    pub fn agents_pending(&self) -> usize {
+        self.agents.as_ref().map_or(0, Agents::pending)
+    }
+
+    /// Let the agents think, and put the decisions they made in the sequencer.
+    fn run_agents(&mut self, now: Tick) {
+        let Some(agents) = self.agents.as_mut() else {
+            return;
+        };
+        agents.on_tick(now, &self.sim);
+
+        // The decisions that came home since the last tick. They are picked
+        // up before the sequencer is drained, so one that is due now is
+        // applied now.
+        let arrived: Vec<(Decision, Tick)> = match self.inbox.as_mut() {
+            Some(inbox) => inbox.drain(),
+            None => Vec::new(),
+        };
+        for (decision, arrived) in arrived {
+            // The sequencer refuses by name; a refused decision is lost, and
+            // that is the sequencer's last word.
+            let _ = self.submit_agent(decision, arrived);
         }
     }
 

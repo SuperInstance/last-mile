@@ -33,6 +33,7 @@
 
 use bevy::app::OnAppExitSystems;
 use bevy::prelude::*;
+use lm_agents::mind::ThoughtRecord;
 use lm_core::decision::Tick;
 use lm_core::fixed::Pos;
 use lm_core::header::Header;
@@ -43,6 +44,7 @@ use lm_host_model::host_loop::HostLoop;
 use lm_host_model::record;
 use lm_host_model::roll::RollModel;
 use lm_host_model::scrub::Scrubber;
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::PathBuf;
 
@@ -192,6 +194,11 @@ pub struct CurrentRoll {
     pub model: RollModel,
     /// The ticks it covers.
     pub window: Range<Tick>,
+    /// The agents' thoughts: what was asked, and when the answer landed.
+    ///
+    /// A thought is not a decision — it is the question behind it, and how
+    /// long the answer took. The roll draws them as bars under the marks.
+    pub thoughts: BTreeMap<u16, Vec<ThoughtRecord>>,
 }
 
 /// How many ticks the piano roll shows while a round is being played.
@@ -263,6 +270,9 @@ fn step_round(
     let window = now.saturating_sub(ROLL_TICKS)..now.saturating_add(1);
     roll.model = RollModel::from_log(&host.log_so_far(), &events.0, window.clone());
     roll.window = window;
+    // The thoughts of the agents: the questions they asked, and how long the
+    // answers took.
+    roll.thoughts = host.agent_thoughts_all();
 }
 
 /// Play the replay forward: one tick of the log per fixed update.

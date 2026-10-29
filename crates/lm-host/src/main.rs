@@ -21,6 +21,14 @@
 //! The app plays a round, or it opens one: `--replay FILE` opens a recorded
 //! round log and scrubs it instead of playing a new one.
 //!
+//! ## The agents
+//!
+//! `--agents thor|stub|off` says who is thinking. `off` is the reflex alone.
+//! `stub` is the same gates, the same policy and the same ladder, with a
+//! scripted model behind them — the round plays itself, no network needed.
+//! `thor` is the real thing: the Thor's d1-3B on the LAN, and the cloud tier
+//! when its key is there.
+//!
 //! Build and run it with Windows cargo via `scripts/win-build.sh`; this WSL
 //! toolchain has none of Bevy's Linux system libraries.
 
@@ -29,6 +37,9 @@ mod input_plugin;
 mod map_plugin;
 mod roll_plugin;
 mod sim_plugin;
+
+use std::collections::BTreeMap;
+use std::time::Duration;
 
 use bevy::{
     app::AppExit,
@@ -40,6 +51,11 @@ use bevy::{
     },
 };
 use bevy_egui::EguiPlugin;
+use lm_agents::config::AgentsConfig;
+use lm_agents::harness::Harness;
+use lm_agents::mind::Policy;
+use lm_agents::sysone::{JevBackend, StubBackend, SysOne, ThorBackend};
+use lm_agents::Agents;
 use lm_core::header::Header;
 use lm_host_model::host_loop::HostLoop;
 use lm_host_model::input::{InputEvent, InputState};
@@ -53,6 +69,8 @@ const DEFAULT_WINDOW: (u32, u32) = (1280, 720);
 const DEFAULT_SEED: u64 = 1;
 /// The rate a round ticks at when the round itself cannot say.
 const DEFAULT_TICK_HZ: u16 = 30;
+/// The harness the agents think with: the shipped one.
+const DEFAULT_HARNESS: &str = "assets/harness/default";
 
 /// `--screenshot PATH --frames N`: after N frames, capture the window to
 /// PATH (a PNG) and exit. `spawned` guards against requesting twice.
@@ -75,6 +93,48 @@ struct Options {
     replay: Option<PathBuf>,
     /// The screenshot to take, if any.
     shot: Option<ShotRequest>,
+    /// Who is thinking: the reflex alone, a stub, or the Thor.
+    agents: AgentChoice,
+    /// Where the harness comes from: the gates and the policy.
+    harness: PathBuf,
+    /// The agents' configuration, when the command line names one.
+    config: Option<PathBuf>,
+}
+
+/// Who is thinking.
+///
+/// `off` is the reflex alone, `stub` is the real pipeline with a scripted
+/// model behind it, and `thor` is the real thing: the Thor's decision models
+/// on the LAN.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AgentChoice {
+    /// No agents: the reflex plays the round.
+    Off,
+    /// The agents think; the model is a scripted stub.
+    Stub,
+    /// The agents think; the model is the Thor's.
+    Thor,
+}
+
+impl AgentChoice {
+    /// The choice a command line spells out.
+    fn parse(text: &str) -> Result<AgentChoice, String> {
+        match text {
+            "off" => Ok(AgentChoice::Off),
+            "stub" => Ok(AgentChoice::Stub),
+            "thor" => Ok(AgentChoice::Thor),
+            other => Err(format!("`--agents` wants off, stub or thor, not `{other}`")),
+        }
+    }
+
+    /// The choice, as it is written on the command line.
+    fn as_str(self) -> &'static str {
+        match self {
+            AgentChoice::Off => "off",
+            AgentChoice::Stub => "stub",
+            AgentChoice::Thor => "thor",
+        }
+    }
 }
 
 fn main() -> AppExit {
@@ -84,7 +144,8 @@ fn main() -> AppExit {
             eprintln!("lm-host: {err}");
             eprintln!(
                 "usage: lm-host [--seed N] [--window WxH] [--possess AGENT] \
-                 [--replay FILE] [--screenshot PATH [--frames N]]"
+                 [--replay FILE] [--screenshot PATH [--frames N]] \
+                 [--agents off|stub|thor] [--harness DIR] [--agents-config FILE]"
             );
             return AppExit::Error(NonZeroU8::MIN);
         }
@@ -128,13 +189,30 @@ fn main() -> AppExit {
             // plays the same round the headless tools do.
             let header = Header::default_round(options.seed, lm_tools::runner::DEFAULT_REFLEX);
             let tick_hz = header.params.tick_hz;
-            let mut host = match HostLoop::new(header) {
+            let mut host = match HostLoop::new(header.clone()) {
                 Ok(host) => host,
                 Err(err) => {
                     eprintln!("lm-host: the round does not start: {err}");
                     return AppExit::Error(NonZeroU8::MIN);
                 }
             };
+
+            // The agents, when they are asked for. They think on their own
+            // thread and hand their decisions to the host, which puts them in
+            // the sequencer like every other decision.
+            if options.agents != AgentChoice::Off {
+                println!(
+                    "lm-host: the agents think with the {} model",
+                    options.agents.as_str()
+                );
+                match attach_agents(&options, &header, &mut host) {
+                    Ok(()) => {}
+                    Err(err) => {
+                        eprintln!("lm-host: the agents do not start: {err}");
+                        return AppExit::Error(NonZeroU8::MIN);
+                    }
+                }
+            }
 
             if let Some(agent) = options.possess {
                 if let Err(err) = input.apply(InputEvent::Possess(agent), &mut host) {
@@ -218,6 +296,81 @@ fn unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Build the round's agents and give them to the host.
+///
+/// The harness is the agents' own: the gates they ask and the policy they
+/// think with. The models are behind the tiers of that policy.
+fn attach_agents(options: &Options, header: &Header, host: &mut HostLoop) -> Result<(), String> {
+    let cfg = match &options.config {
+        Some(path) => AgentsConfig::load(path)
+            .map_err(|err| format!("the configuration {} cannot be read: {err}", path.display()))?,
+        None => AgentsConfig::default(),
+    };
+    let harness = Harness::open(&options.harness).map_err(|err| {
+        format!(
+            "the harness {} cannot be read: {err}",
+            options.harness.display()
+        )
+    })?;
+
+    let backends = backends(options.agents, &cfg, &harness);
+    if backends.is_empty() {
+        return Err("no model is there to ask".to_owned());
+    }
+    let agents = Agents::new(&cfg, &harness, header, backends);
+    host.attach_agents(agents);
+    Ok(())
+}
+
+/// The models the round's agents think with.
+///
+/// The names are the ones the policy's tiers ask for, so the harness does not
+/// have to know which model is behind them.
+fn backends(
+    choice: AgentChoice,
+    cfg: &AgentsConfig,
+    harness: &Harness,
+) -> BTreeMap<String, Box<dyn SysOne + Send>> {
+    let mut out: BTreeMap<String, Box<dyn SysOne + Send>> = BTreeMap::new();
+    match choice {
+        AgentChoice::Off => {}
+        AgentChoice::Stub => {
+            // The stub answers every tier the policy names: the gates, the
+            // policy and the ladder are the real ones, only the model is not.
+            let policy = Policy::for_harness(&harness.policy_toml);
+            for tier in policy.tiers.tiers() {
+                if tier.is_reflex() {
+                    continue;
+                }
+                out.entry(tier.backend().to_owned())
+                    .or_insert_with(|| Box::new(StubBackend::menu()) as Box<dyn SysOne + Send>);
+            }
+        }
+        AgentChoice::Thor => {
+            // The Thor's models: one port each.
+            for (model, port) in &cfg.ports {
+                let mut backend = ThorBackend::new(&cfg.thor_base, *port, model)
+                    .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
+                let name = backend.name().to_owned();
+                if let Some(min) = cfg.min_confidence.get(&name) {
+                    backend = backend.with_min_confidence(*min);
+                }
+                out.insert(name, Box::new(backend));
+            }
+            // The cloud tier, when its key is there. That key only ever goes
+            // to api.typesafe.ai -- never to the Thor.
+            match JevBackend::from_secrets() {
+                Ok(jev) => {
+                    let name = jev.name().to_owned();
+                    out.insert(name, Box::new(jev));
+                }
+                Err(err) => eprintln!("lm-host: the cloud tier is not available: {err}"),
+            }
+        }
+    }
+    out
+}
+
 /// Read the command line.
 fn parse_args() -> Result<Options, String> {
     let mut seed = DEFAULT_SEED;
@@ -226,6 +379,9 @@ fn parse_args() -> Result<Options, String> {
     let mut replay = None;
     let mut path = None;
     let mut frames = 30u32;
+    let mut agents = AgentChoice::Off;
+    let mut harness = PathBuf::from(DEFAULT_HARNESS);
+    let mut config = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -269,6 +425,24 @@ fn parse_args() -> Result<Options, String> {
                     .parse()
                     .map_err(|_| String::from("`--frames` needs a whole number"))?;
             }
+            "--agents" => {
+                let text = args
+                    .next()
+                    .ok_or_else(|| String::from("`--agents` needs off, stub or thor"))?;
+                agents = AgentChoice::parse(&text)?;
+            }
+            "--harness" => {
+                harness = PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| String::from("`--harness` needs a directory"))?,
+                );
+            }
+            "--agents-config" => {
+                config =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        String::from("`--agents-config` needs a file")
+                    })?));
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -285,6 +459,9 @@ fn parse_args() -> Result<Options, String> {
             frames,
             spawned: false,
         }),
+        agents,
+        harness,
+        config,
     })
 }
 
