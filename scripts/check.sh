@@ -25,11 +25,15 @@ cargo test --workspace --exclude lm-host
 echo "==> cargo test (release)"
 cargo test --workspace --exclude lm-host --release
 
-echo "==> cargo test (release, ignored: the fairness guard)"
+echo "==> cargo test (release, ignored: the fairness guard and the Rhai oracle)"
 # The fairness guard plays 200 full rounds, which is a minute of wall-clock
 # in release and far too slow for a debug run, so it is marked #[ignore]
 # and runs here.
 cargo test --release -p lm-core --test fairness -- --ignored
+# The Rhai oracle plays 50 seeds twice over (300k ticks), which is far too
+# slow for a debug run too, so it is marked #[ignore] and runs here next to
+# the fairness guard. It is a lib unit test, so it lives in the --lib target.
+cargo test --release -p lm-core --lib -- --ignored
 
 echo "==> lm golden"
 cargo run --release --bin lm -- golden

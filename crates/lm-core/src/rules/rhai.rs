@@ -833,6 +833,7 @@ mod tests {
     /// be identical, tick for tick. A difference is a bug in the script or in
     /// the layer that applies its effects, never in the oracle.
     #[test]
+    #[ignore = "300k ticks; run with --release --ignored"]
     fn rhai_beacons_matches_native() {
         const SEEDS: u64 = 50;
         const TICKS: u64 = 3_000;
