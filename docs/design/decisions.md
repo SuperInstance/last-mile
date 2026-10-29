@@ -44,6 +44,13 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 | D35 | 2026-10-28 | Provisional models: members LFM2-1.2B, leaders qwen3.5:9b, between-round operator Qwen3-Coder-30B; optional ProArt 0.6B fallback | Resident on the Thor per Stage 0; the spec sheet may replace them | fleet/01, 02 |
 | D36 | 2026-10-28 | last-mile is a **room in the whole-house quilt** (seams, no M1 dependency): `net.sequencer_node` defaults to the ProArt when a human plays and may be the Thor for agent-only rounds; quilt heartbeat; contention classes | Reconciles the quilt's Thor-engine ruling with D18 | [fleet/03](../research/fleet/03-whole-house-quilt-fit.md) |
 
+| D37 | 2026-10-28 | **System-1 = decision models** (Liquid d1, Clef, Jev): state + typed **gates** (bool / choice / score) from harness `gates.toml` → `p[]`; wording comes from a template or a small LLM (`utter.realizer`) | A model class built for the System-1 slot; closed answer sets can't hallucinate an option | [fleet/04](../research/fleet/04-decision-models.md) |
+| D38 | 2026-10-28 | **Point vs presence mode:** while the batch latency fits, gates are evaluated at `s1.presence_hz` as control lanes, conditioned in fixed point (EMA + deadband with hysteresis); `auto` falls back to point mode | Casey's "waveform, a presence in the present tense"; replay is unchanged because lane samples are logged decisions | fleet/04 |
+| D39 | 2026-10-28 | **Trainer and student:** slow judges (cloud System-2, Clef-27B, the image path) label gate answers; the trainer edits gates; per-role LoRA overnight; challenge seeds; student–teacher agreement on held-out seeds | Distillation with adversarial curricula (not literally a GAN) | fleet/04 |
+| D40 | 2026-10-28 | **Building blocks as levels** (`blocks/*.rhai`), chosen and parameterized by gates; the **model-vs-code dial** (signal-chain) generalizes reflex share, with a per-role `dial.target`, not "maximize code" | "Sometimes a calculator, sometimes a storyteller" | fleet/04 |
+| D41 | 2026-10-28 | Vision as the second path, looking at **rasters of the score** (map, piano roll, fog view), never the 3D render; off by default, spike first | An alternative angle on the same truth; disagreement becomes a training signal; D13 holds | fleet/04 |
+
 ## Pending (under discussion)
+- Spikes S1/S2: decision-model latency on the Thor (16 agents × 8 gates, p99, other tenants loaded) and on the ProArt 4050
 - User review of the M1 spec (now with fleet refinements D23–D36)
 - Thor spec sheet from the user: confirms or replaces D35; Riva port and vector DB still open
