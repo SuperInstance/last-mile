@@ -1,6 +1,6 @@
 # Vox Score: speech as a performance, not a recording
 
-*Status: design proposal, 2026-10-29. Not yet a decision. It becomes D73 if the experiments in §9 hold up.*
+*Status: design proposal, 2026-10-29. Not yet a decision. It becomes a decision (the next free D-number) if the experiments in §9 hold up.*
 
 ## 1. The idea in one paragraph
 
