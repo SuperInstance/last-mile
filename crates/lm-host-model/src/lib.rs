@@ -27,3 +27,10 @@
 pub mod host_loop;
 
 pub use host_loop::{catch_up, HostLoop, TickBudget, TickOut};
+
+// Declared up front so parallel phase-2 tasks (3: input, 4: map, 5: roll + scrub)
+// each fill their own file and never collide here.
+pub mod input;
+pub mod map;
+pub mod roll;
+pub mod scrub;
