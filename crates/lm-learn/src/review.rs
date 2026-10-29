@@ -34,6 +34,7 @@ pub enum Rejection {
     BadName(String),
     Empty(&'static str),
     TooLarge(usize),
+    Io(String),
 }
 
 /// Extracts the first JSON object from text using brace matching and parses it.
@@ -167,9 +168,95 @@ pub fn target_path(p: &Proposal, harness_root: &Path) -> Result<PathBuf, Rejecti
     }
 }
 
+/// Applies a proposal to the file system under the harness root.
+pub fn apply(
+    p: &Proposal,
+    harness_root: &std::path::Path,
+) -> Result<std::path::PathBuf, Rejection> {
+    validate(p)?;
+    let path = target_path(p, harness_root)?;
+
+    // Create parent directories as needed
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| Rejection::Io(e.to_string()))?;
+    }
+
+    match p {
+        Proposal::AddGate { agent: _, toml } => {
+            // Append toml to the file (create if missing)
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|e| Rejection::Io(e.to_string()))?;
+
+            use std::io::Write;
+            writeln!(file, "{}", toml).map_err(|e| Rejection::Io(e.to_string()))?;
+        }
+        Proposal::EditReflex {
+            agent: _,
+            name: _,
+            source,
+        } => {
+            // Write (replace) the file with source
+            std::fs::write(&path, format!("{}\n", source))
+                .map_err(|e| Rejection::Io(e.to_string()))?;
+        }
+        Proposal::LexiconEntry { squad: _, text } => {
+            // Append "- " + text + "\n"
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|e| Rejection::Io(e.to_string()))?;
+
+            use std::io::Write;
+            writeln!(file, "- {}", text).map_err(|e| Rejection::Io(e.to_string()))?;
+        }
+        Proposal::PolicyTweak {
+            agent: _,
+            key,
+            value,
+        } => {
+            let mut lines = Vec::new();
+
+            // If file exists, read all lines
+            if path.exists() {
+                let content =
+                    std::fs::read_to_string(&path).map_err(|e| Rejection::Io(e.to_string()))?;
+                lines = content.lines().map(|s| s.to_string()).collect();
+            }
+
+            // Check if we need to replace an existing key
+            let key_with_equals = format!("{} =", key);
+            let mut found = false;
+
+            for line in &mut lines {
+                if line.trim_start().starts_with(&key_with_equals) {
+                    *line = format!("{} = {}", key, value);
+                    found = true;
+                    break;
+                }
+            }
+
+            // If key not found, append it
+            if !found {
+                lines.push(format!("{} = {}", key, value));
+            }
+
+            // Write back all lines
+            let output = lines.join("\n") + "\n";
+            std::fs::write(&path, output).map_err(|e| Rejection::Io(e.to_string()))?;
+        }
+    }
+
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{env, fs};
 
     #[test]
     fn parses_proposal_in_prose() {
@@ -295,5 +382,129 @@ mod tests {
             Rejection::TooLarge(len) => assert_eq!(len, 16385),
             _ => panic!("Expected TooLarge error"),
         }
+    }
+
+    #[test]
+    fn apply_edit_reflex_writes_file() {
+        let temp_dir = env::temp_dir().join("apply_edit_reflex_writes_file");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let proposal = Proposal::EditReflex {
+            agent: 1,
+            name: "test_reflex".to_string(),
+            source: "fn test() { println!(\"hello\"); }".to_string(),
+        };
+
+        let result = apply(&proposal, &temp_dir);
+        assert!(result.is_ok());
+
+        let expected_path = temp_dir
+            .join("a1")
+            .join("reflexes")
+            .join("test_reflex.rhai");
+        assert_eq!(result.unwrap(), expected_path);
+
+        let content = fs::read_to_string(&expected_path).unwrap();
+        assert_eq!(content, "fn test() { println!(\"hello\"); }\n");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn apply_add_gate_appends() {
+        let temp_dir = env::temp_dir().join("apply_add_gate_appends");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let proposal = Proposal::AddGate {
+            agent: 2,
+            toml: "[gate]\nname = \"test\"".to_string(),
+        };
+
+        let result = apply(&proposal, &temp_dir);
+        assert!(result.is_ok());
+
+        let expected_path = temp_dir.join("a2").join("gates.toml");
+        assert_eq!(result.unwrap(), expected_path);
+
+        let content = fs::read_to_string(&expected_path).unwrap();
+        assert_eq!(content, "[gate]\nname = \"test\"\n");
+
+        // Append again
+        let result2 = apply(&proposal, &temp_dir);
+        assert!(result2.is_ok());
+
+        let content = fs::read_to_string(&expected_path).unwrap();
+        assert_eq!(
+            content,
+            "[gate]\nname = \"test\"\n[gate]\nname = \"test\"\n"
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn apply_policy_tweak_replaces_existing_key() {
+        let temp_dir = env::temp_dir().join("apply_policy_tweak_replaces_existing_key");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        // Create a policy.toml file with an existing key
+        let policy_path = temp_dir.join("a3").join("policy.toml");
+        fs::create_dir_all(policy_path.parent().unwrap()).unwrap();
+        fs::write(&policy_path, "existing_key = 100\nother_key = 200\n").unwrap();
+
+        let proposal = Proposal::PolicyTweak {
+            agent: 3,
+            key: "existing_key".to_string(),
+            value: 300,
+        };
+
+        let result = apply(&proposal, &temp_dir);
+        assert!(result.is_ok());
+
+        let content = fs::read_to_string(&policy_path).unwrap();
+        assert_eq!(content, "existing_key = 300\nother_key = 200\n");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn apply_policy_tweak_appends_new_key() {
+        let temp_dir = env::temp_dir().join("apply_policy_tweak_appends_new_key");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let proposal = Proposal::PolicyTweak {
+            agent: 4,
+            key: "new_key".to_string(),
+            value: 500,
+        };
+
+        let result = apply(&proposal, &temp_dir);
+        assert!(result.is_ok());
+
+        let expected_path = temp_dir.join("a4").join("policy.toml");
+        let content = fs::read_to_string(&expected_path).unwrap();
+        assert_eq!(content, "new_key = 500\n");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn apply_rejects_bad_name_before_touching_disk() {
+        let temp_dir = env::temp_dir().join("apply_rejects_bad_name_before_touching_disk");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let proposal = Proposal::EditReflex {
+            agent: 1,
+            name: "../x".to_string(),
+            source: "fn test() {}".to_string(),
+        };
+
+        let result = apply(&proposal, &temp_dir);
+        assert!(result.is_err());
+
+        // Check that the directory was not created
+        assert!(!temp_dir.exists());
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
