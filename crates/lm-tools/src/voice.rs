@@ -354,7 +354,7 @@ fn play_round(header: &Header, ticks: u64) -> Vec<Collected> {
         commit: "content:lm-voice".to_owned(),
     };
     let policy = Policy::for_harness(&harness.policy_toml);
-    let backends: BTreeMap<String, Box<dyn SysOne + Send>> = policy
+    let backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = policy
         .tiers
         .tiers()
         .iter()
@@ -362,7 +362,7 @@ fn play_round(header: &Header, ticks: u64) -> Vec<Collected> {
         .map(|tier| {
             (
                 tier.backend().to_owned(),
-                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send>,
+                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>,
             )
         })
         .collect();
