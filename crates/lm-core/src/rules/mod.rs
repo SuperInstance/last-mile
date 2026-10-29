@@ -135,6 +135,15 @@ pub trait Ruleset: StateHash {
     /// The score of every squad, in squad order.
     fn scores(&self) -> &[i64];
 
+    /// Who holds every beacon, in beacon order.
+    ///
+    /// The score view shows the holder of a beacon, so the sim asks the
+    /// ruleset for it. A ruleset with no beacons holds none and publishes
+    /// nothing.
+    fn beacon_holders(&self) -> &[Option<u8>] {
+        &[]
+    }
+
     /// How the round ended, or `None` while it is still running.
     fn outcome(&self) -> Option<&Outcome>;
 }

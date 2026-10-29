@@ -215,6 +215,10 @@ impl Ruleset for Beacons {
         &self.scores
     }
 
+    fn beacon_holders(&self) -> &[Option<u8>] {
+        &self.holders
+    }
+
     fn outcome(&self) -> Option<&Outcome> {
         self.outcome.as_ref()
     }
