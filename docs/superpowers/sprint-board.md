@@ -37,11 +37,24 @@
 | 6 | Bevy app wiring | — | ⏳ after P2-1, 3–5 | |
 | 7 | Recording, replay mode, done-when | — | ⏳ after 6 | Casey's acceptance on the ProArt |
 
+## Phase 3: Agents think ([plan](plans/2026-10-28-m1-phase3-agents.md)), branch `phase3-agents`
+
+| Task | What | Seat | Status | Notes |
+|---|---|---|---|---|
+| — | Scaffold `lm-agents` (modules declared up front) | Claude | ✅ | Lets tasks run in parallel without lib.rs collisions |
+| 1 | Config + code-computed facts (D49) | ZCode | 🔨 | |
+| 2 | Gates → System One questions → decisions | — | ⏳ after 3 | Needs the Answer types |
+| 3 | System One client (Thor/Jev/stub), keep-alive, refusals | MiniMax | 🔨 | |
+| 4 | Least-use-first queue + budgets | Claude | ✅ | One pending request per agent, so no backlog by construction |
+| 5 | Mind loop: point/presence/auto, fallbacks | — | ⏳ after 1–3 | |
+| 6 | Harness store pinned by commit | — | ⏳ | |
+| 7 | Integration into the host; done-when | — | ⏳ after P2 | |
+
 ## Side experiments
 
 | Item | Where | Seat | Status |
 |---|---|---|---|
-| X1: host-agnostic record/replay/branch/diff on two hosts | [decision-daw](https://github.com/SuperInstance/decision-daw) | ZCode builds, MiniMax red-teams | 🧪 building |
+| X1: host-agnostic record/replay/branch/diff on two hosts | [decision-daw](https://github.com/SuperInstance/decision-daw) | ZCode built ✅ · MiniMax red-team ⏳ | 🧪 built: 20/20 replays, branch prefix byte-identical |
 | Thor requests (d1-3B parallel slots, embeddings, Riva/vector DB info) | `C:\Users\casey\forthor1.md` | Thor's agent | waiting on the Thor |
 
 ## Throughput rules
