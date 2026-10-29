@@ -23,6 +23,9 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 | D17 | 2026-10-28 | Build approach **A: simulation core first** (shared `lm-core` + `lm-proto`, 2D overhead/piano-roll view, then 3D) | Determinism and replay are correct from day one | brainstorm |
 | D18 | 2026-10-28 | **The ProArt is the sequencer and authority**; the Thor and Orin run mirror sims from the decision stream | Human input never waits on the network | brainstorm |
 
+| D19 | 2026-10-28 | **Design philosophy: if more than one option works, make it a parameter** with a default, kept in config or the round header, never a constant | Covers more situations and allows fine-tuning while it runs | user directive |
+| D20 | 2026-10-28 | Score format approved: sim tick (default **30 Hz**), min AI scheduling lead (default **3 ticks / 100 ms**), stale-drop window, decision kinds (ActionOn/Off, Control, Program, Utterance, Intent, Marker), state hash interval (default 30 ticks); postcard over QUIC. **All numeric values are parameters (D19).** | Design section 2 | brainstorm |
+
 ## Pending (under discussion)
-- Section 2 of the design: 30 Hz tick, 100 ms minimum scheduling lead, decision kinds, stale-drop policy
+- Design section 3: agent host and cognition pipeline on the Thor
 - Thor model inventory (spec sheet coming from the user)
