@@ -1,0 +1,10 @@
+[package]
+name = "lm-agents"
+version = "0.1.0"
+edition = "2021"
+description = "last-mile agent cognition: facts, gates, System One client, least-use-first queue (phase 3)"
+
+[dependencies]
+lm-core = { path = "../lm-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
