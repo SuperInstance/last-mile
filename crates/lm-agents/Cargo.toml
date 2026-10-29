@@ -12,3 +12,5 @@ serde_json = "1"
 # per-agent connection pool, so one client per backend keeps its connections
 # alive (D50). rustls is the pure-Rust TLS stack (no OpenSSL on the Thor).
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+# Task 1: agents.toml configuration.
+toml = "1"
