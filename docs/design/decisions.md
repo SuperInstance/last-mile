@@ -26,6 +26,9 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 | D19 | 2026-10-28 | **Design philosophy: if more than one option works, make it a parameter** with a default, kept in config or the round header, never a constant | Covers more situations and allows fine-tuning while it runs | user directive |
 | D20 | 2026-10-28 | Score format approved: sim tick (default **30 Hz**), min AI scheduling lead (default **3 ticks / 100 ms**), stale-drop window, decision kinds (ActionOn/Off, Control, Program, Utterance, Intent, Marker), state hash interval (default 30 ticks); postcard over QUIC. **All numeric values are parameters (D19).** | Design section 2 | brainstorm |
 
+| D21 | 2026-10-28 | Agent host approved: cognition loop (see → summarize → decide whether to think → least-use-first queue → structured decisions); harness = a git repo per agent on the Thor; **reflexes in Rhai** (no floats, operation-limit fuel) inside `lm-core` on every node, behind a `ScriptRuntime` trait | Design section 3. Rhai is easy for agents to write; WASM can be swapped in later as a parameter | spec §5 |
+| D22 | 2026-10-28 | M1 spec written: crates `lm-core / lm-proto / lm-host / lm-agents / lm-router / lm-archive / lm-tools`; default mode "Beacons"; 6 build phases | User asked to keep moving; sections 4–5 folded into the spec | [M1 spec](../superpowers/specs/2026-10-28-last-mile-m1-design.md) |
+
 ## Pending (under discussion)
-- Design section 3: agent host and cognition pipeline on the Thor
+- User review of the M1 spec
 - Thor model inventory (spec sheet coming from the user)
