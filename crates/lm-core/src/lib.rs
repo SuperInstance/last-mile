@@ -20,13 +20,16 @@ pub mod hash;
 pub mod header;
 pub mod lane;
 pub mod log;
+pub mod opal;
 pub mod params;
 pub mod rng;
 pub mod rules;
 pub mod sched;
 pub mod script;
 pub mod sim;
+pub mod talk;
 pub mod trig_table;
+pub mod utterance;
 pub mod view;
 pub mod world;
 
@@ -34,16 +37,24 @@ pub use agent::{ActiveIntent, Agent, MotorCmd};
 pub use decision::{Action, Decision, Intent, Kind, Lane, Provenance, Roll, Source, Stamped, Tick};
 pub use fixed::{Angle, Pos, CHUNK_UNITS, UNITS_PER_M};
 pub use hash::{Fnv64, StateHash};
-pub use header::{Header, Lineage, LineageChange, Role, RosterEntry, PROTO_VERSION};
+pub use header::{Header, HeaderV1, Lineage, LineageChange, Role, RosterEntry, PROTO_VERSION};
 pub use lane::LaneConditioner;
-pub use log::{LogError, Recorder, RoundLog, Segment, MAGIC};
+pub use log::{LogError, Recorder, RoundLog, RoundLogV1, Segment, MAGIC, MIN_READABLE_VERSION};
+pub use opal::{OpalError, TalkContext};
 pub use params::{ParamError, Params, BRANCH_FIELDS};
 pub use rng::{Domain, Rng};
 pub use rules::{Beacons, Event, Outcome, Ruleset, SimError};
 pub use sched::{lead_ticks, Reject, SchedStats, Sequencer};
 pub use script::{ReflexOut, RhaiRuntime, ScriptError, ScriptRuntime};
 pub use sim::{Sim, SimStats, StepOut};
+pub use talk::TalkParams;
 pub use trig_table::{SIN_Q14, TRIG_TABLE_HASH};
+// The speech intent is `TalkIntent` at the crate root: `Intent` already
+// names the decision's plan (the thing an agent intends to do), and the
+// speech intent is the thing a line is *for*.
+pub use utterance::{
+    Addressee, Affect, Channel, Intent as TalkIntent, Prosody, SpeechAct, Subject, Utterance, Word,
+};
 pub use view::{
     menu, option_cmd, AgentSnap, BeaconSnap, EnemySeen, Menu, MenuOption, ScoreView, SquadKnowledge,
 };

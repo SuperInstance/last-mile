@@ -11,6 +11,7 @@
 
 use crate::fixed::Angle;
 use crate::hash::{Fnv64, StateHash};
+use crate::utterance::Utterance;
 use crate::world::CellXY;
 use serde::{Deserialize, Serialize};
 
@@ -94,8 +95,10 @@ pub struct Lane {
 
 /// What a decision asks for.
 ///
-/// Utterance, Control and Program arrive in later phases, with a
-/// `PROTO_VERSION` bump.
+/// The variants are **appended, never inserted**: `Utterance` came with the
+/// phase-4 proto bump and sits after `Marker`, so the variant indices 0..=5
+/// keep the bytes they had before the bump and a phase-1 decision still
+/// decodes under this build.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Kind {
     /// Turn an action on.
@@ -110,6 +113,8 @@ pub enum Kind {
     Lane(Lane),
     /// A marker in the decision stream; it changes nothing in the world.
     Marker(u32),
+    /// Say something: the score of a line, with its words and their lanes.
+    Utterance(Utterance),
 }
 
 /// Where a decision came from (D25, D37).
@@ -257,6 +262,10 @@ impl StateHash for Kind {
                 h.write(&[5]);
                 h.u32(*m);
             }
+            Kind::Utterance(u) => {
+                h.write(&[6]);
+                u.hash_into(h);
+            }
         }
     }
 }
@@ -316,6 +325,9 @@ fn write_str(h: &mut Fnv64, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utterance::{
+        Addressee, Affect, Channel, Intent as TalkIntent, Prosody, SpeechAct, Subject, Word,
+    };
 
     #[test]
     fn source_reports_its_agent() {
@@ -374,6 +386,17 @@ mod tests {
                 values: vec![3, 4],
             }),
             Kind::Marker(7),
+            Kind::Utterance(Utterance {
+                speaker: 1,
+                channel: Channel::Voice,
+                addressee: Addressee::Squad,
+                act: SpeechAct::Command,
+                intent: TalkIntent::Order,
+                affect: Affect::Calm,
+                subject: Subject::None,
+                prosody: Prosody::Synthesized,
+                words: vec![Word::new("hold", 0, 10)],
+            }),
         ];
         for (i, a) in kinds.iter().enumerate() {
             for (j, b) in kinds.iter().enumerate() {
@@ -382,6 +405,47 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_kind_tags_are_the_declaration_order() {
+        // The tags are the declaration order, so an appended variant never
+        // moves the tag of the ones before it: a phase-1 decision hashes
+        // exactly as it did before the phase-4 bump.
+        let tags: Vec<u8> = [
+            Kind::ActionOn(Action::Hold),
+            Kind::ActionOff,
+            Kind::Intent(Intent {
+                ttl_ticks: 10,
+                plan: vec![],
+                safe: vec![],
+            }),
+            Kind::Roll(Roll {
+                menu_id: 1,
+                p: vec![1, 2],
+            }),
+            Kind::Lane(Lane {
+                gate: 1,
+                menu_id: 2,
+                values: vec![3, 4],
+            }),
+            Kind::Marker(7),
+            Kind::Utterance(Utterance {
+                speaker: 0,
+                channel: Channel::Voice,
+                addressee: Addressee::Squad,
+                act: SpeechAct::Command,
+                intent: TalkIntent::Order,
+                affect: Affect::Calm,
+                subject: Subject::None,
+                prosody: Prosody::Synthesized,
+                words: vec![],
+            }),
+        ]
+        .iter()
+        .map(|kind| postcard::to_allocvec(kind).expect("a kind encodes")[0])
+        .collect();
+        assert_eq!(tags, vec![0, 1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
@@ -406,5 +470,106 @@ mod tests {
             late_by: 1,
         };
         assert_ne!(a.state_hash(), b.state_hash());
+    }
+
+    /// The bytes phase 1 wrote for `Kind::ActionOn(Action::Hold)`.
+    ///
+    /// The fixture was written by the phase-1 build, before the bump, and is
+    /// kept with the tests: it is the promise that the proto bump does not
+    /// move the bytes of a phase-1 decision.
+    fn pinned_v1_kind_bytes() -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/kind-actionon-v1.bin");
+        std::fs::read(&path).expect("the pinned phase-1 kind bytes are in the repository")
+    }
+
+    /// An eight-word order: the score of a line a squad would hear.
+    fn eight_word_utterance() -> Utterance {
+        let texts = [
+            "hold", "the", "north", "beacon", "and", "wait", "for", "cover",
+        ];
+        let words = texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| {
+                let at = 10 * u64::try_from(index).expect("a small index");
+                Word::new(*text, at, at + 8)
+                    .with_pitch(2)
+                    .with_energy(49_152)
+                    .with_rate(65_536)
+                    .with_emphasis(32_768)
+            })
+            .collect();
+        Utterance {
+            speaker: 3,
+            channel: Channel::Voice,
+            addressee: Addressee::Squad,
+            act: SpeechAct::Command,
+            intent: TalkIntent::Order,
+            affect: Affect::Urgent,
+            subject: Subject::Beacon(2),
+            prosody: Prosody::Synthesized,
+            words,
+        }
+    }
+
+    #[test]
+    fn kind_utterance_is_appended_not_inserted() {
+        let pinned = pinned_v1_kind_bytes();
+
+        // The bytes of a phase-1 kind did not move.
+        let now = postcard::to_allocvec(&Kind::ActionOn(Action::Hold)).expect("the kind encodes");
+        assert_eq!(now, pinned, "the phase-1 bytes of a kind must not move");
+
+        // The pinned bytes still decode to the phase-1 kind.
+        let back: Kind = postcard::from_bytes(&pinned).expect("the pinned bytes decode");
+        assert_eq!(back, Kind::ActionOn(Action::Hold));
+
+        // And a phase-1 decision still decodes, because its kind rides
+        // inside it with the bytes it always had.
+        let decision = Decision {
+            apply_tick: 7,
+            source: Source::Agent(3),
+            seq: 2,
+            kind: Kind::ActionOn(Action::Hold),
+            provenance: Provenance::Reflex,
+        };
+        let bytes = postcard::to_allocvec(&decision).expect("a decision encodes");
+        assert!(
+            bytes.windows(pinned.len()).any(|w| w == pinned.as_slice()),
+            "the decision still carries the pinned kind bytes"
+        );
+        let back: Decision = postcard::from_bytes(&bytes).expect("the decision decodes");
+        assert_eq!(back, decision);
+    }
+
+    #[test]
+    fn utterance_decision_encodes_small() {
+        // Research/09: "a few hundred bytes per sentence".
+        let utterance = eight_word_utterance();
+        let decision = Decision {
+            apply_tick: 42,
+            source: Source::Agent(3),
+            seq: 7,
+            kind: Kind::Utterance(utterance.clone()),
+            provenance: Provenance::System1 {
+                model: "local".to_owned(),
+                tokens: 12,
+                latency_ms: 30,
+                situation_key: 9,
+            },
+        };
+        let utterance_bytes = postcard::to_allocvec(&utterance).expect("an utterance encodes");
+        let decision_bytes = postcard::to_allocvec(&decision).expect("a decision encodes");
+        assert!(
+            utterance_bytes.len() <= 400,
+            "an eight-word utterance encoded to {} bytes",
+            utterance_bytes.len()
+        );
+        assert!(
+            decision_bytes.len() <= 400,
+            "an eight-word utterance decision encoded to {} bytes",
+            decision_bytes.len()
+        );
     }
 }
