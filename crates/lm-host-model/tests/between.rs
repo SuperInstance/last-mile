@@ -287,7 +287,7 @@ fn request_box_writes_a_deposit() {
 /// Refusing a proposal does not move the next round's pin: the header the
 /// flow wrote stays as it is (D27).
 #[test]
-fn reject_leaves_the_header_pin_unchanged() {
+fn reject_override_repins_the_next_round_to_a_revert() {
     let dir = scratch("pin");
     let harness = harness_root(&dir);
     let mut reviewer = StubReviewer::new(hold_review(0));
@@ -311,15 +311,16 @@ fn reject_leaves_the_header_pin_unchanged() {
         .expect("the override is written");
     assert_eq!(next.decision, Decision::Reject);
 
-    // The next round still pins what the flow wrote: refusing a proposal does
-    // not repin the header.
-    assert_eq!(
+    // A refusal against the measurement is carried out: the change is
+    // reverted in a new commit, and the next round pins that revert, not the
+    // commit the flow adopted.
+    assert_ne!(
         next.next_header_pin, commit,
-        "the refusal moved the next round's pin"
+        "the refusal left the next round on the adopted change"
     );
-    assert_eq!(
+    assert_ne!(
         fs::read(&record.next_header_path).expect("the next header is there"),
         header_before,
-        "the header the flow wrote was rewritten"
+        "the next header was not repinned"
     );
 }
