@@ -81,6 +81,11 @@ pub struct HumanOverride {
     pub decision: Decision,
     /// Why they decided it.
     pub reason: String,
+    /// The commit the override produced: the commit the change landed in
+    /// (an override to adopt), or the commit that reverted it (an override
+    /// to reject). Empty when the override changed nothing.
+    #[serde(default)]
+    pub commit: Option<String>,
 }
 
 /// The record of one learning round: every link of the chain, in one file.
@@ -92,6 +97,13 @@ pub struct FlowRecord {
     pub seed: u64,
     /// The round's log.
     pub log_path: PathBuf,
+    /// The harness root the round was played against: one directory per
+    /// agent, `a<agent>`.
+    ///
+    /// An override is carried out against this harness, so the record says
+    /// where it is.
+    #[serde(default)]
+    pub harness_root: PathBuf,
     /// A digest of the round's metrics, so the record can be checked against
     /// the log without replaying it.
     pub metrics_digest: String,
@@ -186,11 +198,22 @@ impl FlowRecord {
             }
         }
         for over in &self.overrides {
-            let _ = writeln!(
-                s,
-                "  override:       {} by a human — {}",
-                over.decision, over.reason
-            );
+            match &over.commit {
+                Some(commit) => {
+                    let _ = writeln!(
+                        s,
+                        "  override:       {} by a human — {} (commit {commit})",
+                        over.decision, over.reason
+                    );
+                }
+                None => {
+                    let _ = writeln!(
+                        s,
+                        "  override:       {} by a human — {}",
+                        over.decision, over.reason
+                    );
+                }
+            }
         }
         if let Some(path) = &self.deposit_path {
             let _ = writeln!(s, "  deposit:        {}", path.display());
@@ -417,6 +440,113 @@ pub const HARMLESS_REVIEW: &str = r#"{"proposal": {"kind": "LexiconEntry", "squa
 const SYSTEM_PROMPT: &str = "You are the between-round reviewer (System 2) of a last-mile squad. \
 Answer with one JSON object and nothing else: a proposal and the prediction that goes with it.";
 
+/// Why an override could not be carried out.
+///
+/// A human's override is a decision the next round has to live with, so it
+/// is carried out before it is recorded. When it cannot be carried out, it
+/// is refused with one of these, and nothing is written: the ledger never
+/// holds an override that was not carried out, and the harness is left
+/// exactly as it was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OverrideError {
+    /// The round holds no proposal: there is nothing to apply, and
+    /// nothing to revert.
+    NoProposal {
+        /// The round that was overridden.
+        round_id: String,
+    },
+    /// The record does not say where the harness is.
+    NoHarnessRoot {
+        /// The round that was overridden.
+        round_id: String,
+    },
+    /// The record does not say where the round's files go.
+    NoRunsRoot {
+        /// The round that was overridden.
+        round_id: String,
+    },
+    /// The proposal's harness is not the one the round measured: it was
+    /// not there when the round was played, or it has moved on since.
+    ///
+    /// `expected` is the identity the round recorded (empty when the
+    /// harness was not part of the round), `found` is the identity now.
+    HarnessMovedOn {
+        /// The agent whose harness moved on.
+        agent: u16,
+        /// The identity the round recorded.
+        expected: String,
+        /// The identity the harness has now.
+        found: String,
+    },
+    /// The proposal's harness is gone.
+    HarnessGone {
+        /// The agent whose harness is gone.
+        agent: u16,
+    },
+    /// The change was never committed: the harness is not a git repo of
+    /// its own, so there is no commit to revert and no tag to move.
+    NoCommit {
+        /// The round that was overridden.
+        round_id: String,
+    },
+    /// The round's commit has no parent: there is no base to restore.
+    NoBase {
+        /// The commit that was to be reverted.
+        commit: String,
+    },
+    /// Git refused the revert.
+    RevertRefused {
+        /// What git said.
+        why: String,
+    },
+}
+
+impl std::fmt::Display for OverrideError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OverrideError::NoProposal { round_id } => {
+                write!(f, "round {round_id} holds no proposal to apply")
+            }
+            OverrideError::NoHarnessRoot { round_id } => {
+                write!(f, "round {round_id} does not say where its harness is")
+            }
+            OverrideError::NoRunsRoot { round_id } => {
+                write!(f, "round {round_id} does not say where its files go")
+            }
+            OverrideError::HarnessMovedOn {
+                agent,
+                expected,
+                found,
+            } => {
+                if expected.is_empty() {
+                    write!(f, "agent {agent} had no harness when the round was played")
+                } else {
+                    write!(
+                        f,
+                        "agent {agent}'s harness moved on: the round measured {expected}, it is {found} now"
+                    )
+                }
+            }
+            OverrideError::HarnessGone { agent } => {
+                write!(f, "agent {agent}'s harness is gone")
+            }
+            OverrideError::NoCommit { round_id } => write!(
+                f,
+                "round {round_id} committed nothing: there is no commit to revert"
+            ),
+            OverrideError::NoBase { commit } => {
+                write!(
+                    f,
+                    "commit {commit} has no parent: there is no base to restore"
+                )
+            }
+            OverrideError::RevertRefused { why } => write!(f, "git refused the revert: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for OverrideError {}
+
 /// What can go wrong in a learning round.
 #[derive(Debug)]
 pub enum FlowError {
@@ -434,6 +564,8 @@ pub enum FlowError {
     Git(String),
     /// The router refused.
     Router(RouterError),
+    /// A human's override could not be carried out.
+    Override(OverrideError),
 }
 
 impl std::fmt::Display for FlowError {
@@ -446,6 +578,7 @@ impl std::fmt::Display for FlowError {
             FlowError::Harness(why) => write!(f, "harness: {why}"),
             FlowError::Git(why) => write!(f, "git: {why}"),
             FlowError::Router(err) => write!(f, "router: {err}"),
+            FlowError::Override(err) => write!(f, "override: {err}"),
         }
     }
 }
@@ -473,6 +606,12 @@ impl From<ReviewError> for FlowError {
 impl From<RouterError> for FlowError {
     fn from(err: RouterError) -> FlowError {
         FlowError::Router(err)
+    }
+}
+
+impl From<OverrideError> for FlowError {
+    fn from(err: OverrideError) -> FlowError {
+        FlowError::Override(err)
     }
 }
 
@@ -524,6 +663,7 @@ pub fn run_learning_round(
         round_id: round_id.clone(),
         seed: cfg.seed,
         log_path: log_path.clone(),
+        harness_root: cfg.harness_root.clone(),
         metrics_digest: metrics_digest.clone(),
         review_text: review_text.clone(),
         proposal: None,
@@ -706,27 +846,9 @@ fn finish(
             .map_err(|err| FlowError::Harness(format!("the next header: {err}")))?,
     )?;
 
-    record.next_header_pins = next_header
-        .roster
-        .iter()
-        .filter_map(|entry| {
-            let commit = entry.harness_commit.clone();
-            (!commit.is_empty()).then_some((entry.agent, commit))
-        })
-        .collect();
-    record.next_header_pin = match record.proposal.as_ref().and_then(proposal_agent) {
-        Some(agent) => record
-            .next_header_pins
-            .get(&agent)
-            .cloned()
-            .unwrap_or_else(|| base_commit(harnesses, agent)),
-        None => record
-            .next_header_pins
-            .values()
-            .next()
-            .cloned()
-            .unwrap_or_default(),
-    };
+    let (pin, pins) = pins_of(&record, &next_header, harnesses);
+    record.next_header_pin = pin;
+    record.next_header_pins = pins;
     record.next_header_path = next_header_path;
 
     let record_path = cfg
@@ -754,10 +876,40 @@ fn write_record(record: &FlowRecord, path: &Path) -> Result<(), FlowError> {
     Ok(())
 }
 
+/// The pins the next header carries: every agent's, and the round's own.
+///
+/// The round's pin is the harness the proposal belongs to (a squad's
+/// lexicon belongs to no agent, so it takes the first harness there is).
+fn pins_of(
+    record: &FlowRecord,
+    next_header: &Header,
+    harnesses: &BTreeMap<u16, Harness>,
+) -> (String, BTreeMap<u16, String>) {
+    let pins: BTreeMap<u16, String> = next_header
+        .roster
+        .iter()
+        .filter_map(|entry| {
+            let commit = entry.harness_commit.clone();
+            (!commit.is_empty()).then_some((entry.agent, commit))
+        })
+        .collect();
+    let pin = match record.proposal.as_ref().and_then(proposal_agent) {
+        Some(agent) => pins
+            .get(&agent)
+            .cloned()
+            .unwrap_or_else(|| base_commit(harnesses, agent)),
+        None => pins.values().next().cloned().unwrap_or_default(),
+    };
+    (pin, pins)
+}
+
 /// Override the flow's decision, by hand.
 ///
 /// The measured verdict stays what it was: the record says the human decided
 /// otherwise, and why. Nothing is silent.
+///
+/// This only changes the record in memory, and the harness is left alone:
+/// use [`write_override`] to carry the decision out.
 pub fn override_verdict(record: &FlowRecord, decision: Decision) -> FlowRecord {
     override_verdict_reasoned(record, decision, "a human overrode the flow's decision")
 }
@@ -773,38 +925,292 @@ pub fn override_verdict_reasoned(
     next.overrides.push(HumanOverride {
         decision,
         reason: reason.to_string(),
+        commit: None,
     });
     next
 }
 
-/// Write an override into the files: the ledger, the record.
+/// Carry out a human's override, and write it into the files.
 ///
-/// The ledger gets a line of its own, so a reader of the chain sees the
-/// evidence and the decision that went against it. The deposit is left
-/// alone: it is the record of the proposal, not of the override.
+/// An override is not a note: it is a decision the next round has to live
+/// with, so it is carried out before it is recorded.
+///
+/// * An override to **Adopt** applies the proposal exactly as an adopted
+///   one is applied — the same `apply`, the same commit, the same
+///   `round-<id>` tag — and rewrites the next round's header so that it
+///   pins that commit.
+/// * An override to **Reject** of a proposal the flow adopted reverts it:
+///   a new commit in the harness repo restores the base (history is never
+///   rewritten) and the next header pins that commit.
+///
+/// The measured verdict stays what it was: the record says the human
+/// decided otherwise, and why, and which commit resulted.
+///
+/// When the proposal can no longer be applied — the harness moved on, or
+/// there is nothing to apply — the override is refused with a typed error
+/// and nothing is written: the ledger never holds an override that was not
+/// carried out, and the harness is left exactly as it was.
+///
+/// The deposit is left alone: it is the record of the proposal, not of the
+/// override.
 pub fn write_override(
     record: &FlowRecord,
     decision: Decision,
     reason: &str,
 ) -> Result<FlowRecord, FlowError> {
-    let next = override_verdict_reasoned(record, decision, reason);
+    let proposal = record.proposal.clone().ok_or_else(|| {
+        FlowError::Override(OverrideError::NoProposal {
+            round_id: record.round_id.clone(),
+        })
+    })?;
+    let root = harness_root_of(record)?;
+    let harnesses = read_harness_set(&root)?;
+
+    // 1. The harness: the decision, carried out.
+    let commit = match decision {
+        Decision::Adopt => adopt_override(record, &proposal, &root, &harnesses)?,
+        Decision::Reject => reject_override(record, &proposal, &root, &harnesses)?,
+    };
+
+    // 2. The ledger: the human's decision, in the chain, after the verdict
+    //    it goes against. It is written after the change was carried out,
+    //    so the chain never holds an override that was not.
     if let Some(seal) = record.seal {
         let mut ledger = Ledger::open(&record.ledger_path)?;
         ledger.override_verdict(seal, decision == Decision::Adopt, reason)?;
     }
-    let record_path = if record.record_path.as_os_str().is_empty() {
-        record
-            .next_header_path
-            .parent()
-            .map(|dir| dir.join(format!("{}.json", record.round_id)))
-            .unwrap_or_else(|| PathBuf::from(format!("{}.json", record.round_id)))
-    } else {
-        record.record_path.clone()
-    };
-    let mut next = next;
+
+    // 3. The next round's header: it pins the harness as it is now.
+    let harnesses = read_harness_set(&root)?;
+    let (next_header, next_header_path) = rewrite_next_header(record, &harnesses)?;
+
+    // 4. The record: the human's decision, and the commit it produced.
+    let mut next = record.clone();
+    next.decision = decision;
+    next.overrides.push(HumanOverride {
+        decision,
+        reason: reason.to_string(),
+        commit: commit.clone(),
+    });
+    if decision == Decision::Adopt {
+        next.commit = commit;
+    }
+    let (pin, pins) = pins_of(&next, &next_header, &harnesses);
+    next.next_header_pin = pin;
+    next.next_header_pins = pins;
+    next.next_header_path = next_header_path;
+
+    let record_path = record_path_of(record);
     next.record_path = record_path.clone();
     write_record(&next, &record_path)?;
     Ok(next)
+}
+
+/// Carry out an override to Adopt: the proposal is applied, committed and
+/// tagged, exactly as an adopted one is.
+fn adopt_override(
+    record: &FlowRecord,
+    proposal: &Proposal,
+    root: &Path,
+    harnesses: &BTreeMap<u16, Harness>,
+) -> Result<Option<String>, FlowError> {
+    // The flow adopted it already: the human agrees with the flow, and the
+    // commit is the one the round produced.
+    if record.decision == Decision::Adopt {
+        return Ok(record.commit.clone());
+    }
+    // The flow rejected it, so the harness must still be the one the
+    // proposal was measured against: a change that can no longer be
+    // applied as it was judged is refused, not applied to a state nobody
+    // measured.
+    check_harness_unchanged(record, harnesses, proposal)?;
+    review_apply(proposal, root)?;
+    let (commit, _) = commit_harness(root, proposal, &record.round_id)?;
+    Ok(commit)
+}
+
+/// Carry out an override to Reject: a proposal the flow adopted is
+/// reverted, in a commit of its own.
+fn reject_override(
+    record: &FlowRecord,
+    proposal: &Proposal,
+    root: &Path,
+    harnesses: &BTreeMap<u16, Harness>,
+) -> Result<Option<String>, FlowError> {
+    // The flow rejected it too: the proposal is not in the harness and the
+    // human agrees. There is nothing to revert.
+    if record.decision != Decision::Adopt {
+        return Ok(None);
+    }
+    let Some(commit) = record.commit.clone() else {
+        return Err(FlowError::Override(OverrideError::NoCommit {
+            round_id: record.round_id.clone(),
+        }));
+    };
+    check_harness_unchanged(record, harnesses, proposal)?;
+    revert_harness(root, proposal, &record.round_id, &commit).map(Some)
+}
+
+/// The harness must be where the round left it.
+///
+/// The proposal was measured against that harness, so an override is
+/// carried out against that state and no other: a harness that has moved
+/// on since the round cannot be changed the way the round judged.
+fn check_harness_unchanged(
+    record: &FlowRecord,
+    harnesses: &BTreeMap<u16, Harness>,
+    proposal: &Proposal,
+) -> Result<(), FlowError> {
+    let Some(agent) = proposal_agent(proposal) else {
+        // A squad's lexicon is not an agent's harness: there is no commit
+        // to compare, and the file itself says whether the change is
+        // already there.
+        return Ok(());
+    };
+    let Some(harness) = harnesses.get(&agent) else {
+        return Err(FlowError::Override(OverrideError::HarnessGone { agent }));
+    };
+    let expected = record
+        .next_header_pins
+        .get(&agent)
+        .cloned()
+        .unwrap_or_default();
+    if expected != harness.commit {
+        return Err(FlowError::Override(OverrideError::HarnessMovedOn {
+            agent,
+            expected,
+            found: harness.commit.clone(),
+        }));
+    }
+    Ok(())
+}
+
+/// Revert the round's commit: a new commit that restores the base.
+///
+/// History is never rewritten: the base is restored by a new commit on top
+/// of the round's. The round's tag moves to it, because the tag is the
+/// frozen state to roll back to (D27), and the frozen state is now the
+/// reverted one.
+fn revert_harness(
+    root: &Path,
+    proposal: &Proposal,
+    round_id: &str,
+    commit: &str,
+) -> Result<String, FlowError> {
+    let Some(agent) = proposal_agent(proposal) else {
+        return Err(FlowError::Override(OverrideError::NoCommit {
+            round_id: round_id.to_string(),
+        }));
+    };
+    let dir = root.join(format!("a{agent}"));
+    if !dir.join(".git").exists() {
+        return Err(FlowError::Override(OverrideError::NoCommit {
+            round_id: round_id.to_string(),
+        }));
+    }
+    let base = git(&dir, &["rev-parse", &format!("{commit}^")]).map_err(|_| {
+        FlowError::Override(OverrideError::NoBase {
+            commit: commit.to_string(),
+        })
+    })?;
+    // The inverse of the round's commit, staged but not committed.
+    if let Err(err) = git(&dir, &["revert", "--no-commit", commit]) {
+        let _ = git(&dir, &["revert", "--abort"]);
+        return Err(FlowError::Override(OverrideError::RevertRefused {
+            why: err.to_string(),
+        }));
+    }
+    // And the revert itself, as a commit of its own.
+    let message = format!("round {round_id}: a human reverted the change");
+    let date = commit_date(round_id);
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args([
+            "-c",
+            "user.name=last-mile flow",
+            "-c",
+            "user.email=flow@last-mile.invalid",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(["commit", "-m", &message])
+        .env("GIT_AUTHOR_DATE", &date)
+        .env("GIT_COMMITTER_DATE", &date)
+        .output()
+        .map_err(|err| FlowError::Git(format!("git commit: {err}")))?;
+    if !out.status.success() {
+        return Err(FlowError::Git(format!(
+            "git commit: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )));
+    }
+    // The revert must leave the base's tree exactly: that is what
+    // "restores the base" means.
+    let tree = git(&dir, &["rev-parse", "HEAD^{tree}"])?;
+    let base_tree = git(&dir, &["rev-parse", &format!("{base}^{{tree}}")])?;
+    if tree != base_tree {
+        return Err(FlowError::Override(OverrideError::RevertRefused {
+            why: format!("the revert left the tree {tree}, not the base's {base_tree}"),
+        }));
+    }
+    let revert = git(&dir, &["rev-parse", "HEAD"])?;
+    git(&dir, &["tag", "-f", &format!("round-{round_id}"), &revert])?;
+    Ok(revert)
+}
+
+/// Rewrite the next round's header, so it pins the harness as it is now.
+fn rewrite_next_header(
+    record: &FlowRecord,
+    harnesses: &BTreeMap<u16, Harness>,
+) -> Result<(Header, PathBuf), FlowError> {
+    let path = next_header_path_of(record)?;
+    let next_header = round_header(record.seed.saturating_add(1), harnesses);
+    fs::write(
+        &path,
+        serde_json::to_string_pretty(&next_header)
+            .map_err(|err| FlowError::Harness(format!("the next header: {err}")))?,
+    )?;
+    Ok((next_header, path))
+}
+
+/// Where the harness the round was played against is.
+fn harness_root_of(record: &FlowRecord) -> Result<PathBuf, FlowError> {
+    if record.harness_root.as_os_str().is_empty() {
+        return Err(FlowError::Override(OverrideError::NoHarnessRoot {
+            round_id: record.round_id.clone(),
+        }));
+    }
+    Ok(record.harness_root.clone())
+}
+
+/// Where the next round's header is.
+fn next_header_path_of(record: &FlowRecord) -> Result<PathBuf, FlowError> {
+    if !record.next_header_path.as_os_str().is_empty() {
+        return Ok(record.next_header_path.clone());
+    }
+    record
+        .record_path
+        .parent()
+        .map(|dir| dir.join(format!("{}-next-header.json", record.round_id)))
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| {
+            FlowError::Override(OverrideError::NoRunsRoot {
+                round_id: record.round_id.clone(),
+            })
+        })
+}
+
+/// Where the flow record is.
+fn record_path_of(record: &FlowRecord) -> PathBuf {
+    if !record.record_path.as_os_str().is_empty() {
+        return record.record_path.clone();
+    }
+    record
+        .next_header_path
+        .parent()
+        .map(|dir| dir.join(format!("{}.json", record.round_id)))
+        .unwrap_or_else(|| PathBuf::from(format!("{}.json", record.round_id)))
 }
 
 /// The agent a proposal belongs to, when it belongs to one.
@@ -1140,6 +1546,7 @@ mod tests {
             round_id: "r7".to_string(),
             seed: 7,
             log_path: PathBuf::from("r7.log"),
+            harness_root: PathBuf::from("/tmp/harness"),
             metrics_digest: "0".to_string(),
             review_text: String::new(),
             proposal: None,

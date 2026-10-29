@@ -18,7 +18,7 @@ use lm_core::header::Header;
 use lm_core::log::RoundLog;
 use lm_learn::flow::{
     metrics_digest, proposal_hash, run_learning_round, write_override, Decision, FlowConfig,
-    FlowRecord, StubReviewer,
+    FlowError, FlowRecord, OverrideError, StubReviewer,
 };
 use lm_learn::ledger::{Entry, Ledger};
 use lm_learn::metrics::RoundMetrics;
@@ -62,6 +62,16 @@ fn reflex(v) {
     if target >= 0 {
         return #{ "goto": [v.beacons[target].cell[0], v.beacons[target].cell[1]] };
     }
+    #{ hold: true }
+}
+"#;
+
+/// The reflex of a proposal the held-out evaluation does not back: the
+/// agents stand still, so the squad never holds a beacon and the metric
+/// cannot move up.
+const IDLE_REFLEX: &str = r#"
+// the human's lesson: stand still and watch the beacon.
+fn reflex(v) {
     #{ hold: true }
 }
 "#;
@@ -149,6 +159,16 @@ fn harmless_review() -> String {
         .to_string()
 }
 
+/// The reviewer's answer: a reflex edit the held-out evaluation does not
+/// back (the squad never holds a beacon, so the metric cannot move up).
+fn idle_review(agent: u16) -> String {
+    let source = serde_json::to_string(IDLE_REFLEX).expect("the reflex is json");
+    format!(
+        r#"{{"proposal": {{"kind": "EditReflex", "agent": {agent}, "name": "default", "source": {source}}},
+            "prediction": {{"metric": "hold_ticks_squad0", "direction": "Up", "min_delta": 1}}}}"#
+    )
+}
+
 /// The flow, set up over a scratch directory.
 fn flow(dir: &Path, harness: &Path, seed: u64) -> FlowConfig {
     FlowConfig::new(seed, harness)
@@ -165,6 +185,12 @@ fn record_on_disk(dir: &Path, round_id: &str) -> FlowRecord {
         .join(format!("{round_id}.json"));
     let text = fs::read_to_string(&path).expect("the flow record is on disk");
     serde_json::from_str(&text).expect("the flow record reads back")
+}
+
+/// Every entry of the round's ledger, in order.
+fn ledger_entries(record: &FlowRecord) -> Vec<Entry> {
+    let ledger = Ledger::open(&record.ledger_path).expect("the ledger is there");
+    ledger.entries().cloned().collect()
 }
 
 /// Round N+1 plays what round N learned: the proposal was tested on
@@ -462,4 +488,310 @@ fn override_is_recorded() {
     assert_eq!(on_disk.decision, Decision::Adopt);
     assert_eq!(on_disk.overrides.len(), 1);
     assert_eq!(on_disk.verdict, record.verdict);
+}
+
+/// A human's override to Adopt applies the proposal: the change lands in
+/// the harness, in a commit of its own, and the next round's header pins
+/// that commit. The human's "use this lesson anyway" reaches round N+1.
+#[test]
+fn override_to_adopt_applies_and_pins_the_commit() {
+    let dir = scratch("override-adopt");
+    let harness = harness_root(&dir, &[0]);
+    let base = git(&harness.join("a0"), &["rev-parse", "HEAD"]);
+
+    // The reviewer proposes a reflex the held-out evaluation does not
+    // back: the flow rejects it and the harness is left alone.
+    let mut reviewer = StubReviewer::new(idle_review(0));
+    let record =
+        run_learning_round(&flow(&dir, &harness, 7), &mut reviewer).expect("the round runs");
+    assert_eq!(record.decision, Decision::Reject);
+    assert!(record.commit.is_none(), "nothing was committed");
+    assert_eq!(record.next_header_pin, base);
+    assert_eq!(
+        fs::read_to_string(harness.join("a0/reflexes/default.rhai")).expect("the reflex is there"),
+        DEFAULT_REFLEX
+    );
+
+    // The human says: use it anyway.
+    let overridden = write_override(
+        &record,
+        Decision::Adopt,
+        "the reflex is the right one even if the metric did not move",
+    )
+    .expect("the override is carried out");
+
+    // The change landed in the harness, in a commit of its own, and the
+    // round is tagged on it.
+    let commit = overridden.commit.clone().expect("the change was committed");
+    assert_ne!(commit, base);
+    assert_eq!(git(&harness.join("a0"), &["rev-parse", "HEAD"]), commit);
+    assert_eq!(
+        git(&harness.join("a0"), &["rev-list", "-n", "1", "round-r7"]),
+        commit
+    );
+    let source =
+        fs::read_to_string(harness.join("a0/reflexes/default.rhai")).expect("the reflex is there");
+    assert!(
+        source.contains("the human's lesson"),
+        "the proposal did not land: {source}"
+    );
+
+    // Round N+1 plays the human's lesson: the next header pins the commit
+    // the override produced, and carries the lesson with it.
+    assert_eq!(overridden.next_header_pin, commit);
+    let next: Header = serde_json::from_str(
+        &fs::read_to_string(&overridden.next_header_path).expect("the header is there"),
+    )
+    .expect("the next header reads back");
+    let entry = next
+        .roster
+        .iter()
+        .find(|e| e.agent == 0)
+        .expect("agent 0 plays");
+    assert_eq!(entry.harness_commit, commit);
+    assert!(
+        next.scripts["a0/default"].contains("the human's lesson"),
+        "the lesson is not in the header"
+    );
+
+    // The measurement is still the measurement: the record says the human
+    // decided otherwise, and which commit it produced.
+    assert_eq!(overridden.verdict, record.verdict);
+    assert!(
+        !overridden
+            .verdict
+            .clone()
+            .expect("the verdict is there")
+            .adopted
+    );
+    assert_eq!(overridden.overrides.len(), 1);
+    assert_eq!(overridden.overrides[0].decision, Decision::Adopt);
+    assert_eq!(overridden.overrides[0].commit, Some(commit.clone()));
+
+    // The ledger says so, in the chain, after the verdict it goes against.
+    let entries = ledger_entries(&record);
+    let verdict_seq = entries
+        .iter()
+        .position(|entry| matches!(entry, Entry::Verdict(_)))
+        .expect("the verdict is recorded");
+    let override_seq = entries
+        .iter()
+        .position(|entry| matches!(entry, Entry::Override { .. }))
+        .expect("the override is recorded");
+    assert!(verdict_seq < override_seq);
+
+    // And the record on disk says so too.
+    let on_disk = record_on_disk(&dir, "r7");
+    assert_eq!(on_disk.decision, Decision::Adopt);
+    assert_eq!(on_disk.commit, Some(commit.clone()));
+    assert_eq!(on_disk.overrides.len(), 1);
+    assert_eq!(on_disk.overrides[0].commit, Some(commit));
+    assert_eq!(on_disk.verdict, record.verdict);
+}
+
+/// A human's override to Reject of a proposal the flow adopted reverts
+/// it: a new commit restores the base (history is never rewritten), and
+/// the next round's header pins that revert.
+#[test]
+fn override_to_reject_reverts_with_a_new_commit() {
+    let dir = scratch("override-reject");
+    let harness = harness_root(&dir, &[0]);
+    let base = git(&harness.join("a0"), &["rev-parse", "HEAD"]);
+
+    // The reviewer proposes the known-good reflex: the flow adopts it.
+    let mut reviewer = StubReviewer::new(hold_review(0));
+    let record =
+        run_learning_round(&flow(&dir, &harness, 7), &mut reviewer).expect("the round runs");
+    assert_eq!(record.decision, Decision::Adopt);
+    let commit = record.commit.clone().expect("the change was committed");
+    assert_ne!(commit, base);
+    assert_eq!(git(&harness.join("a0"), &["rev-parse", "HEAD"]), commit);
+
+    // The human says: not this one.
+    let overridden = write_override(
+        &record,
+        Decision::Reject,
+        "the reflex fights the other squad",
+    )
+    .expect("the override is carried out");
+
+    // The harness is back to the base, in a commit of its own: the round's
+    // commit is still there, and the revert is on top of it.
+    let revert = overridden
+        .overrides
+        .first()
+        .and_then(|over| over.commit.clone())
+        .expect("the revert was committed");
+    assert_ne!(revert, commit);
+    assert_eq!(git(&harness.join("a0"), &["rev-parse", "HEAD"]), revert);
+    assert_eq!(git(&harness.join("a0"), &["rev-parse", "HEAD^"]), commit);
+    assert_eq!(git(&harness.join("a0"), &["rev-parse", "HEAD^^"]), base);
+    assert_eq!(
+        fs::read_to_string(harness.join("a0/reflexes/default.rhai")).expect("the reflex is there"),
+        DEFAULT_REFLEX
+    );
+
+    // The round's tag is the frozen state to roll back to (D27), and the
+    // frozen state is the reverted one now.
+    assert_eq!(
+        git(&harness.join("a0"), &["rev-list", "-n", "1", "round-r7"]),
+        revert
+    );
+
+    // Round N+1 plays the base, not the lesson.
+    assert_eq!(overridden.next_header_pin, revert);
+    let next: Header = serde_json::from_str(
+        &fs::read_to_string(&overridden.next_header_path).expect("the header is there"),
+    )
+    .expect("the next header reads back");
+    let entry = next
+        .roster
+        .iter()
+        .find(|e| e.agent == 0)
+        .expect("agent 0 plays");
+    assert_eq!(entry.harness_commit, revert);
+    assert!(
+        !next.scripts["a0/default"].contains("nearest_of"),
+        "the lesson is still in the header"
+    );
+
+    // The measurement is still the measurement, and the change did land:
+    // the record keeps the commit it landed in.
+    assert_eq!(overridden.verdict, record.verdict);
+    assert!(
+        overridden
+            .verdict
+            .clone()
+            .expect("the verdict is there")
+            .adopted
+    );
+    assert_eq!(overridden.decision, Decision::Reject);
+    assert_eq!(overridden.commit, Some(commit));
+    assert_eq!(overridden.overrides.len(), 1);
+    assert_eq!(overridden.overrides[0].decision, Decision::Reject);
+
+    // The ledger says the human went against the evidence.
+    let entries = ledger_entries(&record);
+    let entry = entries
+        .iter()
+        .find(|entry| matches!(entry, Entry::Override { .. }))
+        .expect("the override is recorded");
+    let Entry::Override {
+        seal,
+        adopted,
+        reason,
+    } = entry
+    else {
+        panic!("the override is an override");
+    };
+    assert_eq!(*seal, record.seal.expect("the seal is there"));
+    assert!(!adopted);
+    assert!(reason.contains("fights"));
+
+    // And the record on disk says so too.
+    let on_disk = record_on_disk(&dir, "r7");
+    assert_eq!(on_disk.decision, Decision::Reject);
+    assert_eq!(on_disk.overrides.len(), 1);
+    assert_eq!(on_disk.overrides[0].commit, Some(revert));
+    assert_eq!(on_disk.verdict, record.verdict);
+}
+
+/// An override that cannot be carried out is refused, by name, and
+/// nothing is recorded: the ledger never holds an override that was not
+/// carried out.
+#[test]
+fn override_that_cannot_apply_is_refused_and_not_recorded() {
+    let dir = scratch("override-refused");
+    let harness = harness_root(&dir, &[0]);
+    let base = git(&harness.join("a0"), &["rev-parse", "HEAD"]);
+
+    let mut reviewer = StubReviewer::new(idle_review(0));
+    let record =
+        run_learning_round(&flow(&dir, &harness, 7), &mut reviewer).expect("the round runs");
+    assert_eq!(record.decision, Decision::Reject);
+    let header_before = fs::read_to_string(&record.next_header_path).expect("the header is there");
+
+    // The harness moved on after the round: the proposal was measured
+    // against a harness that is no longer there.
+    fs::write(
+        harness.join("a0/policy.toml"),
+        "# the agent's policy\nthink_hz = 4\n",
+    )
+    .expect("the policy is written");
+    git(&harness.join("a0"), &["add", "-A"]);
+    git(
+        &harness.join("a0"),
+        &[
+            "-c",
+            "user.name=someone else",
+            "-c",
+            "user.email=someone@last-mile.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "the harness moved on",
+        ],
+    );
+    let moved_on = git(&harness.join("a0"), &["rev-parse", "HEAD"]);
+    assert_ne!(moved_on, base);
+
+    // The human's override is refused, and the refusal says why.
+    let err = write_override(&record, Decision::Adopt, "use it anyway")
+        .expect_err("the override cannot be carried out");
+    let FlowError::Override(OverrideError::HarnessMovedOn {
+        agent,
+        expected,
+        found,
+    }) = &err
+    else {
+        panic!("the override was refused for another reason: {err}");
+    };
+    assert_eq!(*agent, 0);
+    assert_eq!(expected, &base);
+    assert_eq!(found, &moved_on);
+
+    // Nothing was recorded: the ledger holds no override...
+    let entries = ledger_entries(&record);
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| matches!(entry, Entry::Override { .. })),
+        "the override was recorded"
+    );
+    // ...and the record on disk still says what the flow decided.
+    let on_disk = record_on_disk(&dir, "r7");
+    assert_eq!(on_disk.decision, Decision::Reject);
+    assert!(on_disk.overrides.is_empty());
+    assert!(on_disk.commit.is_none());
+
+    // And the harness is exactly as it was: the proposal was not applied.
+    assert_eq!(git(&harness.join("a0"), &["rev-parse", "HEAD"]), moved_on);
+    assert_eq!(
+        fs::read_to_string(harness.join("a0/reflexes/default.rhai")).expect("the reflex is there"),
+        DEFAULT_REFLEX
+    );
+    // The next header still pins the base: the round was not rewritten.
+    assert_eq!(
+        fs::read_to_string(&record.next_header_path).expect("the header is there"),
+        header_before
+    );
+
+    // The same, with the harness gone altogether.
+    fs::remove_dir_all(harness.join("a0")).expect("the harness is gone");
+    let err = write_override(&record, Decision::Adopt, "use it anyway")
+        .expect_err("the override cannot be carried out");
+    assert!(
+        matches!(
+            err,
+            FlowError::Override(OverrideError::HarnessGone { agent: 0 })
+        ),
+        "the override was refused for another reason: {err}"
+    );
+    assert!(
+        !ledger_entries(&record)
+            .iter()
+            .any(|entry| matches!(entry, Entry::Override { .. })),
+        "the override was recorded"
+    );
+    assert_eq!(record_on_disk(&dir, "r7").decision, Decision::Reject);
 }
