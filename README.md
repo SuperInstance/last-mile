@@ -62,6 +62,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 | [`lm-core`](crates/lm-core/src/lib.rs) | The deterministic simulation: fixed-point math, worldgen, LOS, JPS, decisions and sequencer, lane conditioner, agents with safe branches, fog-of-war views and menus, Beacons rules, sandboxed Rhai reflexes, the hash-chained round log | No floats, no unordered containers, no clock, no network. Overflow checks on in release |
 | [`lm-proto`](crates/lm-proto/src/lib.rs) | Wire messages, a strict postcard codec, the version handshake | No transport yet (QUIC comes in phase 3) |
 | [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI (the crate is `lm-tools`, the binary it builds is `lm`): `run`, `replay`, `diff`, `golden` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
+| [`lm-router`](crates/lm-router/src/lib.rs) | The cloud purse: provider adapters (Z.AI, MiniMax, Kimi, Claude, Jev, a stub), per-provider allotments and the exchange table, metered by observation | The only crate that spends money. Keys are read at runtime from `~/.config/last-mile/secrets.env` and never printed; the real limits live in `router.toml`, never in an agent's view |
 
 ## Repository map
 
