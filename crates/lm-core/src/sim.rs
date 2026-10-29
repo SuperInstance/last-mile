@@ -449,6 +449,11 @@ impl Sim {
                 Kind::Lane(lane) => self.apply_lane(index, lane, now),
                 Kind::Roll(roll) => self.apply_roll(index, roll, stamped.d.seq, now),
                 Kind::Marker(marker) => events.push(Event::Marker(*marker)),
+                // A line is a score for the ear, not for the world: the
+                // hearing physics lands in a later phase-4 task, so the sim
+                // records the line and leaves the world alone. The log keeps
+                // it either way, so the round still replays exactly.
+                Kind::Utterance(_) => {}
             }
         }
     }

@@ -15,6 +15,7 @@ use lm_core::decision::{Action, Decision, Intent, Kind, Lane, Provenance, Roll, 
 use lm_core::header::Header;
 use lm_core::log::{LogError, RoundLog};
 use lm_core::sim::Sim;
+use lm_core::talk::TalkParams;
 use lm_core::world::CellXY;
 use lm_tools::branch::{branch, BranchError, Change};
 use lm_tools::runner::{read_golden, read_log, replay, run, ReplayError};
@@ -177,6 +178,49 @@ fn golden_hashes() {
             "seed {seed}"
         );
     }
+}
+
+#[test]
+fn phase1_goldens_unchanged() {
+    // The phase-4 proto bump appended the talk params to the header and the
+    // utterance to the decision kinds. The state hash covers the tick, the
+    // world, the agents, the knowledge and the ruleset -- not the header and
+    // not the talk params -- so the phase-1 goldens still hold: the world
+    // did not move. (`lm golden` prints OK 3/3 over the same three seeds.)
+    let golden = read_golden().expect("tests/golden.toml is readable");
+    for seed in [1u64, 2, 3] {
+        let (log, _) = run(Header::default_round(seed, DEFAULT_REFLEX), 3_000, &[]);
+        let last = log.hashes().last().expect("the round has hashes").1;
+        assert_eq!(
+            last,
+            golden.hash_of(seed).expect("the seed is pinned"),
+            "seed {seed}"
+        );
+    }
+}
+
+#[test]
+fn default_talk_params_do_not_change_a_phase1_round() {
+    // The talk rules travel in the header, so they are part of the round's
+    // identity -- but they are not part of the world: with the default talk
+    // params, a phase-1 round hashes exactly as it did before the bump.
+    let mut header = Header::default_round(1, DEFAULT_REFLEX);
+    header.talk = TalkParams::default();
+
+    let golden = read_golden().expect("tests/golden.toml is readable");
+    let (log, _) = run(header.clone(), 3_000, &[]);
+    let last = log.hashes().last().expect("the round has hashes").1;
+    assert_eq!(
+        last,
+        golden.hash_of(1).expect("seed 1 is pinned"),
+        "the default talk params moved the world"
+    );
+
+    // The talk params are still part of the round's identity: change them
+    // and the header hash moves, even though the world does not.
+    let mut other = header.clone();
+    other.talk.range_voice_units = 51_200;
+    assert_ne!(header.hash(), other.hash());
 }
 
 #[test]

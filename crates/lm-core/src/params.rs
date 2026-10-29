@@ -16,7 +16,8 @@ pub struct ParamError {
 }
 
 impl ParamError {
-    fn new(field: &'static str, reason: &str) -> Self {
+    /// A refusal of one field, by name and by reason.
+    pub(crate) fn new(field: &'static str, reason: &str) -> Self {
         Self {
             field,
             reason: reason.to_owned(),

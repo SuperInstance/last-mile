@@ -8,11 +8,16 @@
 use crate::decision::{Source, Tick};
 use crate::hash::{Fnv64, StateHash};
 use crate::params::Params;
+use crate::talk::TalkParams;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The wire and log format version carried by every header.
-pub const PROTO_VERSION: u16 = 1;
+///
+/// Version 2 added the talk params to the header and the utterance to the
+/// decision kinds. Both were **appended**, so every phase-1 header and every
+/// phase-1 decision still decodes, and the phase-1 state hashes still hold.
+pub const PROTO_VERSION: u16 = 2;
 
 /// An agent's role inside its squad.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,6 +161,15 @@ pub struct Header {
     /// so every header hashed before it existed keeps its hash.
     #[serde(default)]
     pub lineage: Option<Lineage>,
+    /// The round's talk rules: how far a voice carries, what a wall costs,
+    /// how much airtime an agent has.
+    ///
+    /// The field was **appended** after `lineage`, so a header blob written
+    /// before phase 4 still decodes through [`HeaderV1`] and migrates here.
+    /// The talk rules are not branchable: they change *what the round is* —
+    /// who hears what — so they join the header hash and stay out of
+    /// `Params::BRANCH_FIELDS`.
+    pub talk: TalkParams,
 }
 
 impl Header {
@@ -189,6 +203,7 @@ impl Header {
             scripts,
             start_tick: 0,
             lineage: None,
+            talk: TalkParams::default(),
         }
     }
 
@@ -221,6 +236,75 @@ impl StateHash for Header {
             h.write(&[1]);
             lineage.hash_into(h);
         }
+        // The talk rules are the last field, and they are always there: the
+        // talk params change what the round is, so they are part of its
+        // identity.
+        self.talk.hash_into(h);
+    }
+}
+
+/// The phase-1 header: the shape a version-1 log carries.
+///
+/// The fields are the phase-1 header's fields, in the same order and with the
+/// same types, so a version-1 header blob decodes through this shim exactly
+/// as it decoded through the phase-1 `Header` — and hashes exactly as it
+/// hashed then.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeaderV1 {
+    pub proto_version: u16,
+    pub seed: u64,
+    pub params: Params,
+    pub ruleset: String,
+    pub roster: Vec<RosterEntry>,
+    pub scripts: BTreeMap<String, String>,
+    pub start_tick: u64,
+    #[serde(default)]
+    pub lineage: Option<Lineage>,
+}
+
+impl HeaderV1 {
+    /// Migrate the header to the current version.
+    ///
+    /// The talk params take their defaults — a phase-1 round had no talk
+    /// rules, and the default talk rules are the ones the plan pins — and
+    /// the version becomes the current one. Nothing else moves: the seed,
+    /// the parameters, the roster, the scripts and the lineage are the round
+    /// that was played.
+    pub fn migrate(self) -> Header {
+        Header {
+            proto_version: PROTO_VERSION,
+            seed: self.seed,
+            params: self.params,
+            ruleset: self.ruleset,
+            roster: self.roster,
+            scripts: self.scripts,
+            start_tick: self.start_tick,
+            lineage: self.lineage,
+            talk: TalkParams::default(),
+        }
+    }
+}
+
+impl StateHash for HeaderV1 {
+    fn hash_into(&self, h: &mut Fnv64) {
+        h.u16(self.proto_version);
+        h.u64(self.seed);
+        self.params.hash_into(h);
+        write_str(h, &self.ruleset);
+        h.u32(self.roster.len() as u32);
+        for r in &self.roster {
+            r.hash_into(h);
+        }
+        h.u32(self.scripts.len() as u32);
+        for (name, src) in &self.scripts {
+            write_str(h, name);
+            write_str(h, src);
+        }
+        h.u64(self.start_tick);
+        if let Some(lineage) = &self.lineage {
+            h.write(&[1]);
+            lineage.hash_into(h);
+        }
     }
 }
 
@@ -233,6 +317,7 @@ fn write_str(h: &mut Fnv64, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::talk::AIRTIME_ON_EXHAUST_FREEZE;
 
     #[test]
     fn header_hash_stable_and_sensitive() {
@@ -279,7 +364,7 @@ mod tests {
         let base = Header::default_round(1, "src");
         let mut variants: Vec<Header> = Vec::new();
         let mut v = base.clone();
-        v.proto_version = 2;
+        v.proto_version = PROTO_VERSION + 1;
         variants.push(v);
         let mut v = base.clone();
         v.ruleset = "other".to_owned();
@@ -311,6 +396,121 @@ mod tests {
         for v in &variants {
             assert_ne!(base.hash(), v.hash());
         }
+    }
+
+    #[test]
+    fn header_talk_is_hashed() {
+        let base = Header::default_round(1, "src");
+        let original = base.hash();
+
+        // The talk rules change what the round *is* — who hears what — so
+        // they are part of the round's identity.
+        let mut changed = base.clone();
+        changed.talk.range_voice_units = 51_200;
+        assert_ne!(base.hash(), changed.hash());
+
+        // And changing them twice returns to the original hash: the hash
+        // follows the values, not the number of edits.
+        let mut back = changed.clone();
+        back.talk.range_voice_units = base.talk.range_voice_units;
+        assert_eq!(original, back.hash());
+
+        // Every talk field is covered.
+        let mut variants: Vec<TalkParams> = Vec::new();
+        let mut v = base.talk.clone();
+        v.range_shout_units += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.range_whisper_units += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.radio_is_squad = !v.radio_is_squad;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.wall_loss_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.min_clarity_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.clarity_pitch_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.clarity_rate_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.act_clarity_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.intent_clarity_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.word_drop_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.radio_pitch_steps += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.radio_drop_q16 += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.base_wpm += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.beat_ticks += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.min_word_ticks += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.max_utterance_ticks += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.airtime_s += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.airtime_on_exhaust = AIRTIME_ON_EXHAUST_FREEZE.to_owned();
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.order_uptake_window_ticks += 1;
+        variants.push(v);
+        let mut v = base.talk.clone();
+        v.enemy_overhears_voice = !v.enemy_overhears_voice;
+        variants.push(v);
+        for talk in variants {
+            let mut header = base.clone();
+            header.talk = talk;
+            assert_ne!(base.hash(), header.hash());
+        }
+    }
+
+    #[test]
+    fn the_default_round_carries_the_default_talk_rules() {
+        let h = Header::default_round(1, "src");
+        assert_eq!(h.talk, TalkParams::default());
+        assert_eq!(h.proto_version, PROTO_VERSION);
+        assert_eq!(PROTO_VERSION, 2);
+    }
+
+    #[test]
+    fn a_v1_header_migrates_into_the_current_one() {
+        let v1 = HeaderV1 {
+            proto_version: 1,
+            seed: 7,
+            params: Params::default(),
+            ruleset: "beacons".to_owned(),
+            roster: Vec::new(),
+            scripts: BTreeMap::new(),
+            start_tick: 0,
+            lineage: None,
+        };
+        let migrated = v1.clone().migrate();
+        assert_eq!(migrated.proto_version, PROTO_VERSION);
+        assert_eq!(migrated.talk, TalkParams::default());
+        assert_eq!(migrated.seed, 7);
+        // The migration is a new identity: the version and the talk rules
+        // joined the header hash.
+        assert_ne!(v1.state_hash(), migrated.state_hash());
     }
 
     #[test]

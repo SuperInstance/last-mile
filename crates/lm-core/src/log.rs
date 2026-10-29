@@ -22,6 +22,20 @@
 //! Each segment carries the hash of the segment before it, and the first
 //! segment carries the hash of the header: the whole file is one chain, so a
 //! single flipped byte is caught and named, never replayed as a prefix.
+//!
+//! ## The version gate
+//!
+//! The version after the magic says which header shape the file carries. This
+//! build reads every version from [`MIN_READABLE_VERSION`] up to
+//! [`PROTO_VERSION`]; anything else is refused, by name.
+//!
+//! A version-1 log is read through the [`HeaderV1`] shim and **migrated**:
+//! the talk params take their defaults and the version becomes the current
+//! one. The migration changes the *header*, so the chain is **re-rooted**
+//! over the migrated header: every segment's `prev` and `hash` is recomputed.
+//! The state hashes inside the segments are not touched — the world the log
+//! records did not change, so the round still replays to the hashes it
+//! recorded.
 
 use std::fmt;
 use std::io::{self, Read, Write};
@@ -30,10 +44,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::decision::{Stamped, Tick};
 use crate::hash::Fnv64;
-use crate::header::{Header, PROTO_VERSION};
+use crate::header::{Header, HeaderV1, PROTO_VERSION};
 
 /// The bytes that start every log file.
 pub const MAGIC: [u8; 8] = *b"LMLOG1\0\0";
+
+/// The oldest log version this build can read.
+///
+/// The reader accepts every version from here up to [`PROTO_VERSION`]; a
+/// version outside that range is refused by name.
+pub const MIN_READABLE_VERSION: u16 = 1;
 
 /// The size of the chunks a blob body is read in.
 const READ_CHUNK: usize = 64 * 1024;
@@ -73,7 +93,10 @@ impl fmt::Display for LogError {
         match self {
             LogError::BadMagic => write!(f, "not a round log: bad magic"),
             LogError::Version { found } => {
-                write!(f, "log version {found}, this build speaks {PROTO_VERSION}")
+                write!(
+                    f,
+                    "log version {found}, this build speaks {MIN_READABLE_VERSION}..={PROTO_VERSION}"
+                )
             }
             LogError::Truncated { segment } => {
                 write!(f, "log truncated inside blob {segment}")
@@ -159,12 +182,48 @@ pub struct RoundLog {
     pub segments: Vec<Segment>,
 }
 
+/// A version-1 round log: the phase-1 header and the segments, before any
+/// migration.
+///
+/// The version gate reads an old log through this shape, so the old header
+/// can be seen as it was written — and so the migration can be checked
+/// against it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoundLogV1 {
+    /// The header as it was written.
+    pub header: HeaderV1,
+    /// The segments as they were written.
+    pub segments: Vec<Segment>,
+}
+
+impl RoundLogV1 {
+    /// Migrate the log to the current version.
+    ///
+    /// The header gains the talk params and the current version, so the
+    /// round's identity moves; the chain is re-rooted over the migrated
+    /// header to match. The state hashes inside the segments stay exactly
+    /// as they were: the world the log records did not change, so the round
+    /// still replays to the hashes it recorded.
+    pub fn migrate(self) -> RoundLog {
+        let header = self.header.migrate();
+        let mut log = RoundLog {
+            header,
+            segments: self.segments,
+        };
+        log.reroot_chain();
+        log
+    }
+}
+
 impl RoundLog {
     /// Write the log: magic, version, then the header and every segment as
     /// length-prefixed postcard blobs.
+    ///
+    /// The version is the header's own, not the build's constant: a log that
+    /// was migrated from version 1 writes back as a valid version-2 log.
     pub fn write(&self, w: &mut impl Write) -> io::Result<()> {
         w.write_all(&MAGIC)?;
-        w.write_all(&PROTO_VERSION.to_le_bytes())?;
+        w.write_all(&self.header.proto_version.to_le_bytes())?;
         write_blob(w, &self.header)?;
         for segment in &self.segments {
             write_blob(w, segment)?;
@@ -172,55 +231,53 @@ impl RoundLog {
         Ok(())
     }
 
-    /// Read a log back.
+    /// Read a log back, in any version this build speaks.
     ///
     /// The file is decoded strictly: a wrong magic, a wrong version, a
     /// truncated blob or a blob that does not decode is an error that names
     /// the blob it happened in. The hash chain is verified before the log is
     /// handed back, so a damaged log never replays as a prefix.
+    ///
+    /// A version-1 log is migrated on the way in: the header gains the talk
+    /// params and the current version, and the chain is re-rooted over it.
+    /// The state hashes inside the segments are not touched.
     pub fn read(r: &mut impl Read) -> Result<RoundLog, LogError> {
-        let mut magic = [0u8; MAGIC.len()];
-        // A file too short to hold the magic is not a log file.
-        r.read_exact(&mut magic).map_err(|_| LogError::BadMagic)?;
-        if magic != MAGIC {
-            return Err(LogError::BadMagic);
-        }
-        let mut version = [0u8; 2];
-        r.read_exact(&mut version)
-            .map_err(|_| LogError::Truncated { segment: 0 })?;
-        let found = u16::from_le_bytes(version);
-        if found != PROTO_VERSION {
-            return Err(LogError::Version { found });
-        }
-
-        // Blob 0 is the header; blob `i` (for `i >= 1`) is `segments[i - 1]`.
-        let mut blobs: Vec<Vec<u8>> = Vec::new();
-        loop {
-            let index = blobs.len();
-            let len = match read_len(r, index)? {
-                Some(len) => len,
-                None => break,
-            };
-            let body = read_body(r, len as usize).ok_or(LogError::Truncated { segment: index })?;
-            blobs.push(body);
-        }
-
-        let header = blobs
-            .first()
-            .ok_or(LogError::Truncated { segment: 0 })
-            .and_then(|blob| {
-                postcard::from_bytes(blob).map_err(|_| LogError::Decode { segment: 0 })
-            })?;
-        let mut segments = Vec::with_capacity(blobs.len().saturating_sub(1));
-        for (index, blob) in blobs.iter().enumerate().skip(1) {
-            let segment: Segment =
-                postcard::from_bytes(blob).map_err(|_| LogError::Decode { segment: index })?;
-            segments.push(segment);
-        }
-
-        let log = RoundLog { header, segments };
+        let blobs = read_blobs(r)?;
+        let log = if blobs.version == MIN_READABLE_VERSION {
+            decode_v1(&blobs)?.migrate()
+        } else {
+            decode_v2(&blobs)?
+        };
         log.verify()?;
         Ok(log)
+    }
+
+    /// Read a version-1 log, without migrating it.
+    ///
+    /// This is the pre-migration view: the header and the chain as phase 1
+    /// wrote them. The version gate is checked against it.
+    pub fn read_v1(r: &mut impl Read) -> Result<RoundLogV1, LogError> {
+        let blobs = read_blobs(r)?;
+        if blobs.version != MIN_READABLE_VERSION {
+            return Err(LogError::Version {
+                found: blobs.version,
+            });
+        }
+        decode_v1(&blobs)
+    }
+
+    /// Re-root the chain over the header.
+    ///
+    /// Every segment's `prev` and `hash` is recomputed, so the chain
+    /// follows the header it belongs to. The state hashes inside the
+    /// segments are not touched: the world the log records did not change.
+    pub fn reroot_chain(&mut self) {
+        let mut prev = self.header.hash();
+        for segment in &mut self.segments {
+            segment.prev = prev;
+            segment.hash = segment.compute_hash();
+            prev = segment.hash;
+        }
     }
 
     /// Check the log: the version and the hash chain.
@@ -229,7 +286,9 @@ impl RoundLog {
     /// one must carry the header's hash, and every segment's hash must be the
     /// hash of its own contents.
     pub fn verify(&self) -> Result<(), LogError> {
-        if self.header.proto_version != PROTO_VERSION {
+        if self.header.proto_version < MIN_READABLE_VERSION
+            || self.header.proto_version > PROTO_VERSION
+        {
             return Err(LogError::Version {
                 found: self.header.proto_version,
             });
@@ -275,6 +334,86 @@ impl RoundLog {
         }
         out
     }
+}
+
+/// The blobs of a log file, read but not yet interpreted.
+struct Blobs {
+    /// The version the file claims.
+    version: u16,
+    /// The header blob.
+    header: Vec<u8>,
+    /// The segment blobs, in order.
+    segments: Vec<Vec<u8>>,
+}
+
+/// Read the magic, the version and the blobs of a log file.
+///
+/// The version is the gate: a file whose version this build does not speak
+/// is refused here, by name, before anything is decoded.
+fn read_blobs(r: &mut impl Read) -> Result<Blobs, LogError> {
+    let mut magic = [0u8; MAGIC.len()];
+    // A file too short to hold the magic is not a log file.
+    r.read_exact(&mut magic).map_err(|_| LogError::BadMagic)?;
+    if magic != MAGIC {
+        return Err(LogError::BadMagic);
+    }
+    let mut version = [0u8; 2];
+    r.read_exact(&mut version)
+        .map_err(|_| LogError::Truncated { segment: 0 })?;
+    let version = u16::from_le_bytes(version);
+    if !(MIN_READABLE_VERSION..=PROTO_VERSION).contains(&version) {
+        return Err(LogError::Version { found: version });
+    }
+
+    // Blob 0 is the header; blob `i` (for `i >= 1`) is `segments[i - 1]`.
+    let mut blobs: Vec<Vec<u8>> = Vec::new();
+    loop {
+        let index = blobs.len();
+        let len = match read_len(r, index)? {
+            Some(len) => len,
+            None => break,
+        };
+        let body = read_body(r, len as usize).ok_or(LogError::Truncated { segment: index })?;
+        blobs.push(body);
+    }
+    let mut blobs = blobs.into_iter();
+    let header = blobs.next().ok_or(LogError::Truncated { segment: 0 })?;
+    Ok(Blobs {
+        version,
+        header,
+        segments: blobs.collect(),
+    })
+}
+
+/// Decode a version-1 log's blobs: the old header shape and the segments.
+///
+/// The segments have not changed shape, so they are read the same way in
+/// every version.
+fn decode_v1(blobs: &Blobs) -> Result<RoundLogV1, LogError> {
+    let header: HeaderV1 =
+        postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
+    let segments = decode_segments(&blobs.segments)?;
+    Ok(RoundLogV1 { header, segments })
+}
+
+/// Decode a current-version log's blobs.
+fn decode_v2(blobs: &Blobs) -> Result<RoundLog, LogError> {
+    let header: Header =
+        postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
+    let segments = decode_segments(&blobs.segments)?;
+    Ok(RoundLog { header, segments })
+}
+
+/// Decode the segment blobs, in order.
+fn decode_segments(blobs: &[Vec<u8>]) -> Result<Vec<Segment>, LogError> {
+    let mut segments = Vec::with_capacity(blobs.len());
+    for (index, blob) in blobs.iter().enumerate() {
+        // The blobs are numbered from 1: blob 0 is the header.
+        let segment: Segment =
+            postcard::from_bytes(blob).map_err(|_| LogError::Decode { segment: index + 1 })?;
+        segments.push(segment);
+    }
+    Ok(segments)
 }
 
 /// Write one blob: a little-endian `u32` length and the postcard bytes.
@@ -407,6 +546,8 @@ impl Recorder {
 mod tests {
     use super::*;
     use crate::decision::{Action, Decision, Kind, Provenance, Source};
+    use crate::hash::StateHash;
+    use crate::talk::TalkParams;
 
     /// A stamped decision: agent `agent` holds still on `tick`.
     fn stamped(agent: u16, tick: Tick, seq: u32) -> Stamped {
@@ -451,6 +592,40 @@ mod tests {
     fn to_bytes(log: &RoundLog) -> Vec<u8> {
         let mut out = Vec::new();
         log.write(&mut out).unwrap();
+        out
+    }
+
+    /// The phase-1 header of a header: the same round, without the talk
+    /// params and with the old version.
+    fn header_v1(header: &Header) -> HeaderV1 {
+        HeaderV1 {
+            proto_version: MIN_READABLE_VERSION,
+            seed: header.seed,
+            params: header.params,
+            ruleset: header.ruleset.clone(),
+            roster: header.roster.clone(),
+            scripts: header.scripts.clone(),
+            start_tick: header.start_tick,
+            lineage: header.lineage.clone(),
+        }
+    }
+
+    /// The bytes of a version-1 log: the round written the old way, with
+    /// its chain rooted in the old header's hash.
+    fn to_v1_bytes(log: &RoundLog) -> Vec<u8> {
+        let v1 = header_v1(&log.header);
+        let mut prev = v1.state_hash();
+        let mut out = Vec::new();
+        out.extend_from_slice(&MAGIC);
+        out.extend_from_slice(&MIN_READABLE_VERSION.to_le_bytes());
+        write_blob(&mut out, &v1).unwrap();
+        for segment in &log.segments {
+            let mut segment = segment.clone();
+            segment.prev = prev;
+            segment.hash = segment.compute_hash();
+            prev = segment.hash;
+            write_blob(&mut out, &segment).unwrap();
+        }
         out
     }
 
@@ -525,7 +700,7 @@ mod tests {
     }
 
     #[test]
-    fn wrong_version_rejected() {
+    fn v99_log_rejected_by_name() {
         let log = recorded(900, 300);
         let mut bytes = to_bytes(&log);
 
@@ -535,6 +710,90 @@ mod tests {
 
         let err = RoundLog::read(&mut io::Cursor::new(bytes)).unwrap_err();
         assert_eq!(err, LogError::Version { found: 99 });
+    }
+
+    #[test]
+    fn a_version_outside_the_gate_is_refused_by_name() {
+        let log = recorded(900, 300);
+        for version in [0u16, PROTO_VERSION + 1] {
+            let mut bytes = to_bytes(&log);
+            let at = MAGIC.len();
+            bytes[at..at + 2].copy_from_slice(&version.to_le_bytes());
+            let err = RoundLog::read(&mut io::Cursor::new(bytes)).unwrap_err();
+            assert_eq!(err, LogError::Version { found: version });
+        }
+    }
+
+    #[test]
+    fn a_v1_log_reads_and_migrates() {
+        let log = recorded(900, 300);
+        let bytes = to_v1_bytes(&log);
+
+        let read = RoundLog::read(&mut io::Cursor::new(bytes)).expect("the v1 log reads");
+        assert_eq!(read.header.proto_version, PROTO_VERSION);
+        assert_eq!(read.header.talk, TalkParams::default());
+        // The state hashes are the ones the log recorded.
+        assert_eq!(read.hashes(), log.hashes());
+        // The chain is re-rooted over the migrated header.
+        assert_eq!(read.segments[0].prev, read.header.hash());
+        assert!(read.verify().is_ok());
+
+        // And it writes back as a log of the current version.
+        let mut again = Vec::new();
+        read.write(&mut again).unwrap();
+        assert_eq!(
+            &again[MAGIC.len()..MAGIC.len() + 2],
+            &PROTO_VERSION.to_le_bytes()
+        );
+        let reread = RoundLog::read(&mut io::Cursor::new(again)).expect("the v2 log reads");
+        assert_eq!(reread, read);
+    }
+
+    #[test]
+    fn the_migration_moves_the_header_and_the_chain_and_not_the_world() {
+        let log = recorded(900, 300);
+        let bytes = to_v1_bytes(&log);
+
+        let v1 = RoundLog::read_v1(&mut io::Cursor::new(bytes.clone())).expect("the v1 log reads");
+        let migrated = RoundLog::read(&mut io::Cursor::new(bytes)).expect("the v1 log migrates");
+
+        // The header is a new identity...
+        assert_ne!(v1.header.state_hash(), migrated.header.hash());
+        // ...and so is the chain...
+        assert_ne!(v1.segments[0].prev, migrated.segments[0].prev);
+        assert_ne!(v1.segments[0].hash, migrated.segments[0].hash);
+        // ...but the world the log records did not change.
+        let v1_hashes: Vec<(Tick, u64)> = v1
+            .segments
+            .iter()
+            .flat_map(|segment| segment.hashes.clone())
+            .collect();
+        assert_eq!(v1_hashes, migrated.hashes());
+        assert_eq!(v1_hashes, log.hashes());
+    }
+
+    #[test]
+    fn a_v1_log_keeps_its_own_identity_before_the_migration() {
+        // The shim decodes the old header exactly as phase 1 did: the chain
+        // of a version-1 file is rooted in the shim's hash.
+        let log = recorded(900, 300);
+        let bytes = to_v1_bytes(&log);
+        let v1 = RoundLog::read_v1(&mut io::Cursor::new(bytes)).expect("the v1 log reads");
+        assert_eq!(v1.header.proto_version, MIN_READABLE_VERSION);
+        assert_eq!(v1.segments[0].prev, v1.header.state_hash());
+    }
+
+    #[test]
+    fn reading_a_current_log_as_a_v1_log_is_refused() {
+        let log = recorded(900, 300);
+        let bytes = to_bytes(&log);
+        let err = RoundLog::read_v1(&mut io::Cursor::new(bytes)).unwrap_err();
+        assert_eq!(
+            err,
+            LogError::Version {
+                found: PROTO_VERSION
+            }
+        );
     }
 
     #[test]
