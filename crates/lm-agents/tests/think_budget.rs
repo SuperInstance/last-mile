@@ -98,7 +98,7 @@ fn default_harness() -> Harness {
 fn throttled_backends(
     harness: &Harness,
     server: &ThrottledStub,
-) -> BTreeMap<String, Box<dyn SysOne + Send>> {
+) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
     let policy = Policy::for_harness(&harness.policy_toml);
     policy
         .tiers
@@ -108,7 +108,7 @@ fn throttled_backends(
         .map(|tier| {
             (
                 tier.backend().to_owned(),
-                Box::new(server.clone()) as Box<dyn SysOne + Send>,
+                Box::new(server.clone()) as Box<dyn SysOne + Send + Sync>,
             )
         })
         .collect()

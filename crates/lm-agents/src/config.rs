@@ -52,6 +52,17 @@ pub struct AgentsConfig {
     /// a refusal, never a decision (D26/D49 — each model its own threshold,
     /// never averaged).
     pub min_confidence: BTreeMap<String, f32>,
+    /// The confidence below which a gate is escalated to a second model
+    /// (D71).
+    ///
+    /// The cheap model's own confidence decides when to pay for the second
+    /// opinion: a gate it answers below this is not acted on alone.
+    pub escalate_below: f32,
+    /// The backend that answers an escalated gate (D71).
+    ///
+    /// It is asked that gate **alone**, one question in one call, so its
+    /// pack always fits.
+    pub escalate_backend: String,
     /// Member think rate in Hz. 1 by default (D68): the Thor serves ~9
     /// requests/s for the whole match, so 8 agents asking at 4 Hz only queue
     /// up and go stale; at 1 Hz they get ~93% of the decisions with headroom
@@ -80,6 +91,12 @@ pub struct AgentsConfig {
     /// on an idle box and 1400 ms when the box is busy, so the deadline has
     /// to clear the slow case and not only the median
     /// (crates/lm-agents/tests/talk_on_thor.md).
+    ///
+    /// D70 split the pack, and D71 added a second opinion: the talk pack
+    /// costs 1350 ms on the d1-2B and the escalated gate is another 550 ms
+    /// of clef-flash on top of it, so the deadline has to clear both. At
+    /// 2400 ms half of the escalations died on the way (measured: 43 taken,
+    /// 40 timed out), and the escalated gate stayed unsure.
     pub request_timeout_ms: u32,
     /// How strongly a squad's shared usage counts in queue priority (D16).
     pub squad_weight: f32,
@@ -150,14 +167,23 @@ impl Default for AgentsConfig {
                 // (crates/lm-agents/tests/talk_on_thor.md).
                 ("thor-d1-2b".to_owned(), 0.30),
                 ("thor-d1-3b".to_owned(), 0.55),
+                // The second opinion (D71). Its confidence scale runs about
+                // half of the d1-2B's on the same gates — the attention gate
+                // reads 0.13 against the d1-2B's 0.33 — so the d1-2B's 0.30
+                // floor has no counterpart on it: a second opinion that
+                // answered is taken, and the gate stays unsure only when the
+                // second model is down, slow or shrugs.
+                ("thor-clef-flash".to_owned(), 0.05),
                 ("jev".to_owned(), 0.5),
             ]),
+            escalate_below: 0.5,
+            escalate_backend: "thor-clef-flash".to_owned(),
             think_hz_member: 1,
             think_hz_leader: 1,
             mode: "auto".to_owned(),
             presence_hz: 10,
             max_questions: 11,
-            request_timeout_ms: 2_400,
+            request_timeout_ms: 4_000,
             squad_weight: 0.5,
             budget_calls_per_round: 400,
             on_exhaust: "reflex".to_owned(),
@@ -211,9 +237,16 @@ mod tests {
             BTreeMap::from([
                 ("thor-d1-2b".to_owned(), 0.30),
                 ("thor-d1-3b".to_owned(), 0.55),
+                // The second opinion (D71): its confidence scale runs about
+                // half of the d1-2B's, so its floor is lower.
+                ("thor-clef-flash".to_owned(), 0.05),
                 ("jev".to_owned(), 0.5),
             ])
         );
+        // The escalation (D71): the cheap model's confidence decides when to
+        // pay for the second opinion.
+        assert_eq!(c.escalate_below, 0.5);
+        assert_eq!(c.escalate_backend, "thor-clef-flash");
         assert_eq!(
             (
                 c.think_hz_member,
@@ -233,7 +266,7 @@ mod tests {
                 c.stale_enemy_ticks,
                 c.ally_range_cells
             ),
-            (11, 2_400, 0.5, 400, "reflex", 6, 4)
+            (11, 4_000, 0.5, 400, "reflex", 6, 4)
         );
         assert_eq!(
             (

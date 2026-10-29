@@ -37,6 +37,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use crate::sysone::{Answer, Answers, Refusal, MAX_SCORE_LEVELS, MIN_SCORE_LEVELS};
+use crate::utter::{PRESENCE_SUFFIX, UTTERANCE_GATES};
 
 /// The prefix of a menu option's key: `opt0`, `opt1`, …
 ///
@@ -114,6 +115,39 @@ pub struct Level {
     /// What the level means, in the words the model reads.
     #[serde(rename = "description")]
     pub description: String,
+}
+
+/// Which pack a question belongs to (D70).
+///
+/// The move pack holds the questions whose answer is the agent's move, and
+/// is asked on every think. The talk pack holds the questions a line is
+/// chosen by, and is asked only when the agent has something to say. They
+/// are two requests: the talk pack never waits behind the move pack, and
+/// the move pack never waits behind the talk pack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Pack {
+    /// The move pack: the gates that decide where the agent walks.
+    Move,
+    /// The talk pack: the gates that decide what the agent says.
+    Talk,
+}
+
+impl Pack {
+    /// The pack's name, for the log and the telemetry.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Pack::Move => "move",
+            Pack::Talk => "talk",
+        }
+    }
+
+    /// The gates of this pack, in the order the file lists them.
+    pub fn gates<'a>(&self, set: &'a GateSet) -> impl Iterator<Item = &'a Gate> {
+        let pack = *self;
+        set.gates
+            .iter()
+            .filter(move |gate| is_talk_gate(&gate.id) == (pack == Pack::Talk))
+    }
 }
 
 /// One gate: a typed question, its instructions and its options.
@@ -504,6 +538,14 @@ impl GateSet {
         self.gates.iter().position(|gate| gate.id == id)
     }
 
+    /// Where the gate with this id sits in the pack it belongs to (D70).
+    ///
+    /// The talk pack holds the talk gates and the move pack the rest, so a
+    /// gate's index in its own pack says whether that pack asked it.
+    pub fn pack_index_of(&self, pack: Pack, id: &str) -> Option<usize> {
+        pack.gates(self).position(|gate| gate.id == id)
+    }
+
     /// How many gates the set holds.
     pub fn len(&self) -> usize {
         self.gates.len()
@@ -537,6 +579,68 @@ impl GateSet {
         }
         Value::Object(questions)
     }
+
+    /// The gates of the **move pack** (D70).
+    ///
+    /// Every gate that is not a talk gate: the menu choices whose answer is
+    /// the agent's move, and any other gate the harness adds. The move pack
+    /// is asked on every think, so it holds the questions that move the
+    /// game.
+    pub fn move_gates(&self) -> impl Iterator<Item = &Gate> {
+        self.gates.iter().filter(|gate| !is_talk_gate(&gate.id))
+    }
+
+    /// The gates of the **talk pack** (D70): the gates a line needs — the
+    /// five utterance gates and the presence gate of each.
+    pub fn talk_gates(&self) -> impl Iterator<Item = &Gate> {
+        self.gates.iter().filter(|gate| is_talk_gate(&gate.id))
+    }
+
+    /// How many gates the move pack holds.
+    pub fn move_len(&self) -> u16 {
+        u16::try_from(self.move_gates().count()).unwrap_or(u16::MAX)
+    }
+
+    /// How many gates the talk pack holds.
+    pub fn talk_len(&self) -> u16 {
+        u16::try_from(self.talk_gates().count()).unwrap_or(u16::MAX)
+    }
+
+    /// The `questions` pack of the move pack (D70), capped at `limit` gates.
+    pub fn move_questions(&self, menu: &Menu, limit: u16) -> Value {
+        self.questions_of(self.move_gates(), menu, limit)
+    }
+
+    /// The `questions` pack of the talk pack (D70), capped at `limit` gates.
+    pub fn talk_questions(&self, menu: &Menu, limit: u16) -> Value {
+        self.questions_of(self.talk_gates(), menu, limit)
+    }
+
+    /// The `questions` pack of a set of gates, capped at `limit`.
+    fn questions_of<'a>(
+        &self,
+        gates: impl Iterator<Item = &'a Gate>,
+        menu: &Menu,
+        limit: u16,
+    ) -> Value {
+        let mut questions = Map::new();
+        for gate in gates.take(usize::from(limit)) {
+            questions.insert(gate.id.clone(), gate.question(menu));
+        }
+        Value::Object(questions)
+    }
+}
+
+/// Whether a gate id is one of the talk gates (D70): a line gate, or the
+/// presence gate of one.
+///
+/// The talk pack is the gates a line is chosen by, so this is what the pack
+/// split turns on: the move pack holds every other gate.
+pub fn is_talk_gate(id: &str) -> bool {
+    UTTERANCE_GATES.contains(&id)
+        || id
+            .strip_suffix(PRESENCE_SUFFIX)
+            .is_some_and(|gate| UTTERANCE_GATES.contains(&gate))
 }
 
 /// Turn the model's answers into decisions.
@@ -560,8 +664,10 @@ impl GateSet {
 /// over: it travels in the decision's provenance, so the log names the exact
 /// situation the model answered (and the policy sees when a situation
 /// repeats).
+#[allow(clippy::too_many_arguments)] // a decision is a gate's answer over a menu
 pub fn answers_to_decisions(
     set: &GateSet,
+    pack: Pack,
     answers: &Answers,
     menu: &Menu,
     agent: u16,
@@ -572,15 +678,20 @@ pub fn answers_to_decisions(
     // An answer that names a gate we never asked is not an answer to our
     // question: refuse the whole pack instead of taking the part that fits.
     for id in answers.per_gate.keys() {
-        if set.gate(id).is_none() {
+        if set.pack_index_of(pack, id).is_none() {
             return Err(Refusal::Malformed(format!(
-                "the answer names the gate {id}, which is not one of ours"
+                "the answer names the gate {id}, which is not one of this pack's"
             )));
         }
     }
 
     let mut decisions = Vec::new();
     for (index, gate) in set.gates().iter().enumerate() {
+        // A gate of the other pack is not in this answer (D70): the move
+        // pack decides where the agent walks, the talk pack what it says.
+        if set.pack_index_of(pack, &gate.id).is_none() {
+            continue;
+        }
         // A gate with fixed options is not a lane: it is asked, answered
         // and logged, and whatever it calls for arrives in phase 4.
         if gate.options_from != OptionsFrom::Menu {
@@ -714,6 +825,7 @@ mod tests {
         Answers {
             per_gate: BTreeMap::from([(gate.to_string(), answer)]),
             unsure: BTreeMap::new(),
+            escalated: BTreeMap::new(),
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,
@@ -820,8 +932,9 @@ beacon = "walk to beacon {beacon}"
             choice(&[("opt0", 0.1), ("opt1", 0.6), ("opt2", 0.2), ("opt3", 0.1)]),
         );
 
-        let decisions = answers_to_decisions(&set, &answers, &menu, 3, 100, 4, SITUATION)
-            .expect("the answer becomes a decision");
+        let decisions =
+            answers_to_decisions(&set, Pack::Move, &answers, &menu, 3, 100, 4, SITUATION)
+                .expect("the answer becomes a decision");
         assert_eq!(decisions.len(), 1);
 
         let decision = &decisions[0];
@@ -867,7 +980,7 @@ beacon = "walk to beacon {beacon}"
             choice(&[("opt0", 0.5), ("opt1", 0.3), ("opt2", 0.2)]),
         );
 
-        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2, SITUATION)
+        let refusal = answers_to_decisions(&set, Pack::Move, &answers, &menu, 0, 10, 2, SITUATION)
             .expect_err("the stale answer is refused");
         assert_eq!(refusal, Refusal::MenuChanged);
     }
@@ -878,7 +991,7 @@ beacon = "walk to beacon {beacon}"
         let menu = menu();
         let answers = answers_for("sneak", Answer::Noul(0.5));
 
-        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2, SITUATION)
+        let refusal = answers_to_decisions(&set, Pack::Move, &answers, &menu, 0, 10, 2, SITUATION)
             .expect_err("the unknown gate is refused");
         assert!(matches!(refusal, Refusal::Malformed(_)), "got {refusal:?}");
     }
@@ -924,9 +1037,28 @@ beacon = "walk to beacon {beacon}"
         let menu = menu();
         let answers = answers_for("gesture_present", Answer::Noul(0.8));
 
-        let decisions = answers_to_decisions(&set, &answers, &menu, 1, 5, 1, SITUATION)
+        let decisions = answers_to_decisions(&set, Pack::Talk, &answers, &menu, 1, 5, 1, SITUATION)
             .expect("the answer is accepted");
         assert!(decisions.is_empty(), "got {decisions:?}");
+    }
+
+    #[test]
+    fn a_pack_answers_only_its_own_gates() {
+        // D70: the move pack and the talk pack are separate requests, so
+        // an answer over the other pack's gates is not an answer to this
+        // question.
+        let set = default_set();
+        let menu = menu();
+        let answers = answers_for(
+            "move",
+            Answer::Choice {
+                probs: BTreeMap::new(),
+                confidence: 0.9,
+            },
+        );
+        let refusal = answers_to_decisions(&set, Pack::Talk, &answers, &menu, 1, 5, 1, SITUATION)
+            .expect_err("the talk pack was not asked the move gate");
+        assert!(matches!(refusal, Refusal::Malformed(_)), "got {refusal:?}");
     }
 
     #[test]
@@ -953,7 +1085,7 @@ beacon = "walk to beacon {beacon}"
             choice(&[("opt0", 0.5), ("opt1", 0.2), ("opt2", 0.2), ("opt3", 0.1)]),
         );
 
-        let decisions = answers_to_decisions(&set, &answers, &menu, 2, 7, 3, SITUATION)
+        let decisions = answers_to_decisions(&set, Pack::Move, &answers, &menu, 2, 7, 3, SITUATION)
             .expect("the answer is accepted");
         assert_eq!(decisions.len(), 1);
         match &decisions[0].kind {
@@ -988,12 +1120,13 @@ beacon = "walk to beacon {beacon}"
         let answers = Answers {
             per_gate,
             unsure: BTreeMap::new(),
+            escalated: BTreeMap::new(),
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,
         };
 
-        let decisions = answers_to_decisions(&set, &answers, &menu, 2, 7, 3, SITUATION)
+        let decisions = answers_to_decisions(&set, Pack::Move, &answers, &menu, 2, 7, 3, SITUATION)
             .expect("the answers are accepted");
         assert_eq!(decisions.len(), 2);
         let gates: Vec<u8> = decisions

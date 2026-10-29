@@ -36,9 +36,17 @@ quality = 2
 # budgets have to clear it. At 15 and 30 ticks no model tier fitted, so
 # every ask was refused and the agents never thought at all
 # (crates/lm-agents/tests/talk_on_thor.md).
-threat_horizon_ticks = 45
+#
+# D70 split the pack and D71 added the second opinion, and the talk pack
+# carries both costs: the ten talk gates cost the d1-2B 1350 ms, and an
+# escalated gate is another 550 ms of clef-flash on top of it. The budget
+# has to clear the pair, or the talk pack never fits a tier and the agents
+# never say anything (measured: 28 talk asks per round against the timer's
+# 80). The move pack is one question and 162 ms, so the decision that moves
+# the game is not waiting for any of this.
+threat_horizon_ticks = 105
 # Quiet thinking (no threat, a beacon plan) may take up to this many ticks.
-max_think_ticks = 60
+max_think_ticks = 105
 # An enemy sighting younger than this many ticks is a fresh threat.
 threat_age_ticks = 2
 
@@ -49,6 +57,10 @@ buy_time = true
 buy_time_above_ticks = 4
 # In quiet ticks, ask about the likeliest next situation and cache the
 # verdict (in M1 the likeliest next situation is the current one).
+#
+# The move pack is asked on every think (D70), so its cache is warm by
+# default and this lever has nothing left to warm; it stays in the file for
+# harnesses that ask less often.
 prethink = true
 # Cache verdicts by situation key and reuse them when the situation returns.
 verdict_cache = true
@@ -56,3 +68,31 @@ verdict_cache = true
 pay_priority = false
 # Questions per ask; absent means AgentsConfig.max_questions.
 # max_questions = 3
+
+# When the talk pack is asked (D70).
+#
+# The pack is split: the **move pack** holds the questions whose answer is
+# the agent's move, and is asked on every think. The **talk pack** holds the
+# ten gates a line is chosen by (the five utterance gates and their five
+# presence gates), and is most of a thought's cost -- 473 ms against the move
+# question's 82 ms on the Thor's d1-2B. So the talk pack is asked only when
+# the agent has something to say, and each trigger below is a switch: turn
+# them off and the agents never speak, turn them all on and they speak
+# whenever the world moves.
+[talk]
+# Ask when the world the agent sees has changed: a new enemy, a beacon that
+# changed hands, an ally in or out of range, a stun. The agent's own walk is
+# not a change of sight -- it changes where the agent is, not what is there.
+ask_on_sight_change = true
+# Ask when a line addressed to this agent is being spoken, so that the reply
+# is drafted while the line is still going and applied when it ends (D31).
+ask_on_order = true
+# Ask when a fresh threat is visible (an enemy sighting younger than
+# think.threat_age_ticks).
+ask_on_threat = true
+# Ask on the slow timer: the backstop that has the agent look again even
+# when nothing changed.
+ask_on_timer = true
+# The slow timer's period, in ticks. At the round's 30 Hz, 300 ticks is ten
+# seconds.
+timer_period_ticks = 300

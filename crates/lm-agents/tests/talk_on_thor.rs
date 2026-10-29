@@ -12,6 +12,7 @@
 //!
 //! Every ask that comes back is recorded with:
 //!
+//! - which pack it carried (D70: the move pack or the talk pack);
 //! - the five presence nouls (`gesture_present`, `attention_present`,
 //!   `intention_present`, `intent_present`, `subject_present`);
 //! - the confidence of every gate that has one (the move gate, the five talk
@@ -20,6 +21,9 @@
 //!   rule folded the whole pack into;
 //! - which presence gate blocked the line, if one did;
 //! - the round trip the model reported.
+//!
+//! The escalations (D71) are watched too: the gate, both confidences and the
+//! latency the second opinion cost.
 //!
 //! The watcher asks the Thor with the floor at zero, so that every gate's
 //! own number is seen: the rule that would have been applied to them is
@@ -38,8 +42,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use lm_agents::config::AgentsConfig;
+use lm_agents::gates::Pack;
 use lm_agents::harness::Harness;
-use lm_agents::sysone::{Answer, Answers, Refusal, SysOne, ThorBackend};
+use lm_agents::sysone::{
+    Answer, Answers, EscalatingBackend, Escalation, Refusal, SysOne, ThorBackend,
+};
 use lm_agents::utter::{presence_gate, PRESENCE_FLOOR, UTTERANCE_GATES};
 use lm_agents::Agents;
 use lm_core::header::Header;
@@ -68,6 +75,8 @@ const SOAK_FLOOR: f32 = 0.15;
 /// One ask that came back, and what the gates made of it.
 #[derive(Clone, Debug)]
 struct Ask {
+    /// Which pack the ask carried (D70).
+    pack: Pack,
     /// The situation the pack was asked over: the facts text.
     state: String,
     /// The five presence nouls, by gate id.
@@ -78,31 +87,47 @@ struct Ask {
     min_confidence: f32,
     /// The round trip the model reported, in milliseconds.
     latency_ms: u32,
+    /// The escalations this ask paid for (D71).
+    escalations: Vec<Escalation>,
 }
 
 /// The watcher: the Thor behind a log.
 struct Watcher {
-    inner: ThorBackend,
+    inner: Box<dyn SysOne + Send + Sync>,
     log: Arc<Mutex<Vec<Ask>>>,
     /// The refusals the Thor itself produced, by name.
     refused: Arc<Mutex<BTreeMap<String, u64>>>,
 }
 
 impl Watcher {
-    /// A watcher over the Thor's d1-2B, with the floor the soak pins.
+    /// A watcher over the Thor's d1-2B, with the floor the soak pins and
+    /// the second opinion the escalation asks (D71).
     ///
     /// The log is shared: the watcher is moved into the agents, and the
     /// measurement reads the log after the round.
     fn new(cfg: &AgentsConfig) -> Self {
         let port = cfg.ports["d1-2b"];
-        let inner = ThorBackend::new(&cfg.thor_base, port, "d1-2b")
+        let primary = ThorBackend::new(&cfg.thor_base, port, "d1-2b")
             // The floor is put at zero, so that every gate's answer is seen:
             // the measurement reads the model's own numbers, and the rule
             // that would have been applied to them is derived from them.
             .with_min_confidence(0.0)
             .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
+        // The second model (D71): the Thor's clef-flash, asked one question
+        // at a time.
+        let second_port = cfg.ports["clef-flash"];
+        let second = ThorBackend::new(&cfg.thor_base, second_port, "clef-flash")
+            .with_min_confidence(
+                cfg.min_confidence
+                    .get("thor-clef-flash")
+                    .copied()
+                    .unwrap_or(0.0),
+            )
+            .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
+        let escalating =
+            EscalatingBackend::new(Box::new(primary), Box::new(second), cfg.escalate_below);
         Watcher {
-            inner,
+            inner: Box::new(escalating),
             log: Arc::new(Mutex::new(Vec::new())),
             refused: Arc::new(Mutex::new(BTreeMap::new())),
         }
@@ -157,12 +182,22 @@ impl SysOne for Watcher {
             min_confidence = 0.0;
         }
 
+        // The pack is told by the questions it carried (D70): the move pack
+        // holds the move gate, the talk pack the gates a line is chosen by.
+        let pack = if questions.get("move").is_some() {
+            Pack::Move
+        } else {
+            Pack::Talk
+        };
+
         self.log.lock().expect("the watcher's log").push(Ask {
+            pack,
             state: state.to_owned(),
             presence,
             confidence,
             min_confidence,
             latency_ms: answers.latency_ms,
+            escalations: answers.escalated.values().cloned().collect(),
         });
 
         Ok(answers)
@@ -200,6 +235,10 @@ struct Round {
     answered: u64,
     /// The requests dropped because their deadline passed while queued.
     expired: u64,
+    /// The gates that were asked of a second model (D71).
+    escalations: u64,
+    /// The minds in the round.
+    agents: u64,
 }
 
 /// Play one round on the Thor, at the round's own rate, and measure it.
@@ -213,7 +252,7 @@ fn play(seed: u64) -> (Round, Vec<Ask>, BTreeMap<String, u64>) {
     let refused = watcher.refused();
     let backends = BTreeMap::from([(
         "thor-d1-2b".to_owned(),
-        Box::new(watcher) as Box<dyn SysOne + Send>,
+        Box::new(watcher) as Box<dyn SysOne + Send + Sync>,
     )]);
 
     let mut host = HostLoop::new(header.clone()).expect("the round starts");
@@ -234,6 +273,8 @@ fn play(seed: u64) -> (Round, Vec<Ask>, BTreeMap<String, u64>) {
         thinks: stats.thinks,
         answered: stats.answered,
         expired: stats.expired,
+        escalations: stats.escalations,
+        agents: header.roster.len() as u64,
     };
     let log = log.lock().expect("the watcher's log").clone();
     let refused = refused.lock().expect("the watcher's refusals").clone();
@@ -244,6 +285,15 @@ fn play(seed: u64) -> (Round, Vec<Ask>, BTreeMap<String, u64>) {
 fn percentile(sorted: &[f32], q: f32) -> f32 {
     if sorted.is_empty() {
         return 0.0;
+    }
+    let rank = ((sorted.len() - 1) as f32 * q).round() as usize;
+    sorted[rank]
+}
+
+/// The percentile of a sorted slice of milliseconds, by rank.
+fn percentile_ms(sorted: &[u32], q: f32) -> u32 {
+    if sorted.is_empty() {
+        return 0;
     }
     let rank = ((sorted.len() - 1) as f32 * q).round() as usize;
     sorted[rank]
@@ -275,13 +325,14 @@ fn talk_on_thor() {
         let (round, log, refused) = play(seed);
         println!(
             "round {seed}: {} utterances, {} decisions, {} refusals, {} asks sent, \
-             {} answered, {} expired, {} answers seen",
+             {} answered, {} expired, {} escalations, {} answers seen",
             round.utterances,
             round.decisions,
             round.refusals,
             round.thinks,
             round.answered,
             round.expired,
+            round.escalations,
             log.len()
         );
         for (name, count) in refused {
@@ -294,6 +345,8 @@ fn talk_on_thor() {
     let utterances: u64 = rounds.iter().map(|round| round.utterances).sum();
     let decisions: u64 = rounds.iter().map(|round| round.decisions).sum();
     let refusals: u64 = rounds.iter().map(|round| round.refusals).sum();
+    let thinks: u64 = rounds.iter().map(|round| round.thinks).sum();
+    let escalations: u64 = rounds.iter().map(|round| round.escalations).sum();
 
     // The situations are many, the answers are not: the Thor answers the same
     // pack over the same facts the same way. The distribution is therefore
@@ -311,6 +364,136 @@ fn talk_on_thor() {
     println!("- asks answered: {}", asks.len());
     println!("- distinct situations asked: {}", situations.len());
     println!("- utterances: {utterances}, decisions: {decisions}, refusals: {refusals}");
+    println!();
+
+    // The packs (D70): how much of the thinking each pack carries, and how
+    // fast it came back.
+    let move_asks: Vec<&Ask> = asks.iter().filter(|ask| ask.pack == Pack::Move).collect();
+    let talk_asks: Vec<&Ask> = asks.iter().filter(|ask| ask.pack == Pack::Talk).collect();
+    println!("## the two packs (D70)");
+    println!();
+    println!("- move pack asks: {}", move_asks.len());
+    println!("- talk pack asks: {}", talk_asks.len());
+    // The think rate per agent: the questions asked over the round's
+    // seconds, per mind.
+    let agents = rounds.first().map_or(0, |round| round.agents);
+    let seconds = TICKS as f64 / f64::from(30);
+    let rounds_n = rounds.len().max(1) as f64;
+    println!(
+        "- thoughts per second per agent: {:.2} ({} minds, {:.0} s)",
+        thinks as f64 / (rounds_n * agents as f64 * seconds),
+        agents,
+        seconds
+    );
+    println!(
+        "- decisions per second per agent: {:.2}",
+        decisions as f64 / (rounds_n * agents as f64 * seconds)
+    );
+    println!();
+
+    // The round trip per pack.
+    let mut move_latencies: Vec<u32> = move_asks.iter().map(|ask| ask.latency_ms).collect();
+    move_latencies.sort_unstable();
+    let mut talk_latencies: Vec<u32> = talk_asks.iter().map(|ask| ask.latency_ms).collect();
+    talk_latencies.sort_unstable();
+    println!("## the round trip per pack");
+    println!();
+    if !move_latencies.is_empty() {
+        println!(
+            "- the move pack: min {} ms, p50 {} ms, p95 {} ms, max {} ms over {} answers",
+            move_latencies[0],
+            percentile_ms(&move_latencies, 0.50),
+            percentile_ms(&move_latencies, 0.95),
+            move_latencies[move_latencies.len() - 1],
+            move_latencies.len()
+        );
+    }
+    if !talk_latencies.is_empty() {
+        println!(
+            "- the talk pack: min {} ms, p50 {} ms, p95 {} ms, max {} ms over {} answers",
+            talk_latencies[0],
+            percentile_ms(&talk_latencies, 0.50),
+            percentile_ms(&talk_latencies, 0.95),
+            talk_latencies[talk_latencies.len() - 1],
+            talk_latencies.len()
+        );
+    }
+    println!();
+
+    // The escalations (D71).
+    let mut escalated: Vec<&Escalation> = Vec::new();
+    for ask in &asks {
+        for escalation in &ask.escalations {
+            escalated.push(escalation);
+        }
+    }
+    let mut escalation_latencies: Vec<u32> = escalated.iter().map(|e| e.latency_ms).collect();
+    escalation_latencies.sort_unstable();
+    let mut gates_asked = 0u64;
+    for ask in &asks {
+        gates_asked += ask.confidence.len() as u64;
+    }
+    println!("## the escalation (D71)");
+    println!();
+    println!("- escalations: {}", escalated.len());
+    println!("- gates answered: {gates_asked}");
+    if !escalated.is_empty() {
+        println!(
+            "- the rate per gate: {:.1}%",
+            100.0 * escalated.len() as f64 / gates_asked as f64
+        );
+        println!(
+            "- the rate per ask: {:.1}%",
+            100.0 * escalated.len() as f64 / asks.len() as f64
+        );
+        println!(
+            "- the rate per decision: {:.1}% (D71 measured 4% of the decisions)",
+            100.0 * escalated.len() as f64 / decisions.max(1) as f64
+        );
+        println!(
+            "- the added latency: min {} ms, p50 {} ms, p95 {} ms, max {} ms",
+            escalation_latencies[0],
+            percentile_ms(&escalation_latencies, 0.50),
+            percentile_ms(&escalation_latencies, 0.95),
+            escalation_latencies[escalation_latencies.len() - 1]
+        );
+        let mut by_gate: BTreeMap<String, u64> = BTreeMap::new();
+        let mut outcomes: BTreeMap<String, u64> = BTreeMap::new();
+        let mut primary_confidences: Vec<f32> = Vec::new();
+        let mut second_confidences: Vec<f32> = Vec::new();
+        for escalation in &escalated {
+            *by_gate.entry(escalation.gate.clone()).or_default() += 1;
+            *outcomes.entry(escalation.outcome.to_string()).or_default() += 1;
+            primary_confidences.push(escalation.primary_confidence);
+            if let Some(confidence) = escalation.second_confidence {
+                second_confidences.push(confidence);
+            }
+        }
+        primary_confidences.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        second_confidences.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        println!("- by gate:");
+        for (gate, count) in &by_gate {
+            println!("  - {gate}: {count}");
+        }
+        println!("- by outcome:");
+        for (outcome, count) in &outcomes {
+            println!("  - {outcome}: {count}");
+        }
+        println!(
+            "- the first model's confidence: min {:.4}, p50 {:.4}, max {:.4}",
+            primary_confidences[0],
+            percentile(&primary_confidences, 0.50),
+            primary_confidences[primary_confidences.len() - 1]
+        );
+        if !second_confidences.is_empty() {
+            println!(
+                "- the second model's confidence: min {:.4}, p50 {:.4}, max {:.4}",
+                second_confidences[0],
+                percentile(&second_confidences, 0.50),
+                second_confidences[second_confidences.len() - 1]
+            );
+        }
+    }
     println!();
 
     // The presence nouls, per gate.
@@ -492,4 +675,10 @@ fn talk_on_thor() {
     for (name, count) in &thor_refusals {
         println!("  - {name}: {count}");
     }
+    println!();
+
+    // The round's own numbers.
+    println!("## the rounds");
+    println!();
+    println!("- the rounds asked {thinks} questions, {escalations} of them paid for an escalation");
 }

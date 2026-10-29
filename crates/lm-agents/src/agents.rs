@@ -53,7 +53,7 @@ impl Agents {
         cfg: &AgentsConfig,
         harness: &Harness,
         header: &Header,
-        backends: BTreeMap<String, Box<dyn SysOne + Send>>,
+        backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
     ) -> Agents {
         let minds = header
             .roster
@@ -107,12 +107,17 @@ impl Agents {
     /// but a late answer.
     pub fn on_tick(&mut self, now: Tick, sim: &Sim) {
         // 1. Every mind looks. A mind that is busy with an answer, or that
-        //    does not want to think this tick, asks for nothing.
+        //    does not want to think this tick, asks for nothing. The move
+        //    pack and the talk pack are asked apart (D70): the talk pack
+        //    only when the agent has something to say.
         let mut requests = Vec::new();
         for mind in self.minds.values_mut() {
             let view = sim.view(mind.agent());
             let menu = menu(&view);
             if let Some(req) = mind.on_tick(now, &view, sim.world(), &menu) {
+                requests.push(req);
+            }
+            if let Some(req) = mind.on_tick_talk(now, &view, sim.world(), &menu) {
                 requests.push(req);
             }
         }
@@ -121,11 +126,11 @@ impl Agents {
         }
 
         // 2. The queue picks who goes to the models now, under the budgets.
-        //    One request per agent at most, so the batch is never bigger
-        //    than the number of minds.
+        //    One request per agent and pack at most, so the batch is never
+        //    bigger than twice the number of minds.
         let popped = self
             .queue
-            .pop_batch(now, self.minds.len(), &mut self.budgets);
+            .pop_batch(now, self.minds.len() * 2, &mut self.budgets);
         self.stats.refusals += popped.refused_budget.len() as u64;
         self.stats.expired += popped.expired.len() as u64;
         for req in popped.send {
@@ -152,6 +157,11 @@ impl Agents {
         for thought in thoughts {
             if thought.result.is_err() {
                 self.stats.refusals += 1;
+            }
+            // The escalations (D71): every gate that was asked of a second
+            // model, counted next to the refusals.
+            if let Ok(answers) = &thought.result {
+                self.stats.escalations += answers.escalated.len() as u64;
             }
             if let Some(mind) = self.minds.get_mut(&thought.ask.req.agent) {
                 decisions.extend(mind.on_answer(thought.ask, thought.result));
@@ -216,6 +226,11 @@ pub struct AgentStats {
     pub answered: u64,
     /// Refusals: a failed call, a low-confidence answer, a spent budget.
     pub refusals: u64,
+    /// Gates that were asked of a second model (D71).
+    ///
+    /// An escalation is not a refusal: it is a second opinion that was paid
+    /// for, and the answer it produced is the gate's answer.
+    pub escalations: u64,
     /// Requests dropped because their deadline passed while queued.
     pub expired: u64,
     /// Decisions the agents' answers became.

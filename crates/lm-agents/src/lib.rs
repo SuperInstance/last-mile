@@ -19,6 +19,7 @@ pub mod config;
 pub use config::AgentsConfig;
 pub mod facts;
 pub mod gates;
+pub use gates::Pack;
 pub mod harness;
 pub use harness::Harness;
 pub mod mind;
@@ -30,7 +31,9 @@ pub use queue::{Budgets, LeastUseQueue, Popped, ThinkReq};
 pub mod sink;
 pub use sink::{ChannelSink, DecisionInbox, DecisionSink};
 pub mod sysone;
-pub use sysone::{Answer, Answers, Refusal, SysOne};
+pub use sysone::{
+    Answer, Answers, EscalatingBackend, Escalation, EscalationOutcome, Refusal, SysOne,
+};
 pub mod utter;
 pub use utter::{
     pick_realizer, pick_realizer_with, AutoRealizer, GateCtx, Llm, LlmRealizer, Realizer, StubLlm,

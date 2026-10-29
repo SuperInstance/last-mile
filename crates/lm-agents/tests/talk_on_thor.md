@@ -227,3 +227,149 @@ addressee, it takes the line with it and leaves the move alone.
   and 0.14 when the agent is alone *on d1-2B*. Another model reads it
   differently, and the presence gates are the harness's to re-word when it
   does.
+
+---
+
+# The split pack and the second opinion (D70, D71)
+
+The pack is split and the unsure gates get a second opinion. This is the
+measurement of both, on the real Thor, with the same harness and the same
+three seeds as the section above.
+
+## What changed
+
+| what | where | why |
+|---|---|---|
+| The pack is split: the **move pack** (the move gate) and the **talk pack** (the five talk gates and their five presence gates) | `crates/lm-agents/src/gates.rs` | The move question alone costs 82 ms on the d1-2B and the ten talk gates cost the other 80% of a thought (D70) |
+| The move pack is asked on **every think**; the talk pack only when there is something to say | `crates/lm-agents/src/mind.rs` | The decision that moves the game is cheap now; the line is not |
+| The four talk triggers and the timer period are harness parameters | `assets/harness/default/policy.toml` | A harness decides when its agents speak: a change in sight, an order heard, a threat, a slow timer |
+| Two requests, two worker threads | `crates/lm-agents/src/mind.rs` | The talk pack never waits behind the move pack, and the move pack never waits behind the talk pack |
+| The tier's latency is measured **per pack** | `crates/lm-agents/src/mind.rs` | One question and ten questions are not the same call; one estimator over both would price the talk pack as ten times the move pack |
+| An unsure gate is asked of clef-flash **alone** | `crates/lm-agents/src/sysone.rs` | D71: one question in one call, so the second model's batch always fits |
+| The escalation is logged (gate, both confidences, latency) and counted next to `refused` | `crates/lm-agents/src/mind.rs`, `crates/lm-host/src/hud_plugin.rs` | The second opinion is a cost, and a cost that is not measured is not managed |
+| The deadline: 4000 ms; the think budgets: 105 and 105 ticks | `crates/lm-agents/src/config.rs`, `assets/harness/default/policy.toml` | The talk pack plus its second opinion costs 2-3 s; at 2400 ms and 60 ticks half of the escalations died on the way and the talk pack never fitted a tier |
+
+## Before and after, on the Thor
+
+Three rounds, 3000 ticks each, seeds 1-3, the same harness:
+
+| seed | lines before | lines after | decisions before | decisions after | escalations |
+|---|---|---|---|---|---|
+| 1 | 71 | 55 | 142 | 741 | 52 |
+| 2 | 61 | 50 | 130 | 733 | 50 |
+| 3 | 68 | 58 | 142 | 766 | 57 |
+| **total** | **200** | **163** | **414** | **2240** | **159** |
+
+**The move decisions per round went from 71 to 692** (the decisions less the
+lines), which is 9.7 times the 118-154 the brief measured before, against a
+target of twice. The lines are 50-58 per round, inside the 15-120 the brief
+asks for, against 61-68 before.
+
+| metric | before | after |
+|---|---|---|
+| decisions per round | 130-142 | **733-766** |
+| move decisions per round (the lines less) | 71-76 | **692-708** |
+| utterances per round | 61-71 | 50-58 |
+| questions asked per round | 77-79 | 346-366 |
+| thoughts per second per agent | 0.10 | 0.44 |
+| decisions per second per agent | 0.17 | 0.93 |
+| move pack round trip, p50 / p95 | 473-1400 ms (the whole pack) | **164 ms / 262 ms** |
+| talk pack round trip, p50 / p95 | — | 770 ms / 1586 ms |
+
+The move pack's round trip is the number that matters: 164 ms at the median
+and 262 ms at p95, against the 473-1400 ms the one big pack cost. The
+decision that moves the game is now nearly ten times faster than the line
+that goes with it.
+
+## The live lane says the same thing
+
+`scripts/live.sh` plays the shipped soak against the same Thor. Its CSV line
+is `backend, seed, utterances, airtime_ticks, utterances_per_1k_ticks,
+decisions, refusals, scores`:
+
+```text
+stub,1,467,4670,155,7831,641,[1800, 19]
+stub,2,480,4800,160,6266,2302,[86, 1801]
+stub,3,480,4800,160,8480,0,[1801, 5]
+thor-d1-2b,1,76,1520,25,803,16,[1690, 1690]
+thor-d1-2b,2,77,1540,25,782,16,[1702, 1702]
+thor-d1-2b,3,59,1180,19,741,18,[1721, 1721]
+```
+
+The Thor's half: **76, 77 and 59 lines** per round and **803, 782 and 741
+decisions**, against 64, 56, 76 lines and 128, 118, 154 decisions before.
+
+**The stub's half moved too, and it should have:** the move pack is asked on
+every think, so the stub's minds decide every second as well, and the stub's
+rounds now end in different places (86-1801 instead of 5-19 on the score
+column). The stub is the model that answers at once, so it is the one that
+shows what the split does to the game itself.
+
+## The escalation (D71)
+
+| | |
+|---|---|
+| escalations | 159 |
+| taken | 158 |
+| the second model did not answer in time | 1 |
+| the gate: `attention` / `subject` / `intention` / `move` | 103 / 51 / 3 / 2 |
+| the added latency | 593 ms at the median, 1300 ms at p95 |
+| the first model's confidence on the escalated gate | 0.31-0.50, 0.39 at the median |
+| the second model's confidence | 0.11-0.69, 0.40 at the median |
+
+**The rate: 9.6% of the gates answered, 16.1% of the asks, 7.1% of the
+decisions.** The brief's target was "near 4%", and that is where this misses.
+D71's 4% was measured on the **action** gate in the decision-daw scenes, and
+on the Thor in the game the move gate is escalated 2 times in 816 (0.25%):
+the d1-2B is almost always sure where the agent walks. The rate in this
+measurement is carried by the two ten-option talk gates — `attention`
+(thirteen ways to address somebody) and `subject` (which beacon the line is
+about) — and the d1-2B is genuinely unsure about those: the attention gate
+answers 0.40 at the median and the subject gate 0.75. Escalating them is
+what the rule says to do ("a single question below 0.5"), and it is what
+makes the lines worth saying, but it costs 593 ms a time and it is not the
+4% D71 measured. A harness that wants the action's rate and nothing else
+has the threshold to change it: at 0.55 the attention gate stops being
+escalated.
+
+**The added latency is 593 ms, not the +25 ms D71 measured.** D71's number
+came from the decision-daw setup, where the second opinion was a warm call
+on a small prompt. On the Thor, clef-flash answers one question in about
+570 ms of its own, and that is what the escalation adds to a pack that was
+already 180 ms.
+
+## The 0.5 and the 0.30 together
+
+D72's floor (0.30) and D71's threshold (0.50) are two different questions,
+and they answer two different ones:
+
+- **0.30 is the model's own admission bar.** The d1-2B's answer below 0.30
+  makes no decision: the gate is unsure, and an unsure gate takes the line
+  with it (a talk gate) or leaves the move alone (a move gate).
+- **0.50 is when the cheap model stops being trusted alone.** A gate the
+  d1-2B answers under 0.50 is not acted on without a second opinion.
+
+So a gate in [0.30, 0.50) is heard but not acted on: the second model's
+answer is taken, and if the second opinion fails the gate stays unsure
+(the first model's 0.4 is not enough on its own). A gate under 0.30 was
+going to be dropped anyway, and the second opinion is its rescue: clef-flash
+answered it 0.40 at the median, so it decides.
+
+**The second model has its own floor.** clef-flash's confidence scale runs
+about half of the d1-2B's on the same gates (the attention gate reads 0.13
+against the d1-2B's 0.33), so the d1-2B's 0.30 has no counterpart on it:
+`thor-clef-flash`'s floor is 0.05, and a second opinion that answered is
+taken. The gate is unsure only when the second model is down, slow or
+shrugs — one such case in 159.
+
+## What this measurement does not say
+
+- **It is not a score.** The Thor's model answers the same pack the same way
+  every time, so the three rounds are three samples of the same behaviour,
+  not three games.
+- **The move decisions are counted with the lines.** The "move decisions" row
+  is the decisions less the lines, so it is the lanes the agents' answers
+  became.
+- **The escalation rate is the game's, not D71's.** D71's 4% is the action
+  gate's rate in the decision-daw scenes; see above for the two numbers on
+  the Thor.

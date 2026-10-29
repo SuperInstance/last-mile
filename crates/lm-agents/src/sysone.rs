@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 /// The path every backend posts to.
 pub const SYSTEMONE_PATH: &str = "/v1/systemone";
@@ -101,6 +101,13 @@ pub struct Answers {
     /// [`Answers::unsure`] instead, and it makes no decision of its own
     /// (D26).
     pub per_gate: BTreeMap<String, Answer>,
+    /// The gates that were escalated to a second model (D71), by gate id.
+    ///
+    /// The escalation is a second opinion, not a second answer: the gate's
+    /// answer in [`Answers::per_gate`] is the one that was taken, and this
+    /// says how it came to be taken.
+    #[serde(default)]
+    pub escalated: BTreeMap<String, Escalation>,
     /// The gates the backend is not sure about, with their confidence.
     ///
     /// The confidence rule is per gate, not per pack: an unsure gate never
@@ -140,6 +147,50 @@ pub enum Answer {
         /// How sure the model was; derived when it did not say.
         confidence: f32,
     },
+}
+
+/// One escalation of an unsure gate to a second model (D71).
+///
+/// The cheap model answers first. A gate it is not sure about is asked of
+/// the second model **alone** — one question in one call, never the whole
+/// pack — and the second opinion is taken when it is sure (D71). This is
+/// the record of that: the gate, both confidences and the latency.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Escalation {
+    /// The gate that was escalated.
+    pub gate: String,
+    /// The cheap model's confidence on the gate.
+    pub primary_confidence: f32,
+    /// The second model's confidence, when it answered.
+    pub second_confidence: Option<f32>,
+    /// The second model's round trip, in milliseconds.
+    pub latency_ms: u32,
+    /// What the second opinion came to.
+    pub outcome: EscalationOutcome,
+}
+
+/// What the second opinion came to (D71).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EscalationOutcome {
+    /// The second opinion was taken: the gate has the second model's answer.
+    Taken,
+    /// The second model was not sure either: the gate stays unsure.
+    Unsure,
+    /// The second model did not answer in time.
+    Timeout,
+    /// The second model could not be reached.
+    Unavailable,
+}
+
+impl fmt::Display for EscalationOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EscalationOutcome::Taken => f.write_str("taken"),
+            EscalationOutcome::Unsure => f.write_str("the second model was unsure too"),
+            EscalationOutcome::Timeout => f.write_str("the second model did not answer in time"),
+            EscalationOutcome::Unavailable => f.write_str("the second model could not be reached"),
+        }
+    }
 }
 
 /// Why there is no answer.
@@ -390,6 +441,230 @@ impl SysOne for ThorBackend {
     fn name(&self) -> &str {
         &self.name
     }
+}
+
+/// A backend that asks a second model when the first one is unsure (D71).
+///
+/// The cheap model answers the pack. Every gate it is not sure about —
+/// below `escalate_below` — is then asked of the second model **on its
+/// own**, one question in one call, and the second opinion is taken when
+/// the second model is sure of it.
+///
+/// The second model's pack is one question, never the whole pack:
+/// clef-flash's batch is 2048 tokens and the full eleven-question pack is
+/// 2317 (D71), so a pack that does not fit would be refused outright.
+///
+/// The escalation is bounded by the deadline of the call it belongs to: a
+/// second opinion that cannot arrive in time is no opinion at all. A gate
+/// whose second opinion fails stays unsure: the cheap model was not
+/// trusted on its own, and the second model did not take its place (D26).
+pub struct EscalatingBackend {
+    /// The cheap model, which answers first.
+    primary: Box<dyn SysOne + Send + Sync>,
+    /// The second model: asked when the first one is unsure.
+    second: Box<dyn SysOne + Send + Sync>,
+    /// Below this confidence the cheap answer is not acted on alone.
+    escalate_below: f32,
+    /// The escalations so far, for the telemetry.
+    escalations: Mutex<Vec<Escalation>>,
+}
+
+impl EscalatingBackend {
+    /// A backend that asks `second` when `primary` is not sure.
+    ///
+    /// The threshold is the cheap model's own: a gate it answers below
+    /// `escalate_below` is not acted on alone.
+    pub fn new(
+        primary: Box<dyn SysOne + Send + Sync>,
+        second: Box<dyn SysOne + Send + Sync>,
+        escalate_below: f32,
+    ) -> Self {
+        Self {
+            primary,
+            second,
+            escalate_below,
+            escalations: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The threshold below which a gate is escalated.
+    pub fn escalate_below(&self) -> f32 {
+        self.escalate_below
+    }
+
+    /// The escalations so far, oldest first.
+    pub fn escalations(&self) -> Vec<Escalation> {
+        self.escalations
+            .lock()
+            .expect("the escalations are not poisoned")
+            .clone()
+    }
+
+    /// How many gates were escalated.
+    pub fn escalation_count(&self) -> usize {
+        self.escalations
+            .lock()
+            .expect("the escalations are not poisoned")
+            .len()
+    }
+}
+
+impl fmt::Debug for EscalatingBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EscalatingBackend")
+            .field("primary", &self.primary.name())
+            .field("second", &self.second.name())
+            .field("escalate_below", &self.escalate_below)
+            .finish()
+    }
+}
+
+impl SysOne for EscalatingBackend {
+    fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        let mut answers = self.primary.ask(state, questions, deadline)?;
+        // The gates the cheap model was not sure about: their own numbers
+        // are in `per_gate` (above its floor) or in `unsure` (below it).
+        for gate in gates_below(&answers, self.escalate_below) {
+            let primary_confidence = confidence_of(&answers, &gate);
+            // The second model is asked this gate **alone**: one question in
+            // one call, so its pack always fits.
+            let one = one_question(questions, &gate);
+            let started = Instant::now();
+            let (second_answer, outcome) = match self.second.ask(state, &one, deadline) {
+                Ok(second) => {
+                    let answer = second.per_gate.get(&gate).cloned();
+                    let outcome = if answer.is_some() {
+                        EscalationOutcome::Taken
+                    } else {
+                        EscalationOutcome::Unsure
+                    };
+                    (answer, outcome)
+                }
+                Err(Refusal::Timeout) => (None, EscalationOutcome::Timeout),
+                Err(_) => (None, EscalationOutcome::Unavailable),
+            };
+            let latency_ms = ms(started.elapsed());
+            let second_confidence = second_answer.as_ref().and_then(answer_confidence);
+            // The second opinion is the gate's answer, or the gate stays
+            // unsure: the cheap model's own answer was not trusted alone.
+            match second_answer {
+                Some(answer) => {
+                    answers.per_gate.insert(gate.clone(), answer);
+                    answers.unsure.remove(&gate);
+                }
+                None => {
+                    answers.per_gate.remove(&gate);
+                    answers.unsure.insert(gate.clone(), primary_confidence);
+                }
+            }
+            let escalation = Escalation {
+                gate: gate.clone(),
+                primary_confidence,
+                second_confidence,
+                latency_ms,
+                outcome,
+            };
+            answers.escalated.insert(gate, escalation.clone());
+            self.escalations
+                .lock()
+                .expect("the escalations are not poisoned")
+                .push(escalation);
+        }
+        Ok(answers)
+    }
+
+    fn name(&self) -> &str {
+        self.primary.name()
+    }
+}
+
+/// The confidence of a gate's answer, if it has one.
+///
+/// A noul has no confidence: its value is the belief itself, and the
+/// presence floor (not the confidence floor) decides whether it is
+/// silence (D53).
+fn answer_confidence(answer: &Answer) -> Option<f32> {
+    match answer {
+        Answer::Choice { confidence, .. } | Answer::Score { confidence, .. } => Some(*confidence),
+        Answer::Noul(_) => None,
+    }
+}
+
+/// The confidence of a gate in an answer set: whether it was answered or
+/// found unsure.
+fn confidence_of(answers: &Answers, gate: &str) -> f32 {
+    if let Some(answer) = answers.per_gate.get(gate) {
+        return answer_confidence(answer).unwrap_or(0.0);
+    }
+    answers.unsure.get(gate).copied().unwrap_or(0.0)
+}
+
+/// The gates whose confidence is below `threshold`.
+fn gates_below(answers: &Answers, threshold: f32) -> Vec<String> {
+    let mut gates: Vec<String> = answers
+        .per_gate
+        .iter()
+        .filter_map(|(id, answer)| {
+            let confidence = answer_confidence(answer)?;
+            (confidence < threshold).then(|| id.clone())
+        })
+        .collect();
+    gates.extend(
+        answers
+            .unsure
+            .iter()
+            .filter(|(_, confidence)| **confidence < threshold)
+            .map(|(id, _)| id.clone()),
+    );
+    gates.sort();
+    gates.dedup();
+    gates
+}
+
+/// The pack of one question: the second model is asked this gate alone.
+fn one_question(questions: &Value, gate: &str) -> Value {
+    let mut one = Map::new();
+    if let Some(gates) = questions.as_object() {
+        if let Some(question) = gates.get(gate) {
+            one.insert(gate.to_owned(), question.clone());
+        }
+    }
+    Value::Object(one)
+}
+
+/// Wrap the backends so that a gate the cheap model is unsure about is
+/// asked of the second model (D71).
+///
+/// `second` builds the second model for a primary backend's name, and is
+/// called once per wrapped backend: each gets a connection of its own
+/// (D50). A backend that has no second model is left as it is.
+pub fn with_escalation(
+    backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
+    escalate_below: f32,
+    escalate_backend: &str,
+    second: impl Fn(&str) -> Option<Box<dyn SysOne + Send + Sync>>,
+) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
+    let mut out = BTreeMap::new();
+    for (name, backend) in backends {
+        if name == escalate_backend {
+            // The second model does not escalate to itself.
+            out.insert(name, backend);
+            continue;
+        }
+        match second(&name) {
+            Some(second) => {
+                out.insert(
+                    name,
+                    Box::new(EscalatingBackend::new(backend, second, escalate_below))
+                        as Box<dyn SysOne + Send + Sync>,
+                );
+            }
+            None => {
+                out.insert(name, backend);
+            }
+        }
+    }
+    out
 }
 
 /// The cloud Jev backend (TypeSafe's System One API).
@@ -922,6 +1197,7 @@ fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
     Ok(Answers {
         per_gate,
         unsure: BTreeMap::new(),
+        escalated: BTreeMap::new(),
         model: "stub".to_owned(),
         input_tokens: 64,
         latency_ms: 0,
@@ -1086,6 +1362,7 @@ fn parse_answers(body: &str, model: &str, latency_ms: u32) -> Result<Answers, Re
     Ok(Answers {
         per_gate,
         unsure: BTreeMap::new(),
+        escalated: BTreeMap::new(),
         model: model.to_string(),
         input_tokens: u32::try_from(input_tokens).unwrap_or(u32::MAX),
         latency_ms,
@@ -1881,6 +2158,160 @@ mod tests {
         assert_eq!(mock.requests(), 0);
     }
 
+    /// A backend that counts its calls and keeps the packs it was asked, so
+    /// a test can see what the escalation asked (D71).
+    #[derive(Clone, Debug, Default)]
+    struct CountingBackend {
+        calls: Arc<AtomicUsize>,
+        packs: Arc<Mutex<Vec<Value>>>,
+        confidence: f32,
+        delay: Duration,
+    }
+
+    impl CountingBackend {
+        fn new(confidence: f32) -> Self {
+            Self {
+                calls: Arc::new(AtomicUsize::new(0)),
+                packs: Arc::new(Mutex::new(Vec::new())),
+                confidence,
+                delay: Duration::from_millis(0),
+            }
+        }
+
+        fn slow(confidence: f32, delay: Duration) -> Self {
+            Self {
+                calls: Arc::new(AtomicUsize::new(0)),
+                packs: Arc::new(Mutex::new(Vec::new())),
+                confidence,
+                delay,
+            }
+        }
+    }
+
+    impl SysOne for CountingBackend {
+        fn ask(
+            &self,
+            _state: &str,
+            questions: &Value,
+            deadline: Instant,
+        ) -> Result<Answers, Refusal> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.packs
+                .lock()
+                .expect("the packs are not poisoned")
+                .push(questions.clone());
+            if Instant::now()
+                .checked_add(self.delay)
+                .is_none_or(|end| end > deadline)
+            {
+                return Err(Refusal::Timeout);
+            }
+            std::thread::sleep(self.delay);
+            menu_answer(questions, self.confidence)
+        }
+
+        fn name(&self) -> &str {
+            "counting"
+        }
+    }
+
+    /// The pack of one gate, for the escalation tests.
+    fn one_gate_pack() -> Value {
+        json!({
+            "move": {
+                "type": "choice",
+                "instructions": "Pick one.",
+                "criteria": {"opt0": "go", "opt1": "hold"},
+            }
+        })
+    }
+
+    #[test]
+    fn an_unsure_gate_is_asked_of_the_second_model() {
+        // D71: the cheap model answers below the threshold, so that gate
+        // alone is asked of the second model, and the second model's answer
+        // is the gate's answer.
+        let primary = CountingBackend::new(0.2);
+        let second = CountingBackend::new(0.9);
+        let primary_calls = Arc::clone(&primary.calls);
+        let second_calls = Arc::clone(&second.calls);
+        let second_packs = Arc::clone(&second.packs);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .expect("the answer comes back");
+        // The second model was asked once, and it was asked that gate alone.
+        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+        let packs = second_packs.lock().expect("the packs are not poisoned");
+        assert_eq!(packs.len(), 1);
+        assert_eq!(packs[0].as_object().expect("a table").len(), 1);
+        assert!(packs[0].get("move").is_some());
+        drop(packs);
+        // The second model's answer is the gate's answer.
+        match answers.per_gate.get("move") {
+            Some(Answer::Choice { confidence, .. }) => {
+                assert!((confidence - 0.9).abs() < 0.01, "got {confidence}");
+            }
+            other => panic!("got {other:?}"),
+        }
+        // The escalation is logged: the gate, both confidences, the latency.
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert_eq!(escalation.gate, "move");
+        assert!((escalation.primary_confidence - 0.2).abs() < 0.01);
+        assert_eq!(escalation.second_confidence, Some(0.9));
+        assert_eq!(escalation.outcome, EscalationOutcome::Taken);
+        assert_eq!(backend.escalation_count(), 1);
+        // The cheap model was asked once: the escalation does not ask it
+        // again.
+        assert_eq!(primary_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_sure_gate_is_not_escalated() {
+        // D71: the escalation buys a second opinion only where the cheap
+        // model is unsure.
+        let primary = CountingBackend::new(0.9);
+        let second = CountingBackend::new(0.9);
+        let second_calls = Arc::clone(&second.calls);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .expect("the answer comes back");
+        assert_eq!(second_calls.load(Ordering::SeqCst), 0);
+        assert!(answers.escalated.is_empty());
+        assert_eq!(backend.escalation_count(), 0);
+    }
+
+    #[test]
+    fn a_slow_second_model_leaves_the_gate_unsure() {
+        // D71: the escalation is bounded by the deadline. A second opinion
+        // that cannot arrive in time is no opinion, and the gate stays
+        // unsure: the cheap model was not trusted on its own.
+        let primary = CountingBackend::new(0.2);
+        let second = CountingBackend::slow(0.9, Duration::from_millis(500));
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_millis(50),
+            )
+            .expect("the pack is answered");
+        assert!(answers.per_gate.is_empty(), "the gate decides nothing");
+        assert_eq!(answers.unsure.get("move"), Some(&0.2));
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert_eq!(escalation.outcome, EscalationOutcome::Timeout);
+        assert_eq!(escalation.second_confidence, None);
+    }
+
     #[test]
     fn the_stub_answers_its_script() {
         let answers = Answers {
@@ -1892,6 +2323,7 @@ mod tests {
                 },
             )]),
             unsure: BTreeMap::new(),
+            escalated: BTreeMap::new(),
             model: "stub".to_string(),
             input_tokens: 0,
             latency_ms: 0,

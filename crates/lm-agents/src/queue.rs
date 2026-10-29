@@ -27,6 +27,8 @@ use std::collections::BTreeMap;
 
 use lm_core::Tick;
 
+use crate::mind::Pack;
+
 /// One agent asking to think about its current situation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ThinkReq {
@@ -34,6 +36,11 @@ pub struct ThinkReq {
     pub agent: u16,
     /// Its squad (for squad-weighted priority).
     pub squad: u8,
+    /// Which pack this request carries (D70).
+    ///
+    /// The move pack and the talk pack are separate requests, so a mind may
+    /// have one of each waiting.
+    pub pack: Pack,
     /// The tick it asked on.
     pub asked: Tick,
     /// The last tick on which an answer is still useful. A request still
@@ -92,8 +99,8 @@ impl Budgets {
 /// The least-use-first queue.
 #[derive(Clone, Debug)]
 pub struct LeastUseQueue {
-    /// Pending requests, at most one per agent (rule 1).
-    pending: BTreeMap<u16, ThinkReq>,
+    /// Pending requests, at most one per agent and pack (rule 1).
+    pending: BTreeMap<(u16, Pack), ThinkReq>,
     /// Model usage this round per agent, in the configured unit (calls by
     /// default; tokens or GPU-ms once the router reports them).
     usage: BTreeMap<u16, u64>,
@@ -114,9 +121,12 @@ impl LeastUseQueue {
     }
 
     /// Queue a request. It replaces any request the same agent still has
-    /// pending (rule 1).
+    /// pending for the same pack (rule 1).
+    ///
+    /// The two packs are queued apart (D70): a mind may have a move pack
+    /// and a talk pack waiting at once.
     pub fn push(&mut self, req: ThinkReq) {
-        self.pending.insert(req.agent, req);
+        self.pending.insert((req.agent, req.pack), req);
     }
 
     /// Requests waiting.
@@ -152,7 +162,10 @@ impl LeastUseQueue {
     /// - Expired requests (`deadline < now`) are dropped (rule 2).
     /// - The rest are ordered by priority, ascending:
     ///   `own_usage * 1000 + squad_weight_permille * squad_usage`,
-    ///   ties broken by agent id. The least-used agent goes first.
+    ///   ties broken by agent id and then by pack: the move pack goes
+    ///   before the talk pack of the same agent, because the move is the
+    ///   decision that moves the game (D70). The least-used agent goes
+    ///   first.
     /// - Each chosen request spends one budget call. An empty budget refuses
     ///   the request instead (rule 3), and refusals don't use up a slot.
     pub fn pop_batch(&mut self, now: Tick, max: usize, budgets: &mut Budgets) -> Popped {
@@ -174,7 +187,7 @@ impl LeastUseQueue {
             }
         }
 
-        let mut ranked: Vec<(u64, u16, ThinkReq)> = live
+        let mut ranked: Vec<(u64, u16, Pack, ThinkReq)> = live
             .into_iter()
             .map(|r| {
                 let own = self.usage(r.agent).saturating_mul(1000);
@@ -183,16 +196,16 @@ impl LeastUseQueue {
                     .copied()
                     .unwrap_or(0)
                     .saturating_mul(self.squad_weight_permille);
-                (own.saturating_add(squad), r.agent, r)
+                (own.saturating_add(squad), r.agent, r.pack, r)
             })
             .collect();
-        // (priority, agent id) is unique per request: a total order.
-        ranked.sort_by_key(|(p, a, _)| (*p, *a));
+        // (priority, agent id, pack) is unique per request: a total order.
+        ranked.sort_by_key(|(p, a, pack, _)| (*p, *a, *pack));
 
-        for (_, _, r) in ranked {
+        for (_, _, _, r) in ranked {
             if out.send.len() >= max {
                 // Not this time: keep it pending for the next batch.
-                self.pending.insert(r.agent, r);
+                self.pending.insert((r.agent, r.pack), r);
             } else if budgets.try_spend(r.agent) {
                 out.send.push(r);
             } else {
@@ -211,6 +224,7 @@ mod tests {
         ThinkReq {
             agent,
             squad,
+            pack: Pack::Move,
             asked,
             deadline,
             situation_key: u64::from(agent),

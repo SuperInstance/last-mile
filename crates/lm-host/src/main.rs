@@ -85,7 +85,7 @@ use bevy_egui::{EguiContext, EguiGlobalSettings, EguiPlugin, PrimaryEguiContext}
 use lm_agents::config::AgentsConfig;
 use lm_agents::harness::Harness;
 use lm_agents::mind::Policy;
-use lm_agents::sysone::{JevBackend, StubBackend, SysOne, ThorBackend};
+use lm_agents::sysone::{with_escalation, JevBackend, StubBackend, SysOne, ThorBackend};
 use lm_agents::Agents;
 use lm_core::header::Header;
 use lm_host_model::host_loop::HostLoop;
@@ -628,24 +628,32 @@ fn backends(
     choice: AgentChoice,
     cfg: &AgentsConfig,
     harness: &Harness,
-) -> BTreeMap<String, Box<dyn SysOne + Send>> {
-    let mut out: BTreeMap<String, Box<dyn SysOne + Send>> = BTreeMap::new();
+) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
+    let mut out: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = BTreeMap::new();
     match choice {
         AgentChoice::Off => {}
         AgentChoice::Stub => {
             // The stub answers every tier the policy names: the gates, the
             // policy and the ladder are the real ones, only the model is not.
             let policy = Policy::for_harness(&harness.policy_toml);
+            let mut out: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = BTreeMap::new();
             for tier in policy.tiers.tiers() {
                 if tier.is_reflex() {
                     continue;
                 }
-                out.entry(tier.backend().to_owned())
-                    .or_insert_with(|| Box::new(StubBackend::menu()) as Box<dyn SysOne + Send>);
+                out.entry(tier.backend().to_owned()).or_insert_with(|| {
+                    Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>
+                });
             }
+            // The escalation (D71) is modelled by the stub too, so the gate
+            // tests cover it without the Thor.
+            with_escalation(out, cfg.escalate_below, &cfg.escalate_backend, |_| {
+                Some(Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>)
+            })
         }
         AgentChoice::Thor => {
             // The Thor's models: one port each.
+            let mut out: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = BTreeMap::new();
             for (model, port) in &cfg.ports {
                 let mut backend = ThorBackend::new(&cfg.thor_base, *port, model)
                     .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
@@ -655,6 +663,12 @@ fn backends(
                 }
                 out.insert(name, Box::new(backend));
             }
+            // The escalation (D71): a gate the cheap model is unsure about
+            // is asked of the second model, that one question alone.
+            let thor = with_escalation(out, cfg.escalate_below, &cfg.escalate_backend, |_| {
+                thor_backend(cfg, &cfg.escalate_backend)
+            });
+            out = thor;
             // The cloud tier, when its key is there. That key only ever goes
             // to api.typesafe.ai -- never to the Thor.
             match JevBackend::from_secrets() {
@@ -664,9 +678,24 @@ fn backends(
                 }
                 Err(err) => eprintln!("lm-host: the cloud tier is not available: {err}"),
             }
+            out
         }
     }
     out
+}
+
+/// The Thor backend a backend name stands for: `"thor-clef-flash"` is the
+/// model `clef-flash` on its port.
+fn thor_backend(cfg: &AgentsConfig, name: &str) -> Option<Box<dyn SysOne + Send + Sync>> {
+    let model = name.strip_prefix("thor-")?;
+    let port = *cfg.ports.get(model)?;
+    let mut backend = ThorBackend::new(&cfg.thor_base, port, model)
+        .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
+    let backend_name = backend.name().to_owned();
+    if let Some(min) = cfg.min_confidence.get(&backend_name) {
+        backend = backend.with_min_confidence(*min);
+    }
+    Some(Box::new(backend))
 }
 
 /// Read the command line.

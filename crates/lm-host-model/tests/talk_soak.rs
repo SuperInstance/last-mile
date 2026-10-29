@@ -60,7 +60,7 @@ fn default_harness() -> Harness {
 ///
 /// The tiers stay the ones the game would use — the same gates, the same
 /// policy, the same ladder — and only the model behind them changes.
-fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send>> {
+fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
     let policy = Policy::for_harness(&harness.policy_toml);
     policy
         .tiers
@@ -70,7 +70,7 @@ fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send>> 
         .map(|tier| {
             (
                 tier.backend().to_owned(),
-                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send>,
+                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>,
             )
         })
         .collect()
@@ -127,7 +127,7 @@ fn live_round_on_thor(header: &Header) -> Agents {
         .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
     let backends = BTreeMap::from([(
         "thor-d1-2b".to_owned(),
-        Box::new(backend) as Box<dyn SysOne + Send>,
+        Box::new(backend) as Box<dyn SysOne + Send + Sync>,
     )]);
 
     Agents::new(&cfg, &harness, header, backends)

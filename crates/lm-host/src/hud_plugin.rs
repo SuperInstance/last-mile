@@ -118,8 +118,8 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
             if let Some(stats) = host.agent_stats() {
                 ui.separator();
                 ui.label(format!(
-                    "agents think {} refused {} queue {}",
-                    stats.thinks, stats.refusals, stats.queue_len
+                    "agents think {} refused {} escalated {} queue {}",
+                    stats.thinks, stats.refusals, stats.escalations, stats.queue_len
                 ));
                 let usage: Vec<String> = stats
                     .usage
