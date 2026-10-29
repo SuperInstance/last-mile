@@ -12,7 +12,8 @@ quality = 0
 
 [[tiers]]
 name = "fast"
-backend = "thor-d1-3b"
+# D62: d1-2B beat d1-3B on action, 0.96 vs 0.84 over 200 paired scenes (decision-daw x4)
+backend = "thor-d1-2b"
 quality = 1
 
 [[tiers]]

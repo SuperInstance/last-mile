@@ -48,7 +48,7 @@ pub const JEV_BASE: &str = "https://api.typesafe.ai";
 pub const JEV_MODEL: &str = "jev-latest";
 
 /// The confidence floor for a Thor backend, in the spirit of the
-/// `thor-d1-3b` default in `AgentsConfig`.
+/// `thor-d1-2b` default in `AgentsConfig`.
 pub const THOR_MIN_CONFIDENCE: f32 = 0.55;
 
 /// The confidence floor for the cloud backend, in the spirit of the `jev`

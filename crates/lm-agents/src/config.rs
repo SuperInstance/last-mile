@@ -124,8 +124,8 @@ impl Default for AgentsConfig {
     fn default() -> Self {
         Self {
             node: "proart".to_owned(),
-            backend_member: "thor-d1-3b".to_owned(),
-            backend_leader: "thor-d1-3b".to_owned(),
+            backend_member: "thor-d1-2b".to_owned(),
+            backend_leader: "thor-d1-2b".to_owned(),
             thor_base: "http://192.168.0.78".to_owned(),
             ports: BTreeMap::from([
                 ("d1-omni-600m".to_owned(), 8095),
@@ -134,6 +134,7 @@ impl Default for AgentsConfig {
                 ("clef-flash".to_owned(), 8096),
             ]),
             min_confidence: BTreeMap::from([
+                ("thor-d1-2b".to_owned(), 0.60),
                 ("thor-d1-3b".to_owned(), 0.55),
                 ("jev".to_owned(), 0.5),
             ]),
@@ -179,8 +180,8 @@ mod tests {
     fn defaults_match_the_plan_table() {
         let c = AgentsConfig::default();
         assert_eq!(c.node, "proart");
-        assert_eq!(c.backend_member, "thor-d1-3b");
-        assert_eq!(c.backend_leader, "thor-d1-3b");
+        assert_eq!(c.backend_member, "thor-d1-2b");
+        assert_eq!(c.backend_leader, "thor-d1-2b");
         assert_eq!(c.thor_base, "http://192.168.0.78");
         assert_eq!(
             c.ports,
@@ -193,7 +194,11 @@ mod tests {
         );
         assert_eq!(
             c.min_confidence,
-            BTreeMap::from([("thor-d1-3b".to_owned(), 0.55), ("jev".to_owned(), 0.5),])
+            BTreeMap::from([
+                ("thor-d1-2b".to_owned(), 0.60),
+                ("thor-d1-3b".to_owned(), 0.55),
+                ("jev".to_owned(), 0.5),
+            ])
         );
         assert_eq!(
             (

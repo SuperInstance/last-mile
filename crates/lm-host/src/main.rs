@@ -26,7 +26,7 @@
 //! `--agents thor|stub|off` says who is thinking. `off` is the reflex alone.
 //! `stub` is the same gates, the same policy and the same ladder, with a
 //! scripted model behind them — the round plays itself, no network needed.
-//! `thor` is the real thing: the Thor's d1-3B on the LAN, and the cloud tier
+//! `thor` is the real thing: the Thor's d1-2B (D62) on the LAN, and the cloud tier
 //! when its key is there.
 //!
 //! Build and run it with Windows cargo via `scripts/win-build.sh`; this WSL

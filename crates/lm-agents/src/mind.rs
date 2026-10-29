@@ -1793,7 +1793,7 @@ mod tests {
         );
         // The shipped backends: reflex plus the two model tiers of D55.
         let backends: Vec<&str> = p.tiers.tiers().iter().map(|t| t.backend()).collect();
-        assert_eq!(backends, vec!["reflex", "thor-d1-3b", "jev"]);
+        assert_eq!(backends, vec!["reflex", "thor-d1-2b", "jev"]);
         // A missing or broken policy file means the defaults, never a panic.
         assert_eq!(Policy::for_harness(""), p);
         assert_eq!(Policy::for_harness("tiers = ["), p);

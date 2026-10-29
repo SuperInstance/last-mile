@@ -5,7 +5,7 @@
 //! ```text
 //! ScoreView --facts--> plain-language facts (code computes every number, D49)
 //!           --gates--> typed System One questions over the sim's menu (D37)
-//!           --sysone--> a decision model (d1-3B on the Thor by default) -> probabilities
+//!           --sysone--> a decision model (d1-2B on the Thor by default) -> probabilities
 //!           --queue--> least-use-first scheduling under budgets (D16)
 //!           --mind--> scheduled Lane/Intent decisions, or a logged refusal (D26)
 //! ```
