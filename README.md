@@ -13,14 +13,14 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 
 | Phase | State |
 |---|---|
-| 1. Core | Done: headless, fixed-point, deterministic rounds replay bit-exact. `lm branch` rewinds, changes one thing and re-runs |
+| 1. Core | Done: headless, fixed-point, deterministic rounds replay bit-exact, on x86-64 and on the Thor's aarch64 (D69). `lm branch` rewinds, changes one thing and re-runs |
 | 2. Host | Done (Casey's hands-on acceptance pending): the Bevy map, piano roll, HUD and replay on the ProArt |
-| 3. Agents | Done: agents think on the Thor's d1 models in the host. d1-2B is the default fast tier (D62) |
-| 4. Talk | Tasks 1-5, 7 and 8 merged (utterances, notation, hearing physics, agents speaking, the voice crate, the half-duplex gate, talk metrics). Task 6 (human voice in) is partly done; Task 9 (integration) is open |
-| 5. Learning | All 8 tasks' headless parts merged: metrics, router, sealed ledger, review, held-out eval, deposits, Rhai rulesets, and `lm learn` (round N+1 uses round N's lesson). The host's between-round screen is open |
-| 6. 3D + archive | Render Tasks 1-5 and archive Tasks 9-12 merged. The Bevy 3D view (Tasks 6-8) is in progress |
+| 3. Agents | Done: agents think on the Thor's d1 models in the host. d1-2B is the default fast tier (D62), and members think at 1 Hz, sized to the Thor's measured supply (D68) |
+| 4. Talk | Done: utterances, notation, hearing physics, agents speaking, the voice crate, push-to-talk, the half-duplex gate, talk metrics, and talk in the host (`--talk off\|stub\|riva`). In progress: agents barely speak on the real model, and that's being tuned |
+| 5. Learning | Done: metrics, router, sealed ledger, review, held-out eval, deposits, Rhai rulesets, `lm learn`, and the between-round screen (human overrides are carried out). Open: the D63 tie-break call |
+| 6. 3D + archive | Done: the 3D view (`--view 2d\|3d\|both`, `V` switches), integer upscale, shared fog, and the Orin archive |
 
-Measured facts that shape the design live in [`docs/design/decisions.md`](docs/design/decisions.md) (D1–D66), for example: draws are mirror ties, not timeouts (D63), and the Thor serves about 9 decisions/s on d1-2B, roughly one thought per agent per second (decision-daw x5).
+Measured facts that shape the design live in [`docs/design/decisions.md`](docs/design/decisions.md) (D1–D69), for example: draws are mirror ties, not timeouts (D63), and the Thor serves about 9 decisions/s on d1-2B, roughly one thought per agent per second (decision-daw x5).
 
 ## Core ideas (one line each)
 - **The game is the score.** As with MIDI, a tiny stream of decisions is the whole game. Renderers are instruments: a better one sounds richer but never changes the rhythm.
@@ -102,7 +102,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 
 | Path | What |
 |---|---|
-| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D66) with reasons. **Start here.** |
+| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D69) with reasons. **Start here.** |
 | [`tests/golden.toml`](tests/golden.toml) | The pinned golden hashes of the headless rounds. Re-pin with `lm golden --write`, and say in the commit why the world moved |
 | [`docs/superpowers/specs/`](docs/superpowers/specs/2026-10-28-last-mile-m1-design.md) | The Milestone 1 design spec |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/) | The implementation plans: [phase 1](docs/superpowers/plans/2026-10-28-m1-phase1-core.md), [2](docs/superpowers/plans/2026-10-28-m1-phase2-host.md), [3](docs/superpowers/plans/2026-10-28-m1-phase3-agents.md), [4](docs/superpowers/plans/2026-10-29-m1-phase4-talk.md), [5](docs/superpowers/plans/2026-10-28-m1-phase5-learning.md), [6](docs/superpowers/plans/2026-10-29-m1-phase6-3d-archive.md) |
