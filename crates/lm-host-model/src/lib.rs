@@ -38,3 +38,4 @@ pub mod scrub;
 // Re-exported at the end of the file, so the parallel phase-2 tasks (4: map,
 // 5: roll + scrub) can add their own without touching these lines.
 pub use input::{InputError, InputEvent, InputState, Viewer};
+pub use map::{AgentDraw, BeaconDraw, FogState, MapModel};
