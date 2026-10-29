@@ -244,3 +244,27 @@ The conformer is the speech counterpart of a pitch-correction tool, but for *eve
 - **Delivery lands:** the conformed audio, analyzed again, falls in the target class ≥ 80%.
 - **Cheaper than re-rendering:** latency per line is well under a re-render.
 - **A listening comparison:** conformed vs. Riva's own style for the same target.
+
+## 15. The polisher: editing meaning in audio someone else rendered
+
+§14 conforms a line to a score. The bigger use is **polishing**, the way pitch correction polishes a raw vocal: take a finished render (a paragraph from any generator) and change *what it means* without re-recording it.
+
+- **Move the emphasis.** "I didn't say *he* took it" → "I didn't say he *took* it": raise the F0 peak, lengthen and lift the level of the target word, and flatten the old focus word.
+- **Bring out an attitude the render missed.** For example, the sarcasm a line was written with: a widened pitch range, lengthened stressed vowels, an exaggerated or inverted contour, slightly slowed timing.
+- **Shape emotion along a line, cued by the scene.** A character sounds a little more worried through the first half of a line, then, at the tick where the gaze staff (§12) shows them seeing the listener's face, eases into relief. The next phrase continues from that state, so it fits the scene organically. This is **automation**, as in a DAW: mark curves over time, cued by events on other staves.
+
+**What makes it possible is learning what the knobs do together.** The knobs interact. Raising pitch also reads as brighter. A pitch fall plus lengthening reads as emphasis, while a pitch fall alone reads as finality. Sarcasm is a *combination* that no single knob holds. So the polisher has two learned maps over the same knobs:
+
+1. **A forward map:** knob changes → perceived marks. The judges are LFM3-Audio's understanding mode (§6.3), the JEPA latent distance, and sparse human ratings. It captures the interactions.
+2. **An inverse search:** target marks (and their automation curves) → the smallest set of knob changes that the forward map says reaches the target. The constraints are a measured artifact budget and **voice identity** (stay close to the original speaker).
+
+**Training data is cheap and needs no human voice.** Take rendered lines and apply random knob perturbations (thousands per hour, by DSP). The judges score them, and the forward map learns from that. Human ratings are only for calibrating the judges. The model is small and runs on the dials, not on audio, so the search is fast enough for the last mile.
+
+**One instruction language end to end.** The director (§13: System Two, a human writer, or Claude) writes in marks and automation: "line 3: worried → relieved at the look; emphasis on *took*; dry". The same sentence drives the generator hint (§14's re-ask), the conformer and the polisher, and the same marks drive the face and body (§12), so the polish lands across the whole performance.
+
+**E11:** on neutral skald paragraphs, three edits:
+1. **Emphasis move:** a listener or LFM3 picks the new focus word ≥ 80%.
+2. **Attitude overlay**, for sarcasm and worry: paired against the unpolished line, judged better-matched ≥ 70%.
+3. **Cued automation**, worried → relieved at a given tick: the measured marks cross over within ±150 ms of the cue.
+
+For all three, ASR word accuracy stays within 2 points and the voice-identity distance stays under a threshold set from E3.
