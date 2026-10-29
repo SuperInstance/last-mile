@@ -1,0 +1,7362 @@
+[
+ {
+  "scene": 0,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.14
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.91,
+    "probabilities": {
+     "hide": 0.03,
+     "advance": 0.94,
+     "scout": 0.03
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.29,
+    "probabilities": {
+     "north": 0.27,
+     "south": 0.07,
+     "east": 0.19,
+     "west": 0.47
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 401,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 0,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.13,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 236,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 0,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.4
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.19,
+    "probabilities": {
+     "hide": 0.36,
+     "advance": 0.46,
+     "scout": 0.18
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.48,
+    "probabilities": {
+     "north": 0.38,
+     "south": 0.0,
+     "east": 0.61,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.97
+   }
+  },
+  "ms": 243,
+  "usage": {
+   "input_tokens": 689,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 0,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.01
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 1.0,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 1.0,
+     "scout": 0.0
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.01,
+     "west": 0.99
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 254,
+  "usage": {
+   "input_tokens": 742,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 1,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.27,
+    "probabilities": {
+     "hide": 0.12,
+     "advance": 0.51,
+     "scout": 0.37
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.71,
+    "probabilities": {
+     "north": 0.78,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 218,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 1,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.74,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.1,
+     "scout": 0.83
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.25,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.38
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 1,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.21
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.13,
+    "probabilities": {
+     "hide": 0.38,
+     "advance": 0.42,
+     "scout": 0.2
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.95,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.04,
+     "east": 0.0,
+     "west": 0.96
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 3283,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 1,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.05,
+     "advance": 0.16,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.76,
+    "probabilities": {
+     "north": 0.82,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.18
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 1307,
+  "usage": {
+   "input_tokens": 800,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 2,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.67
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.53,
+    "probabilities": {
+     "hide": 0.69,
+     "advance": 0.29,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.99,
+     "east": 0.01,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 241,
+  "usage": {
+   "input_tokens": 687,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 2,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.73,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.11,
+     "scout": 0.82
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.24,
+     "east": 0.27999999999999997,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 227,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 2,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.31,
+    "probabilities": {
+     "hide": 0.03,
+     "advance": 0.54,
+     "scout": 0.43
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.68,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.76,
+     "east": 0.23,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 224,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 2,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.84
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.82,
+    "probabilities": {
+     "hide": 0.88,
+     "advance": 0.11,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.89,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.92,
+     "east": 0.08,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 3437,
+  "usage": {
+   "input_tokens": 794,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 3,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.3,
+    "probabilities": {
+     "hide": 0.05,
+     "advance": 0.42,
+     "scout": 0.53
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.92,
+    "probabilities": {
+     "north": 0.94,
+     "south": 0.0,
+     "east": 0.05,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 229,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 3,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.64,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.15,
+     "scout": 0.76
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.05,
+    "probabilities": {
+     "north": 0.24,
+     "south": 0.25,
+     "east": 0.29,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 232,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 3,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.37
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.07,
+    "probabilities": {
+     "hide": 0.38,
+     "advance": 0.29,
+     "scout": 0.33
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.89,
+    "probabilities": {
+     "north": 0.92,
+     "south": 0.0,
+     "east": 0.07,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 227,
+  "usage": {
+   "input_tokens": 693,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 3,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.0
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.23,
+     "scout": 0.77
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.91,
+    "probabilities": {
+     "north": 0.93,
+     "south": 0.0,
+     "east": 0.07,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 252,
+  "usage": {
+   "input_tokens": 742,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 4,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.77,
+    "probabilities": {
+     "hide": 0.03,
+     "advance": 0.85,
+     "scout": 0.12
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.51,
+    "probabilities": {
+     "north": 0.63,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.37
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 273,
+  "usage": {
+   "input_tokens": 681,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 4,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.67,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.13,
+     "scout": 0.78
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 237,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 4,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.38,
+    "probabilities": {
+     "hide": 0.2,
+     "advance": 0.21,
+     "scout": 0.59
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.97,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.02,
+     "east": 0.0,
+     "west": 0.98
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.72
+   }
+  },
+  "ms": 227,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 4,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.01
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.97,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.98,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.85,
+    "probabilities": {
+     "north": 0.11,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.89
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 228,
+  "usage": {
+   "input_tokens": 732,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 5,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.05
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.92,
+    "probabilities": {
+     "hide": 0.01,
+     "advance": 0.95,
+     "scout": 0.04
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.75,
+    "probabilities": {
+     "north": 0.8099999999999999,
+     "south": 0.01,
+     "east": 0.08,
+     "west": 0.1
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 375,
+  "usage": {
+   "input_tokens": 683,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 5,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.12,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.26,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 245,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 5,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.37
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.13,
+     "advance": 0.81,
+     "scout": 0.06
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 1.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 235,
+  "usage": {
+   "input_tokens": 680,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 5,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.0
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.98,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.99,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.99,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 287,
+  "usage": {
+   "input_tokens": 735,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 6,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.06
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.82,
+    "probabilities": {
+     "hide": 0.02,
+     "advance": 0.88,
+     "scout": 0.1
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.88,
+     "east": 0.0,
+     "west": 0.12
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 229,
+  "usage": {
+   "input_tokens": 693,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 6,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.13,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.41
+   }
+  },
+  "ms": 224,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 6,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.22
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.53,
+    "probabilities": {
+     "hide": 0.11,
+     "advance": 0.69,
+     "scout": 0.2
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.8,
+    "probabilities": {
+     "north": 0.85,
+     "south": 0.01,
+     "east": 0.03,
+     "west": 0.11
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 232,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 6,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.0
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.46,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.36,
+     "scout": 0.64
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.92,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.94,
+     "east": 0.0,
+     "west": 0.06
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 225,
+  "usage": {
+   "input_tokens": 745,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 7,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.36
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.18,
+    "probabilities": {
+     "hide": 0.36,
+     "advance": 0.45,
+     "scout": 0.19
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.49,
+    "probabilities": {
+     "north": 0.37,
+     "south": 0.0,
+     "east": 0.62,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 248,
+  "usage": {
+   "input_tokens": 689,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 7,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.67,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.13,
+     "scout": 0.78
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.05,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.25,
+     "east": 0.29000000000000004,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 7,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.45
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.11,
+    "probabilities": {
+     "hide": 0.41,
+     "advance": 0.19,
+     "scout": 0.4
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.63,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.28,
+     "east": 0.72,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.87
+   }
+  },
+  "ms": 230,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 7,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.14
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.79,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.86,
+     "scout": 0.06
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.79,
+    "probabilities": {
+     "north": 0.84,
+     "south": 0.0,
+     "east": 0.14,
+     "west": 0.02
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.85
+   }
+  },
+  "ms": 260,
+  "usage": {
+   "input_tokens": 767,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 8,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.26
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.1,
+    "probabilities": {
+     "hide": 0.39,
+     "advance": 0.4,
+     "scout": 0.21
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.91,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.07,
+     "east": 0.0,
+     "west": 0.93
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 231,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 8,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.14,
+     "scout": 0.77
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.25,
+     "east": 0.28,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 236,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 8,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.89
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.56,
+    "probabilities": {
+     "hide": 0.71,
+     "advance": 0.1,
+     "scout": 0.19
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.63,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.72,
+     "east": 0.0,
+     "west": 0.28
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 233,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 8,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.03
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.27,
+    "probabilities": {
+     "hide": 0.11,
+     "advance": 0.51,
+     "scout": 0.38
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.01,
+     "east": 0.0,
+     "west": 0.99
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 254,
+  "usage": {
+   "input_tokens": 763,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 9,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.33,
+    "probabilities": {
+     "hide": 0.05,
+     "advance": 0.55,
+     "scout": 0.4
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.64,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.73,
+     "east": 0.26,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 225,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 9,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.12,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 9,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.12
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.19,
+    "probabilities": {
+     "hide": 0.18,
+     "advance": 0.36,
+     "scout": 0.46
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.95,
+    "probabilities": {
+     "north": 0.96,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.04
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 237,
+  "usage": {
+   "input_tokens": 685,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 9,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.01
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.81,
+     "scout": 0.19
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.96,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.97,
+     "east": 0.03,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 251,
+  "usage": {
+   "input_tokens": 742,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 10,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.33
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.09,
+    "probabilities": {
+     "hide": 0.39,
+     "advance": 0.29,
+     "scout": 0.32
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.89,
+    "probabilities": {
+     "north": 0.92,
+     "south": 0.0,
+     "east": 0.06,
+     "west": 0.02
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 236,
+  "usage": {
+   "input_tokens": 693,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 10,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.11,
+     "scout": 0.81
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 10,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.9
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.83,
+    "probabilities": {
+     "hide": 0.89,
+     "advance": 0.07,
+     "scout": 0.04
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.79,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.84,
+     "east": 0.16,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 257,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 10,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.32
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.31,
+    "probabilities": {
+     "hide": 0.41,
+     "advance": 0.05,
+     "scout": 0.54
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.99,
+     "south": 0.0,
+     "east": 0.01,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 277,
+  "usage": {
+   "input_tokens": 773,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 11,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": false
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.19
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.45,
+    "probabilities": {
+     "hide": 0.18,
+     "advance": 0.19,
+     "scout": 0.63
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.96,
+    "probabilities": {
+     "north": 0.01,
+     "south": 0.02,
+     "east": 0.0,
+     "west": 0.97
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.7
+   }
+  },
+  "ms": 227,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 11,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": false
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.11,
+     "scout": 0.81
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.38
+   }
+  },
+  "ms": 228,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 11,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": false
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.98
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.97,
+    "probabilities": {
+     "hide": 0.98,
+     "advance": 0.01,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.97,
+    "probabilities": {
+     "north": 0.98,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.02
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 226,
+  "usage": {
+   "input_tokens": 692,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 11,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": false
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.83,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.03,
+     "scout": 0.89
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 1.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.73
+   }
+  },
+  "ms": 235,
+  "usage": {
+   "input_tokens": 791,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 12,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.28
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.73,
+    "probabilities": {
+     "hide": 0.1,
+     "advance": 0.82,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 1.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.97
+   }
+  },
+  "ms": 287,
+  "usage": {
+   "input_tokens": 680,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 12,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.13,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.28,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.37
+   }
+  },
+  "ms": 238,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 12,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.51
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.46,
+    "probabilities": {
+     "hide": 0.33,
+     "advance": 0.64,
+     "scout": 0.03
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.91,
+    "probabilities": {
+     "north": 0.01,
+     "south": 0.93,
+     "east": 0.01,
+     "west": 0.05
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 245,
+  "usage": {
+   "input_tokens": 678,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 12,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.3
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.86,
+    "probabilities": {
+     "hide": 0.05,
+     "advance": 0.91,
+     "scout": 0.04
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 1.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.95
+   }
+  },
+  "ms": 224,
+  "usage": {
+   "input_tokens": 758,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 13,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.22
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.58,
+    "probabilities": {
+     "hide": 0.11,
+     "advance": 0.72,
+     "scout": 0.17
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.87,
+    "probabilities": {
+     "north": 0.9,
+     "south": 0.0,
+     "east": 0.02,
+     "west": 0.08
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 233,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 13,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.13,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.28,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 231,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 13,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.33
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.37,
+    "probabilities": {
+     "hide": 0.22,
+     "advance": 0.58,
+     "scout": 0.2
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.87,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.9,
+     "east": 0.05,
+     "west": 0.05
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 236,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 13,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.06
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.62,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.75,
+     "scout": 0.21
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.93,
+    "probabilities": {
+     "north": 0.95,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.05
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 228,
+  "usage": {
+   "input_tokens": 799,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 14,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.43
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.18,
+    "probabilities": {
+     "hide": 0.45,
+     "advance": 0.21,
+     "scout": 0.34
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.59,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.31,
+     "east": 0.69,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.83
+   }
+  },
+  "ms": 249,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 14,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.12,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.01,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.26,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 256,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 14,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.34
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.53,
+    "probabilities": {
+     "hide": 0.14,
+     "advance": 0.69,
+     "scout": 0.17
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.89,
+    "probabilities": {
+     "north": 0.08,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.92
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.96
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 14,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.73,
+    "probabilities": {
+     "hide": 0.13,
+     "advance": 0.05,
+     "scout": 0.82
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.91,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.07,
+     "east": 0.93,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.9
+   }
+  },
+  "ms": 226,
+  "usage": {
+   "input_tokens": 771,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 15,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.89
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.77,
+     "advance": 0.06,
+     "scout": 0.17
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.36,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.48,
+     "east": 0.0,
+     "west": 0.52
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 239,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 15,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.18
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.12,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.43
+   }
+  },
+  "ms": 266,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 15,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.17
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.79,
+    "probabilities": {
+     "hide": 0.06,
+     "advance": 0.86,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.93,
+    "probabilities": {
+     "north": 0.95,
+     "south": 0.0,
+     "east": 0.04,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 239,
+  "usage": {
+   "input_tokens": 687,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 15,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.94
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.86,
+    "probabilities": {
+     "hide": 0.91,
+     "advance": 0.01,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.89,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.08,
+     "east": 0.0,
+     "west": 0.92
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 228,
+  "usage": {
+   "input_tokens": 794,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 16,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.14
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.19,
+    "probabilities": {
+     "hide": 0.14,
+     "advance": 0.4,
+     "scout": 0.46
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.93,
+    "probabilities": {
+     "north": 0.95,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.05
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 225,
+  "usage": {
+   "input_tokens": 685,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 16,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.12,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.25,
+     "east": 0.28,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 1304,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 16,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.97
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.79,
+    "probabilities": {
+     "hide": 0.86,
+     "advance": 0.11,
+     "scout": 0.03
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.01,
+     "south": 0.0,
+     "east": 0.99,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 262,
+  "usage": {
+   "input_tokens": 678,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 16,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.41,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.61,
+     "scout": 0.31
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.96,
+    "probabilities": {
+     "north": 0.97,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.03
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 3284,
+  "usage": {
+   "input_tokens": 795,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 17,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.86
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.8,
+    "probabilities": {
+     "hide": 0.87,
+     "advance": 0.08,
+     "scout": 0.05
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.81,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.86,
+     "east": 0.14,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 257,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 17,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.17
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.14,
+     "scout": 0.77
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.05,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.25,
+     "east": 0.29,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 226,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 17,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.74
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.77,
+     "advance": 0.18,
+     "scout": 0.05
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.71,
+    "probabilities": {
+     "north": 0.78,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 226,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 17,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.89
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.83,
+    "probabilities": {
+     "hide": 0.89,
+     "advance": 0.09,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.44,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.58,
+     "east": 0.42,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 242,
+  "usage": {
+   "input_tokens": 800,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 18,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.97
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.95,
+    "probabilities": {
+     "hide": 0.97,
+     "advance": 0.02,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.95,
+    "probabilities": {
+     "north": 0.96,
+     "south": 0.0,
+     "east": 0.01,
+     "west": 0.03
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 224,
+  "usage": {
+   "input_tokens": 692,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 18,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.73,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.11,
+     "scout": 0.82
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.38
+   }
+  },
+  "ms": 261,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 18,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.45
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.1,
+    "probabilities": {
+     "hide": 0.38,
+     "advance": 0.22,
+     "scout": 0.4
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 1.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.94
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 18,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.93
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.91,
+    "probabilities": {
+     "hide": 0.9400000000000001,
+     "advance": 0.0,
+     "scout": 0.06
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.99,
+     "south": 0.0,
+     "east": 0.01,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 284,
+  "usage": {
+   "input_tokens": 800,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 19,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.49
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.53,
+    "probabilities": {
+     "hide": 0.28,
+     "advance": 0.69,
+     "scout": 0.03
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.91,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.93,
+     "east": 0.01,
+     "west": 0.05
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 232,
+  "usage": {
+   "input_tokens": 678,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 19,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.14,
+     "scout": 0.77
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.05,
+    "probabilities": {
+     "north": 0.24,
+     "south": 0.25,
+     "east": 0.29,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 231,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 19,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.86,
+    "probabilities": {
+     "hide": 0.02,
+     "advance": 0.91,
+     "scout": 0.07
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.55,
+    "probabilities": {
+     "north": 0.66,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.34
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 238,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 19,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.38
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.21,
+     "advance": 0.77,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.88,
+     "east": 0.0,
+     "west": 0.12
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 786,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 20,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.35
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.48,
+    "probabilities": {
+     "hide": 0.17,
+     "advance": 0.65,
+     "scout": 0.18
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.88,
+     "east": 0.06,
+     "west": 0.06
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 291,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 20,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.14
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.12,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.25,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.38
+   }
+  },
+  "ms": 264,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 20,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.46,
+    "probabilities": {
+     "hide": 0.03,
+     "advance": 0.64,
+     "scout": 0.33
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.75,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.19,
+     "east": 0.0,
+     "west": 0.81
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 302,
+  "usage": {
+   "input_tokens": 694,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 20,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.42
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.33,
+    "probabilities": {
+     "hide": 0.37,
+     "advance": 0.55,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.95,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.96,
+     "east": 0.0,
+     "west": 0.04
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 223,
+  "usage": {
+   "input_tokens": 762,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 21,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.36
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.45,
+    "probabilities": {
+     "hide": 0.17,
+     "advance": 0.63,
+     "scout": 0.2
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.12,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.88
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.96
+   }
+  },
+  "ms": 224,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 21,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.12,
+     "scout": 0.81
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.01,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.26,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.38
+   }
+  },
+  "ms": 242,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 21,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.64
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.25,
+    "probabilities": {
+     "hide": 0.45,
+     "advance": 0.5,
+     "scout": 0.05
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.77,
+    "probabilities": {
+     "north": 0.01,
+     "south": 0.83,
+     "east": 0.01,
+     "west": 0.15
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 235,
+  "usage": {
+   "input_tokens": 695,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 21,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.53
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.09,
+    "probabilities": {
+     "hide": 0.29,
+     "advance": 0.32,
+     "scout": 0.39
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.91,
+    "probabilities": {
+     "north": 0.07,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.93
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.94
+   }
+  },
+  "ms": 246,
+  "usage": {
+   "input_tokens": 798,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 22,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.12
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.82,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.88,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.93,
+    "probabilities": {
+     "north": 0.95,
+     "south": 0.0,
+     "east": 0.04,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 249,
+  "usage": {
+   "input_tokens": 687,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 22,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.12,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.24,
+     "south": 0.26,
+     "east": 0.28,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 223,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 22,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.11
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.46,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.32,
+     "scout": 0.64
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.57,
+    "probabilities": {
+     "north": 0.68,
+     "south": 0.0,
+     "east": 0.32,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 227,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 22,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.02
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.94,
+    "probabilities": {
+     "hide": 0.01,
+     "advance": 0.96,
+     "scout": 0.03
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.89,
+    "probabilities": {
+     "north": 0.92,
+     "south": 0.0,
+     "east": 0.08,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 220,
+  "usage": {
+   "input_tokens": 766,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 23,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.96
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.8,
+    "probabilities": {
+     "hide": 0.87,
+     "advance": 0.1,
+     "scout": 0.03
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.97,
+    "probabilities": {
+     "north": 0.02,
+     "south": 0.0,
+     "east": 0.98,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 225,
+  "usage": {
+   "input_tokens": 678,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 23,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.13,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.38
+   }
+  },
+  "ms": 221,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 23,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.99
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.97,
+    "probabilities": {
+     "hide": 0.98,
+     "advance": 0.02,
+     "scout": 0.0
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.63,
+    "probabilities": {
+     "north": 0.72,
+     "south": 0.0,
+     "east": 0.28,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 231,
+  "usage": {
+   "input_tokens": 685,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 23,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.84
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.86,
+    "probabilities": {
+     "hide": 0.91,
+     "advance": 0.07,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 1.0,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 265,
+  "usage": {
+   "input_tokens": 756,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 24,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.77
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.77,
+     "advance": 0.19,
+     "scout": 0.04
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.67,
+    "probabilities": {
+     "north": 0.75,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.25
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 239,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 24,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.73,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.11,
+     "scout": 0.82
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.25,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.38
+   }
+  },
+  "ms": 354,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 24,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.22
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.83,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.89,
+     "scout": 0.04
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.48,
+    "probabilities": {
+     "north": 0.61,
+     "south": 0.01,
+     "east": 0.38,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 225,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 24,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.74
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.73,
+    "probabilities": {
+     "hide": 0.82,
+     "advance": 0.17,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.95,
+    "probabilities": {
+     "north": 0.96,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.04
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 267,
+  "usage": {
+   "input_tokens": 791,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 25,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.36
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.19,
+    "probabilities": {
+     "hide": 0.32,
+     "advance": 0.22,
+     "scout": 0.46
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 1.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.92
+   }
+  },
+  "ms": 231,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 25,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.14
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.67,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.13,
+     "scout": 0.78
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.05,
+    "probabilities": {
+     "north": 0.24,
+     "south": 0.25,
+     "east": 0.29,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.37
+   }
+  },
+  "ms": 213,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 25,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.13
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.79,
+    "probabilities": {
+     "hide": 0.05,
+     "advance": 0.86,
+     "scout": 0.09
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.67,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.75,
+     "east": 0.01,
+     "west": 0.24
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 227,
+  "usage": {
+   "input_tokens": 687,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 25,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.24
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.16,
+     "advance": 0.07,
+     "scout": 0.77
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 1.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.97
+   }
+  },
+  "ms": 281,
+  "usage": {
+   "input_tokens": 766,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 26,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.05
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.88,
+    "probabilities": {
+     "hide": 0.02,
+     "advance": 0.92,
+     "scout": 0.06
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.63,
+    "probabilities": {
+     "north": 0.72,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.28
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 235,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 26,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.11,
+     "scout": 0.81
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.37
+   }
+  },
+  "ms": 244,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 26,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.94
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.94,
+    "probabilities": {
+     "hide": 0.96,
+     "advance": 0.02,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 1.0,
+     "east": 0.0,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 219,
+  "usage": {
+   "input_tokens": 682,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 26,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.0
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.91,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.94,
+     "scout": 0.06
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.88,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.12
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 267,
+  "usage": {
+   "input_tokens": 741,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 27,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.4,
+    "probabilities": {
+     "hide": 0.05,
+     "advance": 0.6,
+     "scout": 0.35
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.87,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.1,
+     "east": 0.0,
+     "west": 0.9
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 273,
+  "usage": {
+   "input_tokens": 694,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 27,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.18
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.64,
+    "probabilities": {
+     "hide": 0.1,
+     "advance": 0.14,
+     "scout": 0.76
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.26,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 276,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 27,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.17
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.34,
+    "probabilities": {
+     "hide": 0.14,
+     "advance": 0.56,
+     "scout": 0.3
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.61,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.29,
+     "east": 0.0,
+     "west": 0.71
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 223,
+  "usage": {
+   "input_tokens": 694,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 27,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.01
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.77,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.15,
+     "scout": 0.85
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.77,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.17,
+     "east": 0.0,
+     "west": 0.83
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 240,
+  "usage": {
+   "input_tokens": 745,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 28,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.6
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.22,
+    "probabilities": {
+     "hide": 0.47,
+     "advance": 0.48,
+     "scout": 0.05
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.73,
+    "probabilities": {
+     "north": 0.01,
+     "south": 0.8,
+     "east": 0.01,
+     "west": 0.18
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 225,
+  "usage": {
+   "input_tokens": 695,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 28,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.71,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.12,
+     "scout": 0.8099999999999999
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.01,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.26,
+     "east": 0.26,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.37
+   }
+  },
+  "ms": 236,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 28,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.09
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.95,
+    "probabilities": {
+     "hide": 0.02,
+     "advance": 0.97,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.88,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.91,
+     "east": 0.0,
+     "west": 0.09
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 244,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 28,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.63
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.23,
+    "probabilities": {
+     "hide": 0.49,
+     "advance": 0.43,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.77,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.83,
+     "east": 0.0,
+     "west": 0.17
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 804,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 29,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.1
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.38,
+    "probabilities": {
+     "hide": 0.06,
+     "advance": 0.35,
+     "scout": 0.59
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.52,
+    "probabilities": {
+     "north": 0.64,
+     "south": 0.0,
+     "east": 0.36,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 271,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 29,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.14,
+     "scout": 0.77
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 231,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 29,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.5
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.16,
+    "probabilities": {
+     "hide": 0.44,
+     "advance": 0.38,
+     "scout": 0.18
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.68,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.76,
+     "east": 0.0,
+     "west": 0.24
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 216,
+  "usage": {
+   "input_tokens": 685,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 29,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.01
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.95,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.03,
+     "scout": 0.97
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.45,
+    "probabilities": {
+     "north": 0.41,
+     "south": 0.0,
+     "east": 0.59,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 237,
+  "usage": {
+   "input_tokens": 768,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 30,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.99
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.92,
+    "probabilities": {
+     "hide": 0.95,
+     "advance": 0.04,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.65,
+    "probabilities": {
+     "north": 0.74,
+     "south": 0.0,
+     "east": 0.25,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 239,
+  "usage": {
+   "input_tokens": 685,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 30,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.14
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.12,
+     "scout": 0.81
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.25,
+     "east": 0.28,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 245,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 30,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.21
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.77,
+     "scout": 0.14
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.59,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.69,
+     "east": 0.31,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 248,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 30,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "north",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.98
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.98,
+    "probabilities": {
+     "hide": 0.99,
+     "advance": 0.01,
+     "scout": 0.0
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.59,
+    "probabilities": {
+     "north": 0.69,
+     "south": 0.0,
+     "east": 0.31,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 238,
+  "usage": {
+   "input_tokens": 794,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 31,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.24
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.88,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.92,
+     "scout": 0.04
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.47,
+    "probabilities": {
+     "north": 0.6,
+     "south": 0.01,
+     "east": 0.39,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 223,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 31,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.17
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.67,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.13,
+     "scout": 0.78
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.28,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 233,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 31,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.22
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.14,
+     "advance": 0.81,
+     "scout": 0.05
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.87,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.9,
+     "east": 0.0,
+     "west": 0.1
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 240,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 31,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.94,
+    "probabilities": {
+     "hide": 0.02,
+     "advance": 0.96,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.75,
+    "probabilities": {
+     "north": 0.19,
+     "south": 0.0,
+     "east": 0.81,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 239,
+  "usage": {
+   "input_tokens": 764,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 32,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.09
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.82,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.88,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.67,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.75,
+     "east": 0.01,
+     "west": 0.24
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 236,
+  "usage": {
+   "input_tokens": 687,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 32,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.11,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.41
+   }
+  },
+  "ms": 229,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 32,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.51,
+    "probabilities": {
+     "hide": 0.05,
+     "advance": 0.28,
+     "scout": 0.67
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.88,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.91,
+     "east": 0.09,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 226,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 32,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.05
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.95,
+    "probabilities": {
+     "hide": 0.01,
+     "advance": 0.97,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.81,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.86,
+     "east": 0.0,
+     "west": 0.14
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 247,
+  "usage": {
+   "input_tokens": 795,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 33,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.94
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.92,
+    "probabilities": {
+     "hide": 0.95,
+     "advance": 0.03,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 1.0,
+     "east": 0.0,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 223,
+  "usage": {
+   "input_tokens": 682,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 33,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.17
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.09,
+     "advance": 0.14,
+     "scout": 0.77
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.26,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 232,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 33,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.13
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.89,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.93,
+     "scout": 0.03
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.16,
+    "probabilities": {
+     "north": 0.31,
+     "south": 0.1,
+     "east": 0.22,
+     "west": 0.37
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 227,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 33,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.99
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 1.0,
+    "probabilities": {
+     "hide": 1.0,
+     "advance": 0.0,
+     "scout": 0.0
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 1.0,
+    "probabilities": {
+     "north": 0.0,
+     "south": 1.0,
+     "east": 0.0,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 281,
+  "usage": {
+   "input_tokens": 790,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 34,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.38,
+    "probabilities": {
+     "hide": 0.13,
+     "advance": 0.59,
+     "scout": 0.28
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.61,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.29,
+     "east": 0.0,
+     "west": 0.71
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 223,
+  "usage": {
+   "input_tokens": 694,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 34,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.12,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.36
+   }
+  },
+  "ms": 250,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 34,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.33,
+    "probabilities": {
+     "hide": 0.1,
+     "advance": 0.55,
+     "scout": 0.35
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.73,
+    "probabilities": {
+     "north": 0.8,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.2
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 234,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 34,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.38
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.4,
+    "probabilities": {
+     "hide": 0.28,
+     "advance": 0.12,
+     "scout": 0.6
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "west",
+    "confidence": 0.63,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.28,
+     "east": 0.0,
+     "west": 0.72
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 237,
+  "usage": {
+   "input_tokens": 804,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 35,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.94,
+    "probabilities": {
+     "hide": 0.03,
+     "advance": 0.96,
+     "scout": 0.01
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.79,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.84,
+     "east": 0.0,
+     "west": 0.16
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 222,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 35,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.11,
+     "scout": 0.81
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.25,
+     "east": 0.28,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 243,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 35,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.7
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.61,
+    "probabilities": {
+     "hide": 0.74,
+     "advance": 0.24,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.99,
+     "east": 0.01,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 240,
+  "usage": {
+   "input_tokens": 687,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 35,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.01
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 1.0,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 1.0,
+     "scout": 0.0
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.99,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.99,
+     "east": 0.0,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 228,
+  "usage": {
+   "input_tokens": 740,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 36,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.46
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.25,
+    "probabilities": {
+     "hide": 0.5,
+     "advance": 0.31,
+     "scout": 0.19
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.6,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.7,
+     "east": 0.0,
+     "west": 0.3
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 236,
+  "usage": {
+   "input_tokens": 685,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 36,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.17
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.69,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.13,
+     "scout": 0.79
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.24,
+     "south": 0.27,
+     "east": 0.27,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 230,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 36,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.09
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.46,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.32,
+     "scout": 0.64
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.88,
+    "probabilities": {
+     "north": 0.91,
+     "south": 0.0,
+     "east": 0.08,
+     "west": 0.01
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 246,
+  "usage": {
+   "input_tokens": 690,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 36,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": true,
+   "action": "hide",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.5
+   },
+   "action": {
+    "type": "choice",
+    "choice": "hide",
+    "confidence": 0.4,
+    "probabilities": {
+     "hide": 0.6,
+     "advance": 0.34,
+     "scout": 0.06
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.95,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.96,
+     "east": 0.0,
+     "west": 0.04
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.96
+   }
+  },
+  "ms": 222,
+  "usage": {
+   "input_tokens": 794,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 37,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.2
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.61,
+    "probabilities": {
+     "hide": 0.11,
+     "advance": 0.74,
+     "scout": 0.15
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.57,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.68,
+     "east": 0.32,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 218,
+  "usage": {
+   "input_tokens": 691,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 37,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.17
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.12,
+     "scout": 0.8
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.04,
+    "probabilities": {
+     "north": 0.26,
+     "south": 0.25,
+     "east": 0.28,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.39
+   }
+  },
+  "ms": 260,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 37,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.79,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.86,
+     "scout": 0.1
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.39,
+    "probabilities": {
+     "north": 0.54,
+     "south": 0.0,
+     "east": 0.0,
+     "west": 0.46
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 309,
+  "usage": {
+   "input_tokens": 681,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 37,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "east",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.08
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.66,
+    "probabilities": {
+     "hide": 0.03,
+     "advance": 0.77,
+     "scout": 0.2
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.12,
+     "east": 0.88,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 238,
+  "usage": {
+   "input_tokens": 769,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 38,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.24
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.7,
+    "probabilities": {
+     "hide": 0.12,
+     "advance": 0.8,
+     "scout": 0.08
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.73,
+    "probabilities": {
+     "north": 0.01,
+     "south": 0.8,
+     "east": 0.0,
+     "west": 0.19
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 232,
+  "usage": {
+   "input_tokens": 684,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 38,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.15
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.72,
+    "probabilities": {
+     "hide": 0.08,
+     "advance": 0.11,
+     "scout": 0.81
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "east",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.27,
+     "west": 0.21
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 221,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 38,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.04
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.89,
+    "probabilities": {
+     "hide": 0.01,
+     "advance": 0.93,
+     "scout": 0.06
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "north",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.88,
+     "south": 0.0,
+     "east": 0.06,
+     "west": 0.06
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 1.0
+   }
+  },
+  "ms": 228,
+  "usage": {
+   "input_tokens": 683,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 38,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "advance",
+   "beacon_bearing": "west",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.07
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.88,
+    "probabilities": {
+     "hide": 0.06,
+     "advance": 0.92,
+     "scout": 0.02
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.8,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.85,
+     "east": 0.0,
+     "west": 0.15
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.98
+   }
+  },
+  "ms": 252,
+  "usage": {
+   "input_tokens": 762,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 39,
+  "cond": "frame",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.06
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.46,
+    "probabilities": {
+     "hide": 0.04,
+     "advance": 0.32,
+     "scout": 0.64
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.87,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.9,
+     "east": 0.1,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 261,
+  "usage": {
+   "input_tokens": 686,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 39,
+  "cond": "blind",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.16
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.73,
+    "probabilities": {
+     "hide": 0.07,
+     "advance": 0.11,
+     "scout": 0.82
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.03,
+    "probabilities": {
+     "north": 0.25,
+     "south": 0.27,
+     "east": 0.26,
+     "west": 0.22
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.4
+   }
+  },
+  "ms": 1223,
+  "usage": {
+   "input_tokens": 589,
+   "output_tokens": 124
+  }
+ },
+ {
+  "scene": 39,
+  "cond": "shuffled",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.05
+   },
+   "action": {
+    "type": "choice",
+    "choice": "advance",
+    "confidence": 0.88,
+    "probabilities": {
+     "hide": 0.01,
+     "advance": 0.92,
+     "scout": 0.07
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.84,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.88,
+     "east": 0.0,
+     "west": 0.12
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 289,
+  "usage": {
+   "input_tokens": 693,
+   "output_tokens": 123
+  }
+ },
+ {
+  "scene": 39,
+  "cond": "gates",
+  "truth": {
+   "enemy_visible": false,
+   "action": "scout",
+   "beacon_bearing": "south",
+   "beacon_reachable": true
+  },
+  "answers": {
+   "enemy_visible": {
+    "type": "noul",
+    "noul": 0.01
+   },
+   "action": {
+    "type": "choice",
+    "choice": "scout",
+    "confidence": 0.92,
+    "probabilities": {
+     "hide": 0.0,
+     "advance": 0.05,
+     "scout": 0.95
+    }
+   },
+   "beacon_bearing": {
+    "type": "choice",
+    "choice": "south",
+    "confidence": 0.97,
+    "probabilities": {
+     "north": 0.0,
+     "south": 0.98,
+     "east": 0.02,
+     "west": 0.0
+    }
+   },
+   "beacon_reachable": {
+    "type": "noul",
+    "noul": 0.99
+   }
+  },
+  "ms": 1276,
+  "usage": {
+   "input_tokens": 738,
+   "output_tokens": 124
+  }
+ }
+]
