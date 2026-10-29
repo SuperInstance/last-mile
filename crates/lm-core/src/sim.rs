@@ -309,6 +309,35 @@ impl Sim {
         &self.talk_records
     }
 
+    /// The lines that are being spoken right now, one copy per line.
+    ///
+    /// This is what the round hears as the authority: every line that is
+    /// still going, whatever the round is. Where several agents heard the
+    /// same line, the clearest copy is the one kept — the words that arrived
+    /// are the words the line had.
+    ///
+    /// The lines come in the order they were started, so a drawer can show
+    /// the talk as a sequence.
+    pub fn audible_lines(&self) -> Vec<Heard> {
+        let mut best: BTreeMap<u64, Heard> = BTreeMap::new();
+        for buffer in &self.heard {
+            for line in buffer {
+                if !line.ongoing {
+                    continue;
+                }
+                match best.get(&line.id) {
+                    Some(kept) if kept.words.len() >= line.words.len() => {}
+                    _ => {
+                        best.insert(line.id, line.clone());
+                    }
+                }
+            }
+        }
+        let mut lines: Vec<Heard> = best.into_values().collect();
+        lines.sort_by_key(|line| (line.started_tick, line.id));
+        lines
+    }
+
     /// The refusals the ruleset has recorded, oldest first.
     ///
     /// A ruleset that applies a script refuses the effects it will not apply

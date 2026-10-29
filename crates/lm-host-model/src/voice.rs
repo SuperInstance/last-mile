@@ -382,6 +382,15 @@ impl HumanVoice {
         self.measured
     }
 
+    /// Whether a prosody service is behind the capture at all.
+    ///
+    /// It is the difference between "the service did not answer" and "there
+    /// is no service": the first is a fault, the second is the shape of the
+    /// machine.
+    pub fn prosody_configured(&self) -> bool {
+        self.capture.has_prosody()
+    }
+
     pub fn capture(
         &mut self,
         pcm: &[i16],

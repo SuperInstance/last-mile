@@ -20,6 +20,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
 use bevy::{asset::RenderAssetUsages, image::ImageSampler};
 use lm_core::fixed::UNITS_PER_M;
+use lm_core::utterance::Channel;
 use lm_core::world::{CellKind, CellXY};
 use lm_host_model::input::Viewer;
 use lm_host_model::map::{FogState, MapModel};
@@ -43,6 +44,22 @@ const STUNNED_COLOR: Color = Color::srgb(0.62, 0.62, 0.65);
 const LEADER_RING: Color = Color::srgb(1.0, 0.98, 0.85);
 /// The nose that shows which way an agent faces.
 const FACING_COLOR: Color = Color::srgb(0.06, 0.06, 0.08);
+
+/// The colour of a word that is spoken on each channel.
+///
+/// The channel is the shape of the line, so it is the colour of the tick:
+/// a shout is loud and bright, a whisper is quiet and dim, and the radio is
+/// the squad's own colour.
+const CHANNEL_SHOUT: Color = Color::srgb(1.0, 0.78, 0.32);
+const CHANNEL_VOICE: Color = Color::srgb(0.95, 0.95, 0.98);
+const CHANNEL_WHISPER: Color = Color::srgb(0.76, 0.84, 1.0);
+const CHANNEL_RADIO: Color = Color::srgb(0.42, 0.92, 0.62);
+
+/// The colour of a word that has not been said yet.
+///
+/// It is dim, but not gone: a word the speaker has not reached yet is
+/// still a word of the line.
+const UNSPOKEN_ALPHA: f32 = 0.45;
 
 /// The squads of a round, in colour order. A squad keeps its colour for the
 /// whole round, so a glance says who is who.
@@ -97,6 +114,15 @@ const BEACON_RADIUS_M: f32 = 1.7;
 const MIN_AGENT_PX: f32 = 7.0;
 /// The smallest a beacon is drawn, in pixels.
 const MIN_BEACON_PX: f32 = 9.0;
+/// How long a speech tick is, in metres.
+const TICK_LENGTH_M: f32 = 2.2;
+/// How far above the body the speech ticks start, in metres.
+const TICK_GAP_M: f32 = 0.6;
+/// How far apart two words of a line are drawn, in metres.
+const TICK_SPACING_M: f32 = 0.9;
+/// The smallest a speech tick is drawn, in pixels: a word has to stay
+/// readable when the whole world is on the screen.
+const MIN_TICK_PX: f32 = 12.0;
 /// How closely the camera follows an agent, in pixels per metre.
 const FOLLOW_PX_PER_M: f32 = 9.0;
 /// The closest the camera may come, in pixels per metre.
@@ -151,7 +177,14 @@ pub struct Layout {
     /// The size of the window, in pixels.
     pub size: Vec2,
     /// The height of the top bar, in pixels.
+    ///
+    /// It is the whole of the top: the bar with the round's own numbers and
+    /// the row under it with the talk's.
     pub top: f32,
+    /// The height of the bar with the round's numbers, in pixels.
+    pub bar: f32,
+    /// The height of the row with the talk's numbers, in pixels.
+    pub talk: f32,
     /// The height of the bottom panel, in pixels.
     pub bottom: f32,
 }
@@ -160,7 +193,9 @@ impl Default for Layout {
     fn default() -> Self {
         Layout {
             size: Vec2::new(1280.0, 720.0),
-            top: top_height(1280.0),
+            bar: top_height(1280.0),
+            talk: talk_height(1280.0),
+            top: top_height(1280.0) + talk_height(1280.0),
             bottom: bottom_height(720.0),
         }
     }
@@ -179,6 +214,19 @@ fn top_height(width: f32) -> f32 {
         46.0
     } else {
         28.0
+    }
+}
+
+/// The height of the row with the talk's numbers.
+///
+/// The talk's counters are their own row: they are the numbers of the
+/// round's talk, and they are read together, not mixed in with the round's
+/// own.
+fn talk_height(width: f32) -> f32 {
+    if width < 900.0 {
+        40.0
+    } else {
+        22.0
     }
 }
 
@@ -371,7 +419,9 @@ fn update_layout(mut layout: ResMut<Layout>, windows: Query<&Window, With<Primar
     };
     let size = Vec2::new(window.width(), window.height());
     layout.size = size;
-    layout.top = top_height(size.x);
+    layout.bar = top_height(size.x);
+    layout.talk = talk_height(size.x);
+    layout.top = layout.bar + layout.talk;
     layout.bottom = bottom_height(size.y);
 }
 
@@ -468,6 +518,13 @@ fn draw_map(
         return;
     };
     let px_per_m = rig.px_per_m;
+    // The words being spoken: one tick per word, above the body that is
+    // saying them. The ticks stand clear of the body — the agent's own
+    // disc, and the leader's ring around it, would swallow a tick drawn on
+    // top of them, and a word nobody can see is not said.
+    let tick_length = TICK_LENGTH_M.max(MIN_TICK_PX / px_per_m);
+    let tick_spacing = TICK_SPACING_M.max(MIN_TICK_PX / px_per_m);
+    let tick_gap = AGENT_RADIUS_M.max(MIN_AGENT_PX * 0.5 / px_per_m) * 1.6 + TICK_GAP_M;
 
     for (mut sprite, mut transform, mut visibility, body) in &mut bodies {
         match body {
@@ -510,6 +567,21 @@ fn draw_map(
                 }
                 let facing = Vec2::new(draw.facing_rad.cos(), -draw.facing_rad.sin());
                 gizmos.line_2d(point, point + facing * (radius * 1.9), FACING_COLOR);
+
+                // The words this agent is saying: a tick per word, above
+                // the body. A word that has been said is bright; a word the
+                // speaker has not reached yet is dim.
+                for tick in model.speech.iter().filter(|tick| tick.speaker == *id) {
+                    let base = Vec2::new(
+                        point.x + f32::from(tick.index) * tick_spacing,
+                        point.y + tick_gap,
+                    );
+                    let mut color = channel_color(tick.channel);
+                    if tick.at > model.now_tick {
+                        color.set_alpha(UNSPOKEN_ALPHA);
+                    }
+                    gizmos.line_2d(base, base + Vec2::new(0.0, tick_length), color);
+                }
             }
 
             // A beacon: a diamond in the colour of the squad holding it.
@@ -529,6 +601,22 @@ fn draw_map(
                 transform.translation = Vec3::new(point.x, point.y, BEACON_Z);
             }
         }
+    }
+
+    // The words being spoken, over the bodies that are saying them.
+}
+
+/// The colour of a word spoken on a channel.
+///
+/// The panels speak in the colours of the world, so the roll's speaking
+/// spans and the map's speech ticks are the same colour for the same
+/// channel.
+pub fn channel_color(channel: Channel) -> Color {
+    match channel {
+        Channel::Shout => CHANNEL_SHOUT,
+        Channel::Voice => CHANNEL_VOICE,
+        Channel::Whisper => CHANNEL_WHISPER,
+        Channel::Radio => CHANNEL_RADIO,
     }
 }
 

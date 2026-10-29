@@ -4,11 +4,18 @@
 //! every squad, the counters of the sequencer and the counters of the
 //! reflexes -- and it is the only thing that says how the round is going
 //! without the reader having to watch it.
+//!
+//! Under it is a second row, the talk's own: the lines the round has
+//! spoken, the airtime they took, the orders and how many of them were
+//! taken up, the microphone, the prosody service and the half-duplex gate.
+//! It is a row of its own because those numbers are read together, and
+//! because a bar that has to hold everything squeezes everything.
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lm_host_model::input::{InputState, Viewer};
 
+use crate::audio_plugin::{Playback, VoiceState};
 use crate::input_plugin::{Input, Status};
 use crate::map_plugin::{egui_color, squad_color, Layout};
 use crate::sim_plugin::Round;
@@ -28,6 +35,8 @@ fn hud_bar(
     round: Res<Round>,
     input: Res<Input>,
     status: Res<Status>,
+    voice: Res<VoiceState>,
+    playback: Res<Playback>,
     layout: Res<Layout>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
@@ -40,11 +49,19 @@ fn hud_bar(
             .layer_id(egui::LayerId::background())
             .max_rect(ctx.viewport_rect()),
     );
+    // The round's own numbers are in the bar; the talk's numbers are in the
+    // row under it. Two panels, so neither one has to be squeezed.
     egui::Panel::top("hud_bar")
         .resizable(false)
-        .exact_size(layout.top)
+        .exact_size(layout.bar)
         .show(&mut root, |ui| {
             draw_hud(ui, &round, &input.0, &status);
+        });
+    egui::Panel::top("hud_talk")
+        .resizable(false)
+        .exact_size(layout.talk)
+        .show(&mut root, |ui| {
+            draw_talk(ui, &round, &voice, &playback);
         });
     Ok(())
 }
@@ -141,6 +158,87 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
         // What the host said about the last input.
         if let Some(message) = &status.0 {
             ui.colored_label(egui::Color32::from_rgb(255, 120, 110), message.clone());
+        }
+    });
+}
+
+/// The talk's numbers: the row under the bar.
+///
+/// The talk is read together: the lines the round has spoken, the airtime
+/// they took, the orders and how many of them were taken up, the
+/// microphone, the prosody service and the half-duplex gate.
+fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Playback) {
+    // A round being replayed is watched, not played: it has no talk of its
+    // own to count.
+    let Some(host) = round.live.as_ref() else {
+        ui.label("talk — the round is a replay");
+        return;
+    };
+    let talk = host.talk_counters();
+
+    ui.horizontal_wrapped(|ui| {
+        // The lines the round has spoken, and the airtime they took.
+        ui.label(format!(
+            "talk {} air {}",
+            talk.utterances, talk.airtime_ticks
+        ));
+        // The orders and the uptake: the uptake counter is the coordination
+        // proof -- it climbs when one agent's order is heard and obeyed by
+        // another.
+        ui.label(format!("orders {}/{}", talk.orders_taken_up, talk.orders));
+        // The airtime of every agent that spoke.
+        let airtime: Vec<String> = talk
+            .airtime_by_agent
+            .iter()
+            .map(|(agent, ticks)| format!("a{agent}:{ticks}"))
+            .collect();
+        if !airtime.is_empty() {
+            ui.label(format!("airtime {}", airtime.join(" ")));
+        }
+        // The voice: the clips that were asked for, and what the bark cache
+        // answered from itself.
+        if talk.clips > 0 {
+            ui.label(format!(
+                "clips {} bark {}/{}",
+                talk.clips, talk.bark_hits, talk.bark_misses
+            ));
+        }
+        // The microphone: dead or not. That is the health check, and a dead
+        // microphone submits nothing. Before anything has been captured the
+        // microphone is simply idle — it has not been heard from yet, which
+        // is not the same as being broken.
+        ui.label(format!(
+            "mic {}",
+            if voice.mic.samples == 0 {
+                "idle"
+            } else if voice.mic.dead {
+                "dead"
+            } else {
+                "live"
+            }
+        ));
+        // The prosody service: "absent" means there is no service, "not
+        // measured" means the service did not answer, and "measured" means
+        // the line was scored with it.
+        ui.label(format!(
+            "prosody {}",
+            if !voice.path.prosody_configured() {
+                "absent"
+            } else if voice.path.prosody_measured() {
+                "measured"
+            } else {
+                "not measured"
+            }
+        ));
+        // The gate: how much was played, and how much the human took by
+        // talking. A dropped clip is dropped for good.
+        ui.label(format!(
+            "gate played {} cut {}",
+            playback.played, playback.dropped
+        ));
+        // What the voice backend said last, when it said something.
+        if let Some(said) = &talk.voice {
+            ui.colored_label(egui::Color32::from_rgb(255, 190, 110), said.clone());
         }
     });
 }

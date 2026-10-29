@@ -43,9 +43,11 @@
 //! and draws every agent lerped between the two. An agent with no previous
 //! position (the first frame) draws where it stands.
 
+use lm_core::decision::Tick;
 use lm_core::fixed::{Angle, Pos, ANGLE_TURN, UNITS_PER_M};
 use lm_core::header::Role;
 use lm_core::sim::Sim;
+use lm_core::utterance::{Channel, Heard};
 use lm_core::world::{CellKind, CellXY};
 // The viewer is Task 3's `input::Viewer` (the mirror used while the tasks ran
 // in parallel was removed at merge, so the crate has exactly one Viewer).
@@ -97,6 +99,25 @@ pub struct BeaconDraw {
     pub pos_m: (f32, f32),
 }
 
+/// One spoken word, as the map draws it: a tick at the speaker.
+///
+/// The map shows the talk as it is spoken: one tick per word, so the length
+/// of a line is the length of its ticks and a squad that is talking is a
+/// squad whose agents are ticking.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpeechTick {
+    /// The agent who said the word.
+    pub speaker: u16,
+    /// The word's number in the line.
+    pub index: u16,
+    /// The tick of the round the word starts on.
+    pub at: Tick,
+    /// Where the speaker stands, in metres.
+    pub pos_m: (f32, f32),
+    /// The channel the line was spoken on.
+    pub channel: Channel,
+}
+
 /// Everything one frame of the map draws.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapModel {
@@ -106,6 +127,13 @@ pub struct MapModel {
     pub agents: Vec<AgentDraw>,
     /// The round's beacons, in world order.
     pub beacons: Vec<BeaconDraw>,
+    /// The words being spoken right now, one tick per word.
+    pub speech: Vec<SpeechTick>,
+    /// The tick of the round the map is drawn at.
+    ///
+    /// It is what says whether a word has been said yet: a tick that is
+    /// still in the future is a word the speaker has not reached.
+    pub now_tick: u64,
     /// The world's extents in metres: (width, height).
     pub world_m: (f32, f32),
 }
@@ -243,11 +271,66 @@ impl MapModel {
 
         let metres =
             |cells_wide: u16| f32::from(cells_wide) * world.cell_units as f32 / UNITS_PER_M as f32;
+        let speech = speech_ticks(sim, &view, &agents, alpha);
         MapModel {
             cells,
             agents,
             beacons,
+            speech,
+            now_tick: now,
             world_m: (metres(grid.w), metres(grid.h)),
         }
     }
+}
+
+/// The words being spoken right now, one tick per word.
+///
+/// A possessing player hears what their agent heard, so the map shows the
+/// words that reached that agent. A spectator hears the round as the
+/// authority does, so the map shows every line that is being spoken — once
+/// per line, with the words that arrived.
+fn speech_ticks(
+    sim: &Sim,
+    view: &Option<lm_core::view::ScoreView>,
+    agents: &[AgentDraw],
+    alpha: f32,
+) -> Vec<SpeechTick> {
+    let lines: Vec<Heard> = match view {
+        Some(v) => v
+            .heard
+            .iter()
+            .filter(|line| line.ongoing)
+            .cloned()
+            .collect(),
+        None => sim.audible_lines(),
+    };
+
+    let mut ticks = Vec::new();
+    for line in lines {
+        // The speaker's place on the map: where it is drawn, so the ticks
+        // are on the body that is talking.
+        let pos_m = agents
+            .iter()
+            .find(|draw| draw.id == line.speaker)
+            .map_or_else(
+                || {
+                    let pos = sim.agent(line.speaker).map_or_else(Pos::zero, |a| a.pos);
+                    pos_m(pos, pos, alpha)
+                },
+                |draw| draw.pos_m,
+            );
+        for (index, word) in line.words.iter().enumerate() {
+            ticks.push(SpeechTick {
+                speaker: line.speaker,
+                index: u16::try_from(index).unwrap_or(u16::MAX),
+                // A heard word sits on the round's timeline: the degradation
+                // has already moved it off the line's own, so the tick of
+                // the round is the word's own `t_on`.
+                at: word.t_on,
+                pos_m,
+                channel: line.channel,
+            });
+        }
+    }
+    ticks
 }

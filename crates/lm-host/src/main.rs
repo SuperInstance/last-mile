@@ -45,6 +45,15 @@
 //! may adopt it, refuse it, go against the measurement, or ask for a change.
 //! "Next round" then plays round N+1 with the header the flow wrote.
 //!
+//! ## The voice
+//!
+//! `--talk off|stub|riva` says who speaks. `off` is no audio: the round still
+//! talks, because the round's talk is decisions, and the person hears
+//! nothing. `stub` is the deterministic backend — no network, no clock, the
+//! same line always the same clip. `riva` is the real voice service, and it
+//! is only used when the environment names it: `LM_RIVA_BASE` and
+//! `LM_RIVA_TTS_PORT`. A port is never guessed (spec §12).
+//!
 //! Build and run it with Windows cargo via `scripts/win-build.sh`; this WSL
 //! toolchain has none of Bevy's Linux system libraries.
 
@@ -58,6 +67,7 @@ mod sim_plugin;
 mod view3d;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::{
@@ -80,6 +90,8 @@ use lm_host_model::host_loop::HostLoop;
 use lm_host_model::input::{InputEvent, InputState};
 use lm_host_model::record;
 use lm_host_model::scrub::Scrubber;
+use lm_host_model::talk::TalkConfig;
+use lm_voice::{RivaTts, StubTts, Tts};
 use std::{num::NonZeroU8, path::PathBuf};
 
 /// The window the app opens with.
@@ -122,6 +134,8 @@ struct Options {
     shot: Option<ShotRequest>,
     /// Who is thinking: the reflex alone, a stub, or the Thor.
     agents: AgentChoice,
+    /// Which voice backend the host talks through.
+    talk: TalkChoice,
     /// Where the harness comes from: the gates and the policy.
     harness: PathBuf,
     /// The agents' configuration, when the command line names one.
@@ -201,6 +215,44 @@ impl AgentChoice {
     }
 }
 
+/// Which voice backend the host talks through.
+///
+/// `off` is no audio at all — the round still talks, because the round's
+/// talk is decisions and not sound, and the person simply hears nothing.
+/// `stub` is the deterministic backend: no network, no clock, the same line
+/// always the same clip. `riva` is the real service, and it is only used
+/// when the environment names it: a port is never guessed (spec §12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TalkChoice {
+    /// No audio: the round still talks, in silence.
+    Off,
+    /// The deterministic backend: no network, no clock.
+    Stub,
+    /// The real voice service, when the environment names it.
+    Riva,
+}
+
+impl TalkChoice {
+    /// The choice a command line spells out.
+    fn parse(text: &str) -> Result<TalkChoice, String> {
+        match text {
+            "off" => Ok(TalkChoice::Off),
+            "stub" => Ok(TalkChoice::Stub),
+            "riva" => Ok(TalkChoice::Riva),
+            other => Err(format!("`--talk` wants off, stub or riva, not `{other}`")),
+        }
+    }
+
+    /// The choice, as it is written on the command line.
+    fn as_str(self) -> &'static str {
+        match self {
+            TalkChoice::Off => "off",
+            TalkChoice::Stub => "stub",
+            TalkChoice::Riva => "riva",
+        }
+    }
+}
+
 fn main() -> AppExit {
     let options = match parse_args() {
         Ok(options) => options,
@@ -209,9 +261,9 @@ fn main() -> AppExit {
             eprintln!(
                 "usage: lm-host [--seed N] [--window WxH] [--view 2d|3d] \
                  [--possess AGENT] [--replay FILE] [--screenshot PATH [--frames N]] \
-                 [--agents off|stub|thor] [--harness DIR] [--agents-config FILE] \
-                 [--reviewer stub|router] [--harness-root DIR] [--runs DIR] \
-                 [--learn-ticks N] [--ticks N]"
+                 [--agents off|stub|thor] [--talk off|stub|riva] [--harness DIR] \
+                 [--agents-config FILE] [--reviewer stub|router] [--harness-root DIR] \
+                 [--runs DIR] [--learn-ticks N] [--ticks N]"
             );
             return AppExit::Error(NonZeroU8::MIN);
         }
@@ -311,6 +363,12 @@ fn main() -> AppExit {
                 "lm-host: between rounds the {} reviewer looks at what changed",
                 options.reviewer.as_str()
             );
+
+            // The voice. A backend that is not there is not a crash: the
+            // round still talks, in silence, and the fallback is logged.
+            if let Err(err) = attach_talk(&options, &mut host) {
+                eprintln!("lm-host: {err}");
+            }
 
             // The round is written down when it is over, or when the window
             // closes: one file per round, named after the seed it was played
@@ -466,6 +524,42 @@ fn attach_agents(
     Ok(())
 }
 
+/// The voice backend, attached to the host.
+///
+/// `off` attaches nothing: the round still talks — the round's talk is
+/// decisions, not sound — and the person hears nothing. `stub` attaches the
+/// deterministic backend: no network, no clock, the same line always the
+/// same clip. `riva` attaches the real service, but only when the
+/// environment names it: a port is never guessed (spec §12).
+///
+/// A backend that is not there is not a crash. The round keeps talking, in
+/// silence, and the fallback is logged.
+fn attach_talk(options: &Options, host: &mut HostLoop) -> Result<(), String> {
+    let tts: Arc<dyn Tts> = match options.talk {
+        TalkChoice::Off => return Ok(()),
+        TalkChoice::Stub => Arc::new(StubTts::default()),
+        TalkChoice::Riva => {
+            let Some(cfg) = lm_voice::riva_config_from_env() else {
+                return Err(String::from(
+                    "the voice service is not configured: LM_RIVA_BASE and LM_RIVA_TTS_PORT are not set; the round still talks, in silence",
+                ));
+            };
+            let Some(tts) = RivaTts::from_config(&cfg) else {
+                return Err(String::from(
+                    "the voice service has no TTS port; the round still talks, in silence",
+                ));
+            };
+            Arc::new(tts)
+        }
+    };
+    println!(
+        "lm-host: the round speaks with the {} voice",
+        options.talk.as_str()
+    );
+    host.attach_talk(TalkConfig::default().with_tts(tts));
+    Ok(())
+}
+
 /// The models the round's agents think with.
 ///
 /// The names are the ones the policy's tiers ask for, so the harness does not
@@ -525,6 +619,7 @@ fn parse_args() -> Result<Options, String> {
     let mut path = None;
     let mut frames = 30u32;
     let mut agents = AgentChoice::Off;
+    let mut talk = TalkChoice::Off;
     let mut harness = PathBuf::from(DEFAULT_HARNESS);
     let mut config = None;
     let mut reviewer = between_plugin::ReviewerChoice::Stub;
@@ -586,6 +681,12 @@ fn parse_args() -> Result<Options, String> {
                     .next()
                     .ok_or_else(|| String::from("`--agents` needs off, stub or thor"))?;
                 agents = AgentChoice::parse(&text)?;
+            }
+            "--talk" => {
+                let text = args
+                    .next()
+                    .ok_or_else(|| String::from("`--talk` needs off, stub or riva"))?;
+                talk = TalkChoice::parse(&text)?;
             }
             "--harness" => {
                 harness = PathBuf::from(
@@ -650,6 +751,7 @@ fn parse_args() -> Result<Options, String> {
             spawned: false,
         }),
         agents,
+        talk,
         harness,
         config,
         reviewer,

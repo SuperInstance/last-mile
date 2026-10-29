@@ -41,11 +41,17 @@ use lm_agents::sink::{ChannelSink, DecisionInbox};
 use lm_agents::{AgentStats, Agents};
 use lm_core::decision::{Decision, Kind, Provenance, Source, Tick};
 use lm_core::fixed::Pos;
+use lm_core::hash::StateHash;
 use lm_core::header::Header;
+use lm_core::hearing;
 use lm_core::log::{Recorder, RoundLog};
 use lm_core::rules::{Event, SimError};
 use lm_core::sched::{Reject, SchedStats, Sequencer};
 use lm_core::sim::Sim;
+use lm_core::talk::talk_metrics;
+use lm_core::utterance::Utterance;
+
+use crate::talk::{Listener, TalkClip, TalkConfig, TalkCounters};
 
 /// What one tick of the host produced.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,6 +97,14 @@ pub struct HostLoop {
     agents: Option<Agents>,
     /// Where the agents' decisions wait until the host picks them up.
     inbox: Option<DecisionInbox>,
+    /// The host's talk: the voice backend, the bark cache and the human's
+    /// ear. `None` when the round is silent for the person.
+    talk: Option<TalkConfig>,
+    /// The clips the host asked for, and that are waiting to be played.
+    clips: Vec<TalkClip>,
+    /// How many clips the host asked for, ever: the counter the HUD shows
+    /// does not fall when the player has heard them.
+    clips_asked: u64,
 }
 
 impl HostLoop {
@@ -120,6 +134,9 @@ impl HostLoop {
             human_seq: BTreeMap::new(),
             agents: None,
             inbox: None,
+            talk: None,
+            clips: Vec::new(),
+            clips_asked: 0,
         })
     }
 
@@ -133,6 +150,134 @@ impl HostLoop {
         let (sink, inbox) = ChannelSink::new();
         self.agents = Some(agents.with_sink(Box::new(sink)));
         self.inbox = Some(inbox);
+    }
+
+    /// Attach the host's talk: the voice backend, the bark cache and the
+    /// human's ear.
+    ///
+    /// A round without talk still talks: the agents' lines are decisions and
+    /// the sim applies them as it applies every other decision. What the
+    /// talk adds is the **audio** — a clip for every line the human's ear
+    /// can hear, and nothing else.
+    ///
+    /// The host never asks the voice service for a line the ear cannot hear:
+    /// a line nobody hears costs nobody a synthesis.
+    pub fn attach_talk(&mut self, talk: TalkConfig) {
+        self.talk = Some(talk);
+    }
+
+    /// Move the human's ear.
+    ///
+    /// The person plays an agent, or watches the round and listens to a
+    /// squad's radio; either way the ear moves, and the clips follow it.
+    pub fn set_listener(&mut self, listener: Listener) {
+        if let Some(talk) = self.talk.as_mut() {
+            talk.listener = listener;
+        }
+    }
+
+    /// The talk of the round, when it has one.
+    pub fn talk(&self) -> Option<&TalkConfig> {
+        self.talk.as_ref()
+    }
+
+    /// The clips the host asked for, and that are waiting to be played.
+    ///
+    /// The host hands them over and forgets them: the audio plugin plays
+    /// them, through the half-duplex gate, and the ones the gate drops are
+    /// dropped for good — a line that was cut off does not come back.
+    pub fn take_clips(&mut self) -> Vec<TalkClip> {
+        std::mem::take(&mut self.clips)
+    }
+
+    /// The talk counters the HUD shows.
+    ///
+    /// The round's own numbers (the utterances, the airtime, the orders and
+    /// the uptake) come from the round's records, and the voice's numbers
+    /// (the clips, the barks) come from the bark cache.
+    pub fn talk_counters(&self) -> TalkCounters {
+        let metrics = talk_metrics(self.sim.talk_records());
+        let mut counters = TalkCounters::of(&metrics);
+        counters.clips = self.clips_asked;
+        if let Some(talk) = self.talk.as_ref() {
+            counters.bark_hits = talk.bark.hits();
+            counters.bark_misses = talk.bark.misses();
+            counters.voice = talk.status.clone();
+        }
+        counters
+    }
+
+    /// The human's ear: where they listen, and in whose squad.
+    ///
+    /// `None` when the person hears nothing, or when the ear names an agent
+    /// that is not in the round.
+    fn ear(&self) -> Option<(Pos, u8)> {
+        let listener = self.talk.as_ref()?.listener;
+        match listener {
+            Listener::Deaf => None,
+            Listener::As(agent) => {
+                let agent = self.sim.agent(agent)?;
+                Some((agent.pos, agent.squad))
+            }
+            Listener::Squad(squad) => {
+                // The squad's radio: the ear is the squad's first agent.
+                let id = self
+                    .sim
+                    .agent_ids()
+                    .into_iter()
+                    .find(|id| self.sim.agent(*id).is_some_and(|a| a.squad == squad))?;
+                let agent = self.sim.agent(id)?;
+                Some((agent.pos, agent.squad))
+            }
+        }
+    }
+
+    /// Ask for the clip of a line the human's ear can hear.
+    ///
+    /// The clip comes from the bark cache, so the same line is never
+    /// synthesized twice. A voice service that refuses says so, and the
+    /// refusal is kept as the talk's status: the round does not care.
+    fn request_clip(&mut self, line: &Utterance, tick: Tick) {
+        // The ear and the speaker, read before the talk is borrowed.
+        let Some((ear_pos, ear_squad)) = self.ear() else {
+            return;
+        };
+        let Some(speaker) = self.sim.agent(line.speaker) else {
+            return;
+        };
+        let (speaker_pos, speaker_squad) = (speaker.pos, speaker.squad);
+
+        let Some(talk) = self.talk.as_mut() else {
+            return;
+        };
+        if talk.tts.is_none() {
+            return;
+        }
+        // Only a line the ear can hear is spoken for the person.
+        if !hearing::audible_to_in_world(
+            line,
+            speaker_pos,
+            ear_pos,
+            ear_squad,
+            speaker_squad,
+            self.sim.world(),
+            &self.header.talk,
+        ) {
+            return;
+        }
+        match talk.speak(line) {
+            Ok(clip) => {
+                talk.status = None;
+                self.clips_asked = self.clips_asked.saturating_add(1);
+                self.clips.push(TalkClip {
+                    line: line.state_hash(),
+                    speaker: line.speaker,
+                    tick,
+                    clip,
+                });
+            }
+            Err(err) => talk.status = Some(err.to_string()),
+        }
     }
 
     /// Play one tick.
@@ -157,6 +302,17 @@ impl HostLoop {
 
         let out = self.sim.step(&applied);
         self.recorder.record(tick, &applied, out.hash);
+
+        // The lines that were spoken on this tick: the host asks for a clip
+        // of every one of them the human's ear can hear, and of nothing
+        // else. The clips wait for the audio plugin; the round does not.
+        if self.talk.is_some() {
+            for stamped in &applied {
+                if let Kind::Utterance(line) = &stamped.d.kind {
+                    self.request_clip(line, out.tick);
+                }
+            }
+        }
 
         // The sim owns the tick counter; the host follows it.
         self.next_tick = self.sim.tick();

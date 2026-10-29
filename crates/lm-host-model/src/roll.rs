@@ -37,6 +37,7 @@ use std::ops::Range;
 use lm_core::decision::{Decision, Kind, Provenance, Stamped, Tick};
 use lm_core::log::RoundLog;
 use lm_core::rules::Event;
+use lm_core::utterance::Channel;
 
 /// What a mark on a lane stands for: where the decision on it came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -99,6 +100,9 @@ pub enum SpanKind {
     OnIntent,
     /// The agent is walking the safe branch of an intent.
     OnSafeBranch,
+    /// The agent is speaking: the span is the length of the line, and the
+    /// channel is the one it was spoken on.
+    Speaking(Channel),
 }
 
 /// A run of ticks on a lane.
@@ -156,6 +160,17 @@ impl RollModel {
                 kind: MarkKind::of(&stamped.d),
                 late_by: stamped.late_by,
             });
+            // A line is a span as well as a mark: the lane shows how long
+            // the agent was speaking, and on which channel.
+            if let Kind::Utterance(line) = &stamped.d.kind {
+                lanes[lane].spans.push(Span {
+                    from: stamped.tick,
+                    to: stamped
+                        .tick
+                        .saturating_add(u64::from(line.duration_ticks())),
+                    what: SpanKind::Speaking(line.channel),
+                });
+            }
         }
 
         // The events, in tick order: a tag and a respawn make a stun, a

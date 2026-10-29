@@ -9,7 +9,9 @@ license.workspace = true
 [dependencies]
 # Pinned exactly: docs/notes/bevy-0.20.md records the API facts for these
 # versions, and later tasks build on the notes rather than re-guessing.
-bevy = "=0.20.1"
+# The `wav` feature is what lets Bevy decode the clips the voice backend
+# makes: the host builds them as 16-bit mono waves.
+bevy = { version = "=0.20.1", features = ["wav"] }
 bevy_egui = "=0.43.1"
 
 # The host is a thin shell: everything it draws comes from the host model,

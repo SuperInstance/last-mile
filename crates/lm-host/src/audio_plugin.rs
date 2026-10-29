@@ -21,12 +21,23 @@
 //! The audio is for the human and the sim never depends on it: with no
 //! microphone, no ASR and no prosody service, the round plays exactly as
 //! it did before.
+//!
+//! ## The other half: what the agents say
+//!
+//! The round's talk is **half-duplex** (`lm-host-model::audio`): while the
+//! human holds the key the agents go quiet, and they stay quiet for the hang
+//! time after the key comes up. A clip that is dropped is dropped for good —
+//! it is not queued, and it does not come back. The clips themselves are
+//! asked for by the host model (`--talk off|stub|riva`), and this file only
+//! plays them.
 
 use bevy::prelude::*;
 use lm_core::decision::Kind;
+use lm_host_model::audio::{Duplex, DuplexGate, GateAction};
+use lm_host_model::talk::Listener;
 use lm_host_model::turn::{TurnDetector, TurnRules};
 use lm_host_model::voice::{CommandParser, HumanVoice, TutorLadder, TutorMode};
-use lm_voice::{Capture, StubAsr};
+use lm_voice::{Capture, MicHealth, StubAsr};
 
 use crate::input_plugin::Input;
 use crate::sim_plugin::Round;
@@ -36,6 +47,18 @@ use crate::sim_plugin::Round;
 /// It is a key nobody else uses, so the push-to-talk never fights with the
 /// map or the piano roll.
 pub const PUSH_TO_TALK: KeyCode = KeyCode::KeyV;
+
+/// How long the agents stay quiet after the human lets go of the key.
+///
+/// The hang is what stops the two from talking over each other: the human's
+/// line is still in the room when the key comes up.
+const HANG_MS: u32 = 400;
+
+/// How long the human may talk in one go.
+///
+/// The turn ends on its own after this, so a stuck key cannot hold the
+/// round hostage.
+const MAX_TALK_MS: u32 = 6_000;
 
 /// The microphone: the samples of the capture, and whether it is running.
 ///
@@ -90,6 +113,11 @@ pub struct VoiceState {
     pub turn: TurnDetector,
     /// What the host said about the last thing the human said.
     pub status: Option<String>,
+    /// The health of the last capture: how much of it was silence.
+    ///
+    /// It is the honest answer to "is the microphone there?", and the HUD
+    /// shows it so a dead microphone is visible before a line is refused.
+    pub mic: MicHealth,
 }
 
 impl Default for VoiceState {
@@ -111,6 +139,35 @@ impl Default for VoiceState {
             path: HumanVoice::new(capture, parser),
             turn: TurnDetector::with_rules(rules),
             status: None,
+            // No capture yet: the microphone is not known to be alive, and
+            // the HUD says so.
+            mic: lm_voice::mic_health(&[]),
+        }
+    }
+}
+
+/// What the host hears, and what it says back.
+///
+/// The gate is the half-duplex rule: while the human holds the key the
+/// agents go quiet, and they stay quiet for the hang time after the key
+/// comes up. The counters are the HUD's: how much was played, and how much
+/// the gate took away.
+#[derive(Resource)]
+pub struct Playback {
+    /// The half-duplex gate.
+    pub gate: DuplexGate,
+    /// How many clips were played.
+    pub played: u64,
+    /// How many clips the gate dropped.
+    pub dropped: u64,
+}
+
+impl Default for Playback {
+    fn default() -> Self {
+        Playback {
+            gate: DuplexGate::new(Duplex::Half, HANG_MS, MAX_TALK_MS),
+            played: 0,
+            dropped: 0,
         }
     }
 }
@@ -120,6 +177,8 @@ impl Default for VoiceState {
 pub enum VoiceSet {
     /// The microphone is read and the line is submitted.
     Read,
+    /// The clips are cut and played.
+    Play,
 }
 
 /// The voice plugin: the microphone, the turn and the decision.
@@ -128,12 +187,27 @@ pub struct VoicePlugin;
 impl Plugin for VoicePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<VoiceState>()
+            .init_resource::<Playback>()
             .insert_resource(Microphone {
                 samples: Vec::new(),
                 live: false,
                 stub: true,
             })
-            .add_systems(Update, read_the_voice.in_set(VoiceSet::Read));
+            .add_systems(Update, read_the_voice.in_set(VoiceSet::Read))
+            .add_systems(
+                Update,
+                (cut_the_audio, play_the_clips)
+                    .chain()
+                    .in_set(VoiceSet::Play),
+            )
+            // The ear moves before the round ticks: the clips are asked for
+            // by the round, and the round asks for the ones the ear can
+            // hear.
+            .add_systems(
+                FixedUpdate,
+                sync_the_listener.before(crate::sim_plugin::SimSet::Step),
+            )
+            .configure_sets(Update, VoiceSet::Read.before(VoiceSet::Play));
     }
 }
 
@@ -141,6 +215,7 @@ impl Plugin for VoicePlugin {
 fn read_the_voice(
     mut voice: ResMut<VoiceState>,
     mut mic: ResMut<Microphone>,
+    mut playback: ResMut<Playback>,
     mut round: ResMut<Round>,
     input: Res<Input>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -151,6 +226,8 @@ fn read_the_voice(
     // The key goes down: the turn starts and the capture begins.
     if keys.just_pressed(PUSH_TO_TALK) {
         voice.turn.on_press(now_ms);
+        // The gate hears the key too: from now on the agents are quiet.
+        playback.gate.on_human_press(now_ms);
         mic.samples.clear();
         mic.live = true;
         voice.status = None;
@@ -161,7 +238,9 @@ fn read_the_voice(
         return;
     }
     voice.turn.on_release(now_ms);
+    playback.gate.on_human_release(now_ms);
     let samples = mic.take();
+    voice.mic = lm_voice::mic_health(&samples);
 
     // A round being replayed is watched, not played: there is no
     // sequencer to take the decision.
@@ -199,5 +278,79 @@ fn read_the_voice(
             }
         }
         Err(why) => voice.status = Some(why.to_string()),
+    }
+}
+
+/// Move the human's ear.
+///
+/// The person plays an agent, and hears as that agent hears: where it
+/// stands, and the squad it belongs to. Watching the round, the person
+/// listens to the first squad's radio instead. Either way the ear moves,
+/// and the clips follow it.
+fn sync_the_listener(mut round: ResMut<Round>, input: Res<Input>) {
+    let Some(host) = round.live.as_mut() else {
+        return;
+    };
+    let listener = match input.0.possessing() {
+        Some(agent) => Listener::As(agent),
+        None => Listener::Squad(0),
+    };
+    host.set_listener(listener);
+}
+
+/// Cut the audio when the human takes the key.
+///
+/// The clip that was playing stops where it is, and it does not come back:
+/// the gate drops the rest of the line, and the dropped clip is not queued.
+fn cut_the_audio(sinks: Query<&AudioSink>, keys: Res<ButtonInput<KeyCode>>) {
+    if !keys.just_pressed(PUSH_TO_TALK) {
+        return;
+    }
+    for sink in &sinks {
+        sink.stop();
+    }
+}
+
+/// Play the clips the round asked for.
+///
+/// The gate decides: while the human holds the key the agents are quiet, and
+/// for the hang time after the key comes up. A clip the gate drops is
+/// dropped for good — it never comes back, and it is never queued.
+fn play_the_clips(
+    mut round: ResMut<Round>,
+    mut playback: ResMut<Playback>,
+    mut sources: ResMut<Assets<AudioSource>>,
+    mut commands: Commands,
+    time: Res<Time>,
+) {
+    let Some(host) = round.live.as_mut() else {
+        return;
+    };
+    let clips = host.take_clips();
+    if clips.is_empty() {
+        return;
+    }
+    let now_ms = (time.elapsed_secs() * 1000.0) as u64;
+    for clip in clips {
+        if playback.gate.on_agent_clip(now_ms) == GateAction::Drop {
+            playback.dropped += 1;
+            continue;
+        }
+        // A clip with no samples is not a sound, and a sound with no rate is
+        // not a wave: the player would choke on it, so it is not played.
+        if clip.clip.pcm.is_empty() || clip.clip.sample_rate == 0 {
+            continue;
+        }
+        // The clip is raw samples; the player wants a wave.
+        let wave = lm_voice::prosody::wav_bytes(&clip.clip.pcm, clip.clip.sample_rate);
+        let handle = sources.add(AudioSource { bytes: wave.into() });
+        commands.spawn((
+            AudioPlayer::new(handle),
+            PlaybackSettings {
+                mode: bevy::audio::PlaybackMode::Despawn,
+                ..default()
+            },
+        ));
+        playback.played += 1;
     }
 }

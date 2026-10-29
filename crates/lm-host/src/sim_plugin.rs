@@ -217,6 +217,17 @@ impl SimPlugin {
     }
 }
 
+/// The systems of the round, as one set.
+///
+/// The set is there so that what has to happen *before* the round ticks can
+/// say so: the human's ear moves before the round asks for the clips it can
+/// hear.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SimSet {
+    /// The round ticks.
+    Step,
+}
+
 impl Plugin for SimPlugin {
     fn build(&self, app: &mut App) {
         // The fixed timestep is the round's own rate: the sim runs at
@@ -229,7 +240,7 @@ impl Plugin for SimPlugin {
             .init_resource::<Replay>()
             // The round ticks, and a replay plays itself back at the very
             // same rate: one tick of the log per fixed update.
-            .add_systems(FixedUpdate, (step_round, step_replay))
+            .add_systems(FixedUpdate, (step_round, step_replay).in_set(SimSet::Step))
             // The round is written down when it is over, and the replay is
             // kept in step with the tick the viewer is asking for.
             .add_systems(Update, (write_when_over, apply_seek, update_replay_roll))

@@ -400,6 +400,15 @@ impl Capture {
         self.sample_rate
     }
 
+    /// Whether a prosody service is behind the capture.
+    ///
+    /// The service is optional, so the answer is often "no": the words are
+    /// still there, and the score is built without prosody. The HUD shows
+    /// this, so a missing service is visible before a line is scored.
+    pub fn has_prosody(&self) -> bool {
+        self.prosody.is_some()
+    }
+
     /// The capture at another sample rate.
     pub fn with_sample_rate(mut self, sample_rate: u32) -> Capture {
         self.sample_rate = sample_rate;

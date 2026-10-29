@@ -20,9 +20,10 @@
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use lm_core::utterance::Channel;
 use lm_host_model::roll::{MarkKind, SpanKind};
 
-use crate::map_plugin::{egui_color, squad_color, Layout};
+use crate::map_plugin::{channel_color, egui_color, squad_color, Layout};
 use crate::sim_plugin::{CurrentRoll, Replay, Round};
 
 /// The roll plugin: the panel at the bottom of the window.
@@ -223,5 +224,24 @@ fn span_color(what: SpanKind) -> egui::Color32 {
         SpanKind::HoldingBeacon(squad) => egui_color(squad_color(squad)),
         SpanKind::OnIntent => egui::Color32::from_rgb(70, 170, 160),
         SpanKind::OnSafeBranch => egui::Color32::from_rgb(120, 130, 70),
+        // A line: the span is the length of the line, and the colour is the
+        // channel it was spoken on — the same colour the map draws its words
+        // in.
+        SpanKind::Speaking(channel) => speaking_color(channel),
     }
+}
+
+/// The colour of a speaking span: the channel's colour, dimmed.
+///
+/// The span is the whole length of the line, so a bright colour would
+/// swallow the lane and the marks on it: the channel is still told apart,
+/// but the marks stay readable.
+fn speaking_color(channel: Channel) -> egui::Color32 {
+    let srgba = channel_color(channel).to_srgba();
+    egui::Color32::from_rgba_unmultiplied(
+        (srgba.red * 255.0).round() as u8,
+        (srgba.green * 255.0).round() as u8,
+        (srgba.blue * 255.0).round() as u8,
+        110,
+    )
 }
