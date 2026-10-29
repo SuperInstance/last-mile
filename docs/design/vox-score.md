@@ -268,3 +268,39 @@ The conformer is the speech counterpart of a pitch-correction tool, but for *eve
 3. **Cued automation**, worried → relieved at a given tick: the measured marks cross over within ±150 ms of the cue.
 
 For all three, ASR word accuracy stays within 2 points and the voice-identity distance stays under a threshold set from E3.
+
+## 16. Learning from recorded conversation: intention, reception and speechcraft
+
+The forward map (§15) and the mark vocabulary (§11) can learn from almost any recorded speech, because Vox Score turns audio into something many different judges can label cheaply and consistently. The richest sources are **conversations**, because they hold two things a single voice doesn't: **intention** (how a line was performed) and **reception** (how it landed).
+
+**Sources, from cleanest to richest:**
+- **Audiobooks and read speech:** performance with a known text.
+- **Interviews and podcasts with guests:** turn-taking, reactions, sentiment carried through a narrative.
+- **Meetings and debates:** disagreement, persuasion, hedging.
+- **Streams with live chat, or videos with timestamped comments:** an *audience* reaction curve aligned to the score ("12:34, the way she said that 😂").
+
+**Three kinds of label, all aligned on the score's clock:**
+
+| Kind | Labeller | Gives |
+|---|---|---|
+| **Measured** | the analyzer (§4) | the dials and marks (mechanical, free) |
+| **Judged** | JEPA surprise and latent distance; LFM3 audio understanding; d1 gates over transcript + marks; text sentiment of the transcript | what the line probably meant |
+| **Received** | **in the audio:** the other speaker's backchannels ("mm-hm"), laughter, interruptions, response latency, and whether they mirror the marks (entrainment). **Outside it:** listener comments and chat, timestamped where possible | how it actually landed |
+
+**The gap between intention and reception is the most valuable data.** Lines whose delivery the judges read as sarcastic but listeners took literally, or emphasis that drew laughter where none was meant, teach **speechcraft**: what makes a line land. That is the knowledge the polisher (§15) applies, and that generation and the director (§13) write with. Consistent judges are weak labels. Where judges disagree, the item goes to the sparse human ratings.
+
+**The next turn is a free label.** In a conversation, how the other person replies (how fast, with which marks, whether they laugh or push back) is a label on the previous line's reception. last-mile already has this structure in the game. An order (intention) is followed by the squad's response and the round's outcome (reception). So the game is itself a corpus generator, and the between-round learning flow (D64–D66) is this section's loop at small scale.
+
+**Scale is cheap because the score is small.** An hour of conversation is a few MB of L0 with formants, and much less prosody-only (§5). A library covering a very large number of hours of performances and their receptions fits on one disk and can be mined for motifs: how thousands of speakers actually do sarcasm, reassurance or urgency.
+
+**Rights and privacy (non-negotiable, and before any collection):**
+- Recorded conversations, podcasts and comments belong to people. Use **licensed or permissive sources first**: corpora released for research under clear licences, public-domain audiobooks, and content whose owners agree. Respect platform terms; no scraping against them.
+- Store **derived scores, not audio**, at the **prosody-only tier** by default (§8): no formants, so the score can't be turned back into the speaker's voice or words. Speaker identity is dropped; comments are reduced to timestamped reception labels, not kept as text with names.
+- A human voice of our own (Casey's) is used only with explicit consent, as in §12.
+
+**E12:** on one permissively licensed multi-speaker conversational corpus (chosen and licence-checked in E0):
+1. Extract scores and judged labels.
+2. Derive reception labels from the next turn (backchannel, laughter, latency).
+3. Test whether **marks + words predict reception** better than **words alone**.
+
+Pass: a clear margin on held-out speakers. A second test: whether the forward map trained on it improves E11's attitude overlays.
