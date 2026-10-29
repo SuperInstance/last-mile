@@ -1,0 +1,16 @@
+[package]
+name = "lm-proto"
+description = "Wire messages, postcard codec and version handshake for last-mile M1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The dependency rule allows serde, postcard and thiserror here, plus
+# lm-core for the types that travel (Header, Decision, Stamped). No network
+# crates: the QUIC transport is phase 3.
+[dependencies]
+lm-core = { path = "../lm-core" }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+thiserror = "2"

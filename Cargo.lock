@@ -32,6 +32,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lm-proto"
+version = "0.1.0"
+dependencies = [
+ "lm-core",
+ "postcard",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "lm-tools"
 version = "0.1.0"
 dependencies = [
