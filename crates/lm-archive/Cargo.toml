@@ -1,0 +1,23 @@
+[package]
+name = "lm-archive"
+description = "The Orin archive: ingest pushed round logs, replay them, verify every hash."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The archive is a service, not a game: it adds no runtime, no async and no
+# networking crate. `std::net` and `std::thread` carry the rounds.
+#
+# The dependencies are the ones the workspace already ships: `lm-core` for the
+# round's types, `lm-proto` for the wire vocabulary and the postcard codec
+# (the archive adds no codec of its own), `lm-tools` for the headless replay
+# and the log reader, and serde/toml/serde_json for the configuration file and
+# the JSON reports. No crate is added to the workspace by this one.
+[dependencies]
+lm-core = { path = "../lm-core" }
+lm-proto = { path = "../lm-proto" }
+lm-tools = { path = "../lm-tools" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"

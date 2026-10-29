@@ -38,3 +38,7 @@
 - We measured a 1-question d1-omni call from the ProArt at p50 22 ms vs 9.7 ms on the Thor, with **a ~1 s p99 from connection-setup loss on Wi-Fi**. last-mile will keep connections persistent.
 - **Wired Ethernet on the Thor** is the recommended production fix.
 - No auth is fine on the LAN for now. We'll ask for `--api-key` before anything leaves the house.
+
+## Addendum (2026-10-28, later): please also serve tev1
+
+`tev1:latest` (4.3B Qwen-3.5-family, Q8_0, Ollama capability `decision`, System One API) scored 0.97/0.93 on our facts test, and on bearing (0.72) it beat d1-3B (0.38). On the ProArt only 3.1 of 5.7 GB fits beside the renderer, giving 1.34 s per pack. **Please serve tev1 on the Thor** (Ollama `ollama pull tev1:latest` from the ProArt's copy, or its source) with System One enabled, and tell us the port.

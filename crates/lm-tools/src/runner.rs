@@ -412,7 +412,7 @@ const GOLDEN_HEADER: &str = "\
 # the commit that touches this file has to say why the world changed.
 #
 # Regenerate with:
-#     cargo run -p lm-tools --release -- golden --write
+#     cargo run --release --bin lm -- golden --write
 ";
 
 /// Read a hash as it is written in the golden file: `0x` and 16 digits.

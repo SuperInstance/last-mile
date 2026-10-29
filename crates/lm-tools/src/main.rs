@@ -1,11 +1,13 @@
 //! The `lm` CLI.
 //!
-//! Five subcommands:
+//! Six subcommands:
 //!
 //! * `lm run` plays a headless round and writes its log;
 //! * `lm replay` replays a log and checks every hash it recorded;
 //! * `lm diff` compares two logs and names the first tick that moves;
 //! * `lm golden` checks (or writes) the pinned golden hashes;
+//! * `lm branch` rewinds a round to a tick, changes one thing and re-runs
+//!   it;
 //! * `lm gen-trig` writes the Q14 sine table that `lm-core` commits.
 //!
 //! The table is generated on the host (where floating point is allowed) and
@@ -21,6 +23,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
+use lm_tools::branch::Change;
 use lm_tools::runner::{self, Golden, ReplayError, DEFAULT_REFLEX, GOLDEN_TICKS};
 
 /// Angle units in a full turn.
@@ -67,7 +70,8 @@ enum Command {
         /// The seed of the round.
         #[arg(long)]
         seed: u64,
-        /// How many ticks the round may run.
+        /// How many ticks the round may run. 0 plays an empty round: a valid
+        /// log with a header and no ticks, which replays as `OK 0 hashes`.
         #[arg(long)]
         ticks: u64,
         /// A JSON Lines file of decisions to inject.
@@ -98,6 +102,24 @@ enum Command {
         #[arg(long)]
         file: Option<PathBuf>,
     },
+    /// Rewind a round to a tick, change one thing and re-run it.
+    Branch {
+        /// The round log to branch from.
+        parent: PathBuf,
+        /// The tick the changes apply on.
+        #[arg(long)]
+        at: u64,
+        /// Replace a reflex: NAME=FILE, the file holding the new source.
+        /// Repeatable.
+        #[arg(long = "reflex", value_name = "NAME=FILE")]
+        reflexes: Vec<String>,
+        /// Set a whitelisted parameter: FIELD=VALUE. Repeatable.
+        #[arg(long = "param", value_name = "FIELD=VALUE")]
+        params: Vec<String>,
+        /// Where the branch log is written.
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Print the Q14 sine table that `lm-core` commits.
     GenTrig,
 }
@@ -114,11 +136,102 @@ fn main() -> ExitCode {
         Command::Replay { file } => cmd_replay(file),
         Command::Diff { a, b } => cmd_diff(a, b),
         Command::Golden { write, file } => cmd_golden(write, file),
+        Command::Branch {
+            parent,
+            at,
+            reflexes,
+            params,
+            out,
+        } => cmd_branch(parent, at, reflexes, params, out),
         Command::GenTrig => {
             print!("{}", gen_trig());
             ExitCode::SUCCESS
         }
     }
+}
+
+/// Branch a round, write the branch log and say what the change did.
+fn cmd_branch(
+    parent: PathBuf,
+    at: u64,
+    reflexes: Vec<String>,
+    params: Vec<String>,
+    out: PathBuf,
+) -> ExitCode {
+    let Some(log) = read_log(&parent) else {
+        return ExitCode::FAILURE;
+    };
+
+    let mut changes = Vec::new();
+    for arg in &reflexes {
+        let Some((name, file)) = split_arg(arg) else {
+            eprintln!("lm: --reflex {arg:?}: expected NAME=FILE");
+            return ExitCode::FAILURE;
+        };
+        let src = match std::fs::read_to_string(file) {
+            Ok(src) => src,
+            Err(err) => {
+                eprintln!("lm: cannot read {file}: {err}");
+                return ExitCode::FAILURE;
+            }
+        };
+        changes.push(Change::Reflex {
+            name: name.to_owned(),
+            src,
+        });
+    }
+    for arg in &params {
+        let Some((field, raw)) = split_arg(arg) else {
+            eprintln!("lm: --param {arg:?}: expected FIELD=VALUE");
+            return ExitCode::FAILURE;
+        };
+        let Ok(value) = raw.trim().parse::<i64>() else {
+            eprintln!("lm: --param {arg:?}: {raw:?} is not a whole number");
+            return ExitCode::FAILURE;
+        };
+        changes.push(Change::Param {
+            field: field.to_owned(),
+            value,
+        });
+    }
+
+    let (child, report) = match lm_tools::branch::branch(&log, at, &changes) {
+        Ok(branch) => branch,
+        Err(err) => {
+            eprintln!("lm: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut file = match File::create(&out) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("lm: cannot write {}: {err}", out.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(err) = child.write(&mut file) {
+        eprintln!("lm: cannot write {}: {err}", out.display());
+        return ExitCode::FAILURE;
+    }
+
+    println!(
+        "branched {} at tick {at} into {}",
+        parent.display(),
+        out.display()
+    );
+    println!("{report}");
+    ExitCode::SUCCESS
+}
+
+/// Split a `NAME=VALUE` argument into its two halves.
+fn split_arg(arg: &str) -> Option<(&str, &str)> {
+    let (name, value) = arg.split_once('=')?;
+    let name = name.trim();
+    if name.is_empty() || value.is_empty() {
+        return None;
+    }
+    Some((name, value))
 }
 
 /// Play a round, write its log and say what happened.
@@ -170,6 +283,11 @@ fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> Exit
 /// A short description of how the round went.
 fn describe(stats: &runner::RunStats) -> String {
     let mut text = format!("scores {:?}", stats.scores);
+    if stats.ticks == 0 {
+        // A round of zero ticks is still a round: the log has a header and no
+        // segments, and it replays as `OK 0 hashes`.
+        text = format!("empty round, {text}");
+    }
     if stats.stale > 0 || stats.refused > 0 {
         text.push_str(&format!(
             ", {} refused ({} stale)",
@@ -347,6 +465,16 @@ fn table_hash(values: &[i32]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn branch_args_split_on_the_first_equals() {
+        assert_eq!(split_arg("squad0=hold.rhai"), Some(("squad0", "hold.rhai")));
+        // A path may itself contain '='; the name may not be empty.
+        assert_eq!(split_arg("a=b=c"), Some(("a", "b=c")));
+        assert_eq!(split_arg("=x"), None);
+        assert_eq!(split_arg("x="), None);
+        assert_eq!(split_arg("no-equals"), None);
+    }
 
     #[test]
     #[cfg(target_arch = "x86_64")] // host libm sin may differ on other arches; TRIG_TABLE_HASH is the cross-arch check

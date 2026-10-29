@@ -26,23 +26,28 @@
 //! 5. **The hash.** Every `hash_interval_ticks` ticks the canonical state
 //!    hash is taken, and the tick counter moves on.
 //!
+//! A branch round — one whose header carries a lineage — applies the
+//! lineage's changes between two ticks, before phase 1: the tick a change
+//! names is the first that runs with it. Everything else about a branch is
+//! ordinary replay, which is why a branch log replays from its own header.
+//!
 //! Nothing in the sim reads the clock, the environment or a random source
 //! that is not derived from the round seed, so two machines running the same
 //! round agree on every hash.
 
 use crate::agent::{Agent, MotorCmd};
-use crate::decision::{Kind, Lane, Roll, Stamped, Tick};
+use crate::decision::{Kind, Lane, Roll, Source, Stamped, Tick};
 use crate::fixed::Pos;
 use crate::hash::{Fnv64, StateHash};
-use crate::header::{Header, Role, RosterEntry};
+use crate::header::{Header, Lineage, LineageChange, Role, RosterEntry};
 use crate::lane::LaneConditioner;
-use crate::params::Params;
+use crate::params::{ParamError, Params};
 use crate::rng::{Domain, Rng};
 use crate::rules::{Event, Outcome, Ruleset};
 use crate::script::{ReflexOut, RhaiRuntime, ScriptRuntime};
 use crate::view::{menu, option_cmd, AgentSnap, BeaconSnap, ScoreView, SquadKnowledge};
 use crate::world::{CellXY, World};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub use crate::rules::SimError;
 
@@ -99,6 +104,13 @@ pub struct Sim {
     reflex_names: Vec<String>,
     /// The tick the sim is about to simulate.
     tick: Tick,
+    /// The branch changes that have not fired yet, each with the tick it
+    /// fires on, in the order history plays them; empty for a round that is
+    /// nobody's branch.
+    branch: Vec<(Tick, LineageChange)>,
+    /// The sources whose decisions the branch dropped, from the tick the
+    /// drop fired on.
+    dropped: BTreeSet<Source>,
     /// How the reflexes have been coping.
     stats: SimStats,
 }
@@ -120,6 +132,38 @@ impl Sim {
         let mut runtime = RhaiRuntime::new();
         for (name, src) in &h.scripts {
             runtime.load(name, src).map_err(SimError::Script)?;
+        }
+
+        // A branch round carries its changes in the header's lineage. Every
+        // change is checked here the way a script is — a branch that cannot
+        // run stops the round before it starts — and each fires when its
+        // tick begins.
+        let mut branch = Vec::new();
+        if let Some(lineage) = &h.lineage {
+            let mut params = h.params;
+            for (at, change) in flatten_lineage(lineage) {
+                match &change {
+                    LineageChange::Reflex { name, src } => {
+                        runtime.check(name, src).map_err(SimError::Script)?;
+                    }
+                    LineageChange::Param { field, value } => {
+                        match params.set_branchable(field, *value) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                return Err(SimError::Params(ParamError {
+                                    field: "params",
+                                    reason: format!(
+                                        "the field {field:?} is not branchable mid-round"
+                                    ),
+                                }));
+                            }
+                            Err(err) => return Err(SimError::Params(err)),
+                        }
+                    }
+                    LineageChange::DropDecisions { .. } => {}
+                }
+                branch.push((at, change));
+            }
         }
 
         let ruleset = crate::rules::by_name(&h.ruleset, &world, &h.params)?;
@@ -164,6 +208,8 @@ impl Sim {
             runtime,
             reflex_names,
             tick: h.start_tick,
+            branch,
+            dropped: BTreeSet::new(),
             stats: SimStats::default(),
         })
     }
@@ -244,6 +290,11 @@ impl Sim {
         let now = self.tick;
         let mut events = Vec::new();
 
+        // 0. The branch fires. A change applies between the tick before it
+        //    and its own tick, so the tick it names is the first that runs
+        //    with it.
+        self.fire_branch(now);
+
         // 1. The decisions of this tick.
         self.apply_decisions(decisions, now, &mut events);
 
@@ -286,6 +337,44 @@ impl Sim {
         }
     }
 
+    /// Hot-swap the reflex script `name`, between ticks.
+    ///
+    /// This is how a branch changes one rule of a round: `src` is compiled
+    /// and checked exactly like a round-setup script, and every roster entry
+    /// that names `name` runs the new source from the next tick. A source
+    /// that does not parse, or defines no entry point, is refused and the
+    /// previous script keeps running. The sim writes no logs; a branch
+    /// records the swap itself, as a marker decision on the branch tick.
+    pub fn replace_script(&mut self, name: &str, src: &str) -> Result<(), SimError> {
+        self.runtime.load(name, src).map_err(SimError::Script)
+    }
+
+    /// Apply every branch change whose tick has come.
+    ///
+    /// Each change was checked when the round was set up, so none of them
+    /// can fail here; the results are still looked at, because a failure
+    /// half through a fire is a bug and must not slip past silently.
+    fn fire_branch(&mut self, now: Tick) {
+        while self.branch.first().is_some_and(|(at, _)| *at <= now) {
+            let (_, change) = self.branch.remove(0);
+            match change {
+                LineageChange::Reflex { name, src } => {
+                    if let Err(err) = self.replace_script(&name, &src) {
+                        debug_assert!(false, "a checked branch change failed: {err}");
+                    }
+                }
+                LineageChange::Param { field, value } => {
+                    if !self.params.set_branchable(&field, value).unwrap_or(false) {
+                        debug_assert!(false, "a checked branch change failed: {field:?}");
+                    }
+                }
+                LineageChange::DropDecisions { source } => {
+                    self.dropped.insert(source);
+                }
+            }
+        }
+    }
+
     /// The order the agents act in on this tick.
     ///
     /// The order rotates by one place every tick, so no agent always goes
@@ -304,6 +393,11 @@ impl Sim {
     /// Apply the decisions stamped for this tick.
     fn apply_decisions(&mut self, decisions: &[Stamped], now: Tick, events: &mut Vec<Event>) {
         for stamped in decisions {
+            // A branch may drop a source's decisions from its tick on: the
+            // parent's stream keeps flowing, the branch stops listening.
+            if self.dropped.contains(&stamped.d.source) {
+                continue;
+            }
             let Some(agent) = stamped.d.source.agent() else {
                 // A decision of the system speaks for no agent; only a
                 // marker means anything in the world.
@@ -476,6 +570,31 @@ impl Sim {
     fn index_of(&self, agent: u16) -> Option<usize> {
         self.agents.iter().position(|a| a.id == agent)
     }
+}
+
+/// Flatten a lineage chain into the changes that have to fire, in the order
+/// history plays them.
+///
+/// A branch of a branch carries its parent's lineage in `prior`, and the
+/// whole chain fires — each change on its own tick, the older fork first
+/// among changes that share a tick — so a fork made before an earlier
+/// branch's change still plays that change afterwards, exactly as the round
+/// it forked would have.
+fn flatten_lineage(lineage: &Lineage) -> Vec<(Tick, LineageChange)> {
+    // Walk the chain from the newest fork to the root, then put history
+    // back in order; the stable sort keeps same-tick changes in the order
+    // the walk left them, oldest fork first.
+    let mut flat = Vec::new();
+    let mut link = Some(lineage);
+    while let Some(current) = link {
+        for change in &current.changes {
+            flat.push((current.at, change.clone()));
+        }
+        link = current.prior.as_deref();
+    }
+    flat.reverse();
+    flat.sort_by_key(|(at, _)| *at);
+    flat
 }
 
 /// Where the agent with index `index` in a squad starts the round.
@@ -729,5 +848,130 @@ mod tests {
         // The first hash is taken when the interval is up, not on the first
         // tick.
         assert_eq!(hashed_ticks.first(), Some(&29));
+    }
+
+    /// A lineage that swaps the default reflex for one that always holds.
+    fn hold_lineage(at: Tick) -> Lineage {
+        Lineage {
+            parent_header: 0,
+            parent_head: 0,
+            at,
+            changes: vec![LineageChange::Reflex {
+                name: "default".to_owned(),
+                src: "fn reflex(v){ #{ hold: true } }".to_owned(),
+            }],
+            prior: None,
+        }
+    }
+
+    #[test]
+    fn replace_script_swaps_the_reflex_mid_round() {
+        let h = Header::default_round(1, DEFAULT_REFLEX);
+        let mut swapped = Sim::new(&h).expect("the round starts");
+        let mut plain = Sim::new(&h).expect("the round starts");
+        for _ in 0..60 {
+            swapped.step(&[]);
+            plain.step(&[]);
+        }
+        swapped
+            .replace_script("default", "fn reflex(v){ #{ hold: true } }")
+            .expect("the swap loads");
+
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for _ in 0..120 {
+            if let Some(hash) = swapped.step(&[]).hash {
+                a.push(hash);
+            }
+            if let Some(hash) = plain.step(&[]).hash {
+                b.push(hash);
+            }
+        }
+        assert_ne!(a, b, "the swap changed nothing");
+    }
+
+    #[test]
+    fn replace_script_refuses_a_broken_script_and_keeps_the_old_one() {
+        let h = Header::default_round(1, DEFAULT_REFLEX);
+        let mut swapped = Sim::new(&h).expect("the round starts");
+        let mut plain = Sim::new(&h).expect("the round starts");
+        swapped.step(&[]);
+        plain.step(&[]);
+        assert!(swapped.replace_script("default", "fn (").is_err());
+
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for _ in 0..90 {
+            if let Some(hash) = swapped.step(&[]).hash {
+                a.push(hash);
+            }
+            if let Some(hash) = plain.step(&[]).hash {
+                b.push(hash);
+            }
+        }
+        assert_eq!(a, b, "the refused swap changed the round");
+    }
+
+    #[test]
+    fn lineage_fires_on_its_tick_and_not_before() {
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        h.lineage = Some(hold_lineage(60));
+        let mut branched = Sim::new(&h).expect("the branch starts");
+        let mut plain =
+            Sim::new(&Header::default_round(1, DEFAULT_REFLEX)).expect("the round starts");
+
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for tick in 0..150u64 {
+            if let Some(hash) = branched.step(&[]).hash {
+                a.push(hash);
+            }
+            if let Some(hash) = plain.step(&[]).hash {
+                b.push(hash);
+            }
+            if tick < 60 {
+                assert_eq!(a, b, "the branch changed something before its tick");
+            }
+        }
+        assert_ne!(a, b, "the branch never fired");
+    }
+
+    #[test]
+    fn dropped_sources_stop_applying_from_the_branch_tick() {
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        h.lineage = Some(Lineage {
+            parent_header: 0,
+            parent_head: 0,
+            at: 60,
+            changes: vec![LineageChange::DropDecisions {
+                source: Source::Agent(0),
+            }],
+            prior: None,
+        });
+        let mut dropped = Sim::new(&h).expect("the branch starts");
+        let mut plain =
+            Sim::new(&Header::default_round(1, DEFAULT_REFLEX)).expect("the round starts");
+
+        // Agent 0 is pinned to two far-apart cells, alternating: the pin it
+        // holds when the drop fires is the pin it keeps.
+        let near = CellXY { x: 10, y: 10 };
+        let far = CellXY { x: 100, y: 100 };
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for tick in 0..150u64 {
+            let target = if tick % 20 < 10 { near } else { far };
+            let decisions = vec![stamped(
+                0,
+                tick,
+                u32::try_from(tick).unwrap() + 1,
+                Kind::ActionOn(Action::GoTo(target)),
+            )];
+            if let Some(hash) = dropped.step(&decisions).hash {
+                a.push(hash);
+            }
+            if let Some(hash) = plain.step(&decisions).hash {
+                b.push(hash);
+            }
+            if tick < 60 {
+                assert_eq!(a, b, "the drop changed something before its tick");
+            }
+        }
+        assert_ne!(a, b, "the drop never fired, or the pins never mattered");
     }
 }

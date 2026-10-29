@@ -25,6 +25,9 @@ echo "==> cargo test (release)"
 cargo test --release
 
 echo "==> lm golden"
-cargo run -p lm-tools --release -- golden
+cargo run --release --bin lm -- golden
+
+echo "==> acceptance session"
+bash scripts/acceptance.sh
 
 echo "==> all checks passed"

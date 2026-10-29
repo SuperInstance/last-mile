@@ -16,6 +16,7 @@ use lm_core::header::Header;
 use lm_core::log::{LogError, RoundLog};
 use lm_core::sim::Sim;
 use lm_core::world::CellXY;
+use lm_tools::branch::{branch, BranchError, Change};
 use lm_tools::runner::{read_golden, read_log, replay, run, ReplayError};
 
 /// The shipped reflex, compiled into the test binary.
@@ -186,4 +187,193 @@ fn tamper_is_detected() {
         ),
         "got {err:?}"
     );
+}
+
+// --- `lm branch`: watch, change one thing, re-run, feel it -----------------
+//
+// The permanent test of the whole design: a round is played, one rule is
+// changed at a chosen tick, and the re-run round shows exactly the intended
+// difference -- nothing before the tick, everything after it.
+
+/// A reflex that never moves: the "change one thing" of the branch tests.
+const HOLD_REFLEX: &str = "fn reflex(v){ #{ hold: true } }";
+
+/// A round whose squad 0 runs a reflex of its own name.
+///
+/// The source is the shipped one, so the round plays the standard game, but
+/// squad 0's roster entries name the script `squad0` -- so a branch can
+/// change squad 0 alone by swapping that one script.
+fn squad0_round(seed: u64, ticks: u64) -> RoundLog {
+    let mut h = Header::default_round(seed, DEFAULT_REFLEX);
+    h.scripts
+        .insert("squad0".to_owned(), DEFAULT_REFLEX.to_owned());
+    for entry in &mut h.roster {
+        if entry.squad == 0 {
+            entry.reflex = "squad0".to_owned();
+        }
+    }
+    let (log, _) = run(h, ticks, &[]);
+    log
+}
+
+/// The change every branch test makes: squad 0 always holds.
+fn hold_squad0() -> Change {
+    Change::Reflex {
+        name: "squad0".to_owned(),
+        src: HOLD_REFLEX.to_owned(),
+    }
+}
+
+/// The hashes of a log up to and including a tick.
+fn hashes_upto(log: &RoundLog, tick: Tick) -> Vec<(Tick, u64)> {
+    log.hashes()
+        .into_iter()
+        .filter(|(t, _)| *t <= tick)
+        .collect()
+}
+
+#[test]
+fn branch_prefix_is_identical() {
+    let parent = squad0_round(1, 3_000);
+    let (child, _) = branch(&parent, 1_500, &[hold_squad0()]).expect("the branch runs");
+
+    // Every hash up to the branch tick is the parent's, one for one: the
+    // branch changed nothing before tick 1500. A hash every 30 ticks means
+    // 50 of them by tick 1500.
+    assert_eq!(hashes_upto(&parent, 1_500).len(), 50);
+    assert_eq!(hashes_upto(&parent, 1_500), hashes_upto(&child, 1_500));
+}
+
+#[test]
+fn branch_changes_behaviour_as_intended() {
+    // Seed 3, pinned like a golden hash: the parent's squad 0 plays the
+    // beacons and banks 1216 points; frozen on the spot from tick 1500 it
+    // banks nothing. (Freezing is not always worse -- on seed 2 a frozen
+    // agent happens to sit on a beacon and keeps scoring -- so the seed is
+    // part of the assertion.)
+    let parent = squad0_round(3, 3_000);
+    let (_, report) = branch(&parent, 1_500, &[hold_squad0()]).expect("the branch runs");
+
+    // Squad 0 stands still from the branch tick on: it cannot score what
+    // the parent's squad 0 scored by keeping after the beacons.
+    assert!(
+        report.branch_scores[0] <= report.parent_scores[0],
+        "branch {:?} scored more than parent {:?}",
+        report.branch_scores,
+        report.parent_scores
+    );
+    assert_eq!(report.parent_scores[0], 1_216);
+    assert_eq!(report.branch_scores[0], 0);
+    // The rounds are not the same round, and they part company after the
+    // branch tick, never before it.
+    match report.first_divergent_tick {
+        Some(t) => assert!(t > 1_500, "diverged at tick {t}, before the branch tick"),
+        None => panic!("the branch played exactly the parent's round"),
+    }
+}
+
+#[test]
+fn branch_is_replayable() {
+    let parent = squad0_round(3, 900);
+    let (child, _) = branch(&parent, 300, &[hold_squad0()]).expect("the branch runs");
+
+    // The branch log replays from its own header, like any round log: the
+    // changes it carries in its lineage fire on their ticks again.
+    assert_eq!(replay(&child).unwrap(), child.hashes());
+}
+
+#[test]
+fn branch_never_mutates_parent() {
+    let parent = squad0_round(4, 600);
+    let mut before = Vec::new();
+    parent.write(&mut before).expect("the parent writes");
+
+    let _ = branch(&parent, 300, &[hold_squad0()]).expect("the branch runs");
+
+    let mut after = Vec::new();
+    parent.write(&mut after).expect("the parent writes");
+    assert_eq!(before, after);
+}
+
+#[test]
+fn branch_of_branch_lineage() {
+    let parent = squad0_round(5, 900);
+    let (child, _) = branch(
+        &parent,
+        300,
+        &[Change::Param {
+            field: "speed_upt".to_owned(),
+            value: 64,
+        }],
+    )
+    .expect("the first branch runs");
+    let (grandchild, _) = branch(&child, 600, &[hold_squad0()]).expect("the second branch runs");
+
+    // The grandchild's lineage names its parent (the child) by header hash
+    // and head segment hash, and -- through the chain, in `prior` -- the
+    // child's own lineage names the root round: both ancestors are recorded.
+    let gl = grandchild
+        .header
+        .lineage
+        .as_ref()
+        .expect("the grandchild has a lineage");
+    assert_eq!(gl.parent_header, child.header.hash());
+    assert_eq!(
+        gl.parent_head,
+        child.segments.last().expect("the child has segments").hash
+    );
+    let prior = gl
+        .prior
+        .as_deref()
+        .expect("the chain carries the child's lineage");
+    assert_eq!(prior.parent_header, parent.header.hash());
+    assert_eq!(
+        prior.parent_head,
+        parent
+            .segments
+            .last()
+            .expect("the parent has segments")
+            .hash
+    );
+    assert_eq!(
+        child
+            .header
+            .lineage
+            .as_ref()
+            .expect("the child has a lineage")
+            .parent_header,
+        parent.header.hash()
+    );
+
+    // Every log of the chain replays on its own.
+    assert_eq!(replay(&child).unwrap(), child.hashes());
+    assert_eq!(replay(&grandchild).unwrap(), grandchild.hashes());
+}
+
+#[test]
+fn param_change_outside_whitelist_refused() {
+    let parent = squad0_round(6, 300);
+    let err = branch(
+        &parent,
+        100,
+        &[Change::Param {
+            field: "tick_hz".to_owned(),
+            value: 60,
+        }],
+    )
+    .unwrap_err();
+    assert_eq!(err, BranchError::ParamNotBranchable("tick_hz".to_owned()));
+}
+
+#[test]
+fn branch_records_the_swap_as_a_marker() {
+    let parent = squad0_round(7, 300);
+    let (child, _) = branch(&parent, 100, &[hold_squad0()]).expect("the branch runs");
+
+    // The swap itself is in the log: a marker decision of the system, on the
+    // branch tick, so a dump of the log says where the round changed.
+    let at = child.decisions_for(100);
+    assert_eq!(at.len(), 1);
+    assert_eq!(at[0].d.source, Source::System);
+    assert!(matches!(at[0].d.kind, Kind::Marker(_)));
 }

@@ -5,6 +5,14 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+# The crate is `lm-tools`; the command it builds is `lm`. `autobins = false`
+# keeps that explicit: cargo infers no other binary, so `cargo run` always
+# means the `lm` tool.
+autobins = false
+
+[[bin]]
+name = "lm"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }

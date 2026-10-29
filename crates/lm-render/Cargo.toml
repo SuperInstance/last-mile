@@ -1,0 +1,10 @@
+[package]
+name = "lm-render"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+lm-core = { path = "../lm-core" }
+serde = { version = "1.0", features = ["derive"] }
