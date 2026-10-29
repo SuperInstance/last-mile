@@ -180,6 +180,7 @@ pub fn degrade_at(
         id,
         speaker: u.speaker,
         channel: u.channel,
+        addressee: u.addressee,
         act: if clarity_q16 >= p.act_clarity_q16 {
             Some(u.act)
         } else {

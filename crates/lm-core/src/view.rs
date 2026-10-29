@@ -229,6 +229,12 @@ pub struct AgentSnap {
     pub cell: CellXY,
     pub role: Role,
     pub stunned: bool,
+    /// The airtime this agent has spent, in ticks (D31).
+    ///
+    /// The airtime budget is the round's, and this is what the agent has
+    /// used of it. It is in the view because it is the agent's own state:
+    /// the mind checks it before it speaks, and the sim is the authority.
+    pub airtime_ticks: u32,
 }
 
 /// An enemy as the squad last saw it: where, and how many ticks ago.
@@ -303,6 +309,7 @@ impl ScoreView {
             cell: world.grid.cell_of(a.pos, world.cell_units),
             role: a.role,
             stunned: a.stunned_until.is_some_and(|t| now < t),
+            airtime_ticks: a.airtime_ticks,
         };
         ScoreView {
             tick: now,
@@ -426,6 +433,7 @@ mod tests {
             cell: CellXY { x, y },
             role,
             stunned: false,
+            airtime_ticks: 0,
         }
     }
 

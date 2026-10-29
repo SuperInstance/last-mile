@@ -401,11 +401,16 @@ impl StubBackend {
         }
     }
 
-    /// A backend that answers whatever menu it is asked about.
+    /// A backend that answers every gate it is asked about.
     ///
     /// The first option is the favourite and the rest share what is left, so
-    /// the answer is over exactly the menu of the question — never over a
-    /// menu that has moved (D26).
+    /// the answer is over exactly the options of the question — never over
+    /// a menu that has moved (D26). A noul is answered yes, a score with
+    /// the middle of its scale.
+    ///
+    /// The stub stands in for a model, so it answers the whole pack: the
+    /// gates, the policy and the ladder are the real ones, and only the
+    /// model is not.
     pub fn menu() -> Self {
         Self {
             script: Mutex::new(StubScript::Menu),
@@ -495,17 +500,49 @@ impl SysOne for StubBackend {
 ///
 /// The first option is the favourite and the rest share what is left.
 fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
-    let gate = questions
-        .get("move")
-        .ok_or_else(|| Refusal::Malformed("the pack has no move gate".to_string()))?;
+    let gates = questions
+        .as_object()
+        .ok_or_else(|| Refusal::Malformed("the pack is not a table of gates".to_string()))?;
+    if gates.is_empty() {
+        return Err(Refusal::Malformed("the pack has no gates".to_string()));
+    }
+
+    let mut per_gate = BTreeMap::new();
+    for (id, gate) in gates {
+        let kind = gate.get("type").and_then(Value::as_str).unwrap_or("choice");
+        let answer = match kind {
+            "noul" => Answer::Noul(0.8),
+            "score" => Answer::Score {
+                probs: gate_probs(gate, id)?,
+                score: 1.0,
+                confidence,
+            },
+            _ => Answer::Choice {
+                probs: gate_probs(gate, id)?,
+                confidence,
+            },
+        };
+        per_gate.insert(id.clone(), answer);
+    }
+
+    Ok(Answers {
+        per_gate,
+        model: "stub".to_owned(),
+        input_tokens: 64,
+        latency_ms: 0,
+    })
+}
+
+/// The stub's answer to one gate: the first option is the favourite and
+/// the rest share what is left.
+fn gate_probs(gate: &Value, id: &str) -> Result<BTreeMap<String, f32>, Refusal> {
     let criteria = gate
         .get("criteria")
         .and_then(Value::as_object)
-        .ok_or_else(|| Refusal::Malformed("the gate has no criteria".to_string()))?;
+        .ok_or_else(|| Refusal::Malformed(format!("the gate {id} has no criteria")))?;
     if criteria.is_empty() {
-        return Err(Refusal::Malformed("the menu is empty".to_string()));
+        return Err(Refusal::Malformed(format!("the gate {id} has no options")));
     }
-
     let count = criteria.len();
     let mut probs = BTreeMap::new();
     for (index, key) in criteria.keys().enumerate() {
@@ -516,13 +553,7 @@ fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
         };
         probs.insert(key.clone(), p);
     }
-
-    Ok(Answers {
-        per_gate: BTreeMap::from([("move".to_owned(), Answer::Choice { probs, confidence })]),
-        model: "stub".to_owned(),
-        input_tokens: 64,
-        latency_ms: 0,
-    })
+    Ok(probs)
 }
 
 // ---------------------------------------------------------------- the plumbing
@@ -543,7 +574,7 @@ impl fmt::Display for Secret {
 }
 
 /// An HTTP client that keeps its connections alive (D50).
-fn build_agent(timeout: Duration) -> ureq::Agent {
+pub(crate) fn build_agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .timeout_per_call(Some(timeout))
@@ -578,7 +609,7 @@ fn request_body(model: &str, state: &str, questions: &Value) -> String {
 ///
 /// The call never outlives the deadline: whatever is left of it becomes the
 /// request's timeout.
-fn post_pack(
+pub(crate) fn post_pack(
     agent: &ureq::Agent,
     url: &str,
     bearer: Option<&str>,

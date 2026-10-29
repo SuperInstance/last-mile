@@ -415,6 +415,7 @@ mod tests {
             cell: CellXY { x, y },
             role,
             stunned: false,
+            airtime_ticks: 0,
         }
     }
 

@@ -23,9 +23,16 @@ quality = 2
 [think]
 # A fresh threat gives the mind this many ticks; a thought must land within
 # them or the reflex plays the moment instead.
-threat_horizon_ticks = 3
+#
+# The phase-4 pack asks eleven questions in one call (the move gate, the
+# five talk gates and their five presence gates), so a thought costs more
+# than the one gate of phase 3: the budget below is in the same spirit as
+# before -- a fresh threat is answered in half a second, quiet thinking in
+# a second -- and it is a parameter, so the reviewer moves it with the
+# measured p99 (D55).
+threat_horizon_ticks = 15
 # Quiet thinking (no threat, a beacon plan) may take up to this many ticks.
-max_think_ticks = 6
+max_think_ticks = 30
 # An enemy sighting younger than this many ticks is a fresh threat.
 threat_age_ticks = 2
 

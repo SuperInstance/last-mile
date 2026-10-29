@@ -85,6 +85,14 @@ pub struct Agent {
     pub lane_cmd: Option<MenuOption>,
     /// The cached route: `(goal, path from jps, tick it was computed on)`.
     pub route: Option<(CellXY, Vec<CellXY>, Tick)>,
+    /// The airtime this agent has spent, in ticks (D31).
+    ///
+    /// The airtime budget is the round's (`TalkParams::airtime_s`), and
+    /// this is what the agent has used of it. It is **game state**: it
+    /// changes who may speak, so it is covered by the state hash — a
+    /// round that never talks hashes exactly as it always did (see
+    /// `hash_into`).
+    pub airtime_ticks: u32,
 }
 
 impl Agent {
@@ -102,6 +110,7 @@ impl Agent {
             lanes: BTreeMap::new(),
             lane_cmd: None,
             route: None,
+            airtime_ticks: 0,
         }
     }
 
@@ -365,6 +374,15 @@ impl StateHash for Agent {
                 }
                 h.u64(*at);
             }
+        }
+        // The airtime counter is game state: it changes who may speak, so
+        // it is hashed. It is hashed **only when it is used**, exactly like
+        // the squads' told facts: a round that never talks has none, and
+        // hashes as it always did -- the phase-1 goldens and the phase-1
+        // log fixture do not move. The first line that is spoken changes
+        // the round's state hash: a round that talks is a different game.
+        if self.airtime_ticks != 0 {
+            h.u32(self.airtime_ticks);
         }
     }
 }

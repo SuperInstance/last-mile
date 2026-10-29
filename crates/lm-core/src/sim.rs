@@ -46,7 +46,7 @@ use crate::params::{ParamError, Params};
 use crate::rng::{Domain, Rng};
 use crate::rules::{Event, Outcome, Refusal, Ruleset};
 use crate::script::{ReflexOut, RhaiRuntime, ScriptRuntime};
-use crate::talk::{ListenerRecord, TalkParams, TalkRecord};
+use crate::talk::{ListenerRecord, TalkParams, TalkRecord, AIRTIME_ON_EXHAUST_FREEZE};
 use crate::utterance::{Addressee, Channel, Heard, Subject, Utterance};
 use crate::view::{menu, option_cmd, AgentSnap, BeaconSnap, ScoreView, SquadKnowledge};
 use crate::world::{CellXY, World};
@@ -80,6 +80,13 @@ pub struct SimStats {
     pub reflex_refused: u64,
     /// Effects the ruleset refused to apply.
     pub ruleset_refused: u64,
+    /// Lines the sim refused because they would have taken the speaker
+    /// over its airtime budget (D31).
+    ///
+    /// The refusal is the sim's backstop: the agents check the budget
+    /// before they speak, so a refusal here means the two sides
+    /// disagreed -- and the sim is the authority.
+    pub talk_refusals: u64,
 }
 
 /// The cell offsets, relative to the spawn, the agents of a squad start on.
@@ -356,6 +363,11 @@ impl Sim {
         // 3. The agents, in the tick's rotating order.
         let order = self.order(now);
         for index in &order {
+            // An agent whose airtime is spent stops acting when the round
+            // says so; with "reflex" it keeps playing (D31).
+            if self.frozen(*index) {
+                continue;
+            }
             let view = self.view_of(*index, now);
             let cmd = match self.agents[*index].lane_cmd {
                 Some(option) => Some(option_cmd(&option, &view, &self.world)),
@@ -522,6 +534,25 @@ impl Sim {
         }
     }
 
+    /// The airtime one agent may spend in a round, in ticks (D31).
+    ///
+    /// The budget is the round's (`TalkParams::airtime_s`) and the round's
+    /// tick rate converts it: every agent of the round shares it, because
+    /// the budget travels in the header.
+    fn airtime_budget_ticks(&self) -> u64 {
+        u64::from(self.talk.airtime_s) * u64::from(self.params.tick_hz)
+    }
+
+    /// Whether an agent has spent its airtime and the round says it must
+    /// stop acting (`airtime_on_exhaust = "freeze"`).
+    ///
+    /// With `"reflex"` the agent keeps playing on its reflexes: a talking
+    /// agent can still fight, and that is the default.
+    fn frozen(&self, index: usize) -> bool {
+        self.talk.airtime_on_exhaust == AIRTIME_ON_EXHAUST_FREEZE
+            && u64::from(self.agents[index].airtime_ticks) >= self.airtime_budget_ticks()
+    }
+
     /// Apply an utterance: who hears it, how clearly, and what it teaches
     /// the squads.
     ///
@@ -534,7 +565,24 @@ impl Sim {
     /// Each listener gets its own copy, degraded by its own clarity: the
     /// words that arrive, the tags they understood. A listener who cannot
     /// hear the line at all hears nothing — silence is an outcome.
+    ///
+    /// The line costs the speaker **airtime** (D31): a line that would
+    /// take the speaker over the round's budget is refused, the speaker
+    /// says nothing, and the sim keeps playing. The agents check the
+    /// budget before they speak, so a refusal is rare; the sim is the
+    /// authority.
     fn apply_utterance(&mut self, index: usize, u: &Utterance, now: Tick) {
+        let duration = u.duration_ticks();
+        let spent = self.agents[index].airtime_ticks;
+        let budget = self.airtime_budget_ticks();
+        if u64::from(spent) + u64::from(duration) > budget {
+            // The speaker has no airtime left for this line: it is
+            // refused, and the round goes on without it.
+            self.stats.talk_refusals += 1;
+            return;
+        }
+        self.agents[index].airtime_ticks = spent.saturating_add(duration);
+
         let speaker_squad = self.agents[index].squad;
         let speaker_pos = self.agents[index].pos;
 
@@ -764,6 +812,7 @@ impl Sim {
                 cell: CellXY { x: 0, y: 0 },
                 role: Role::Member,
                 stunned: false,
+                airtime_ticks: 0,
             },
             squad: Vec::new(),
             enemies: Vec::new(),
@@ -912,6 +961,16 @@ mod tests {
         }
     }
 
+    /// A line of `ticks` ticks on the voice channel.
+    fn line_of(speaker: u16, ticks: u64) -> Utterance {
+        let mut line = utterance(speaker, Subject::None);
+        line.words = vec![
+            Word::new("hold", 0, ticks / 2),
+            Word::new("on", ticks / 2, ticks),
+        ];
+        line
+    }
+
     /// Put an agent where the test needs it.
     fn place_agent(sim: &mut Sim, agent: u16, pos: Pos) {
         let index = sim
@@ -930,6 +989,101 @@ mod tests {
                 .grid
                 .set(CellXY { x, y }, crate::world::grid::CellKind::Floor);
         }
+    }
+
+    /// The airtime budget stops the talker (D31).
+    ///
+    /// With a budget of one second, an agent that has spent its second is
+    /// refused the next line: the sim is the authority, and the round goes
+    /// on without it.
+    #[test]
+    fn airtime_budget_stops_the_talker() {
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        h.talk.airtime_s = 1;
+        let mut sim = Sim::new(&h).expect("the round starts");
+        let line = line_of(0, 30);
+
+        // The first line fits: it costs exactly the budget.
+        sim.step(&[stamped(0, 0, 0, Kind::Utterance(line.clone()))]);
+        assert_eq!(sim.stats().talk_refusals, 0);
+        assert_eq!(sim.agent(0).expect("the agent").airtime_ticks, 30);
+
+        // The next one does not: the speaker is refused and says nothing.
+        sim.step(&[stamped(0, 1, 1, Kind::Utterance(line))]);
+        assert_eq!(sim.stats().talk_refusals, 1);
+        assert_eq!(
+            sim.agent(0).expect("the agent").airtime_ticks,
+            30,
+            "the refusal spent no airtime"
+        );
+    }
+
+    /// The airtime budget can freeze an agent (D31).
+    ///
+    /// With `airtime_on_exhaust = "reflex"` the agent keeps playing on its
+    /// reflexes — a talking agent can still fight, and that is the default.
+    /// With `"freeze"` it stops acting at all: it does not walk, it does
+    /// not charge, it stands still.
+    #[test]
+    fn a_frozen_agent_stops_acting() {
+        let mut frozen_header = Header::default_round(1, DEFAULT_REFLEX);
+        frozen_header.talk.airtime_s = 1;
+        frozen_header.talk.airtime_on_exhaust = "freeze".to_owned();
+        let mut frozen = Sim::new(&frozen_header).expect("the round starts");
+
+        let mut playing_header = frozen_header.clone();
+        playing_header.talk.airtime_on_exhaust = "reflex".to_owned();
+        let mut playing = Sim::new(&playing_header).expect("the round starts");
+
+        // Both agents spend their one second of airtime.
+        let line = line_of(0, 30);
+        frozen.step(&[stamped(0, 0, 0, Kind::Utterance(line.clone()))]);
+        playing.step(&[stamped(0, 0, 0, Kind::Utterance(line))]);
+
+        // Then the frozen one stands still and the other keeps walking.
+        for _ in 1..30 {
+            frozen.step(&[]);
+            playing.step(&[]);
+        }
+        let still = frozen.agent(0).expect("the agent").pos;
+        let moved = playing.agent(0).expect("the agent").pos;
+        assert_ne!(
+            still, moved,
+            "the playing agent walked and the frozen one did not"
+        );
+    }
+
+    /// A refused line says nothing at all (D26).
+    ///
+    /// The round after a refusal is the round the agent stayed quiet in:
+    /// the same airtime, the same hash, the same world.
+    #[test]
+    fn a_refused_line_says_nothing() {
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        h.talk.airtime_s = 1;
+        let mut said = Sim::new(&h).expect("the round starts");
+        let mut quiet = Sim::new(&h).expect("the round starts");
+        let line = line_of(0, 30);
+
+        // Both agents speak their one second.
+        said.step(&[stamped(0, 0, 0, Kind::Utterance(line.clone()))]);
+        quiet.step(&[stamped(0, 0, 0, Kind::Utterance(line.clone()))]);
+
+        // One tries to speak again and is refused; the other says nothing.
+        said.step(&[stamped(0, 1, 1, Kind::Utterance(line))]);
+        quiet.step(&[]);
+
+        assert_eq!(said.stats().talk_refusals, 1);
+        assert_eq!(
+            said.agent(0).expect("the agent").airtime_ticks,
+            quiet.agent(0).expect("the agent").airtime_ticks,
+            "the refusal spent no airtime"
+        );
+        assert_eq!(
+            said.state_hash(),
+            quiet.state_hash(),
+            "the refusal changed nothing"
+        );
     }
 
     /// The enemy of squad 0 hears a voice that reaches it, and its squad

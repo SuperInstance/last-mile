@@ -5,6 +5,7 @@
 //! ```text
 //! <dir>/gates.toml          the typed questions it asks its decision model (D37)
 //! <dir>/policy.toml         when to think: think rates, novelty and threat thresholds
+//! <dir>/phrasebook.toml     the wording of the lines it speaks (Task 4)
 //! <dir>/reflexes/*.rhai     its sandboxed reflex scripts (run inside lm-core)
 //! <dir>/lexicon.md          what its squad learned about language (phase 5)
 //! ```
@@ -35,6 +36,11 @@ pub struct Harness {
     pub gates_toml: String,
     /// `policy.toml` as text (parsed by `mind`), or empty if absent.
     pub policy_toml: String,
+    /// `phrasebook.toml` as text (parsed by `phrasebook`), or empty if absent.
+    ///
+    /// The wording of the lines is doctrine like the gates are, so it
+    /// travels with the harness and is pinned by the harness commit.
+    pub phrasebook_toml: String,
     /// Reflex scripts by file stem (`reflexes/flee.rhai` -> `"flee"`).
     pub reflexes: BTreeMap<String, String>,
     /// The pinned identity: a git commit id, or `content:<16 hex>`.
@@ -54,15 +60,17 @@ impl Harness {
         };
         let gates_toml = read_opt("gates.toml")?;
         let policy_toml = read_opt("policy.toml")?;
+        let phrasebook_toml = read_opt("phrasebook.toml")?;
         let reflexes = read_reflexes(&dir.join("reflexes"))?;
         let commit = match git_head(dir) {
             Some(id) => id,
-            None => content_id(&gates_toml, &policy_toml, &reflexes),
+            None => content_id(&gates_toml, &policy_toml, &phrasebook_toml, &reflexes),
         };
         Ok(Harness {
             dir: dir.to_path_buf(),
             gates_toml,
             policy_toml,
+            phrasebook_toml,
             reflexes,
             commit,
         })
@@ -111,7 +119,12 @@ fn git_head(dir: &Path) -> Option<String> {
 
 /// A stable identity from the harness's bytes: FNV-1a 64 over every file,
 /// length-prefixed, in a fixed order.
-fn content_id(gates: &str, policy: &str, reflexes: &BTreeMap<String, String>) -> String {
+fn content_id(
+    gates: &str,
+    policy: &str,
+    phrasebook: &str,
+    reflexes: &BTreeMap<String, String>,
+) -> String {
     let mut h = Fnv64::new();
     let mut put = |s: &str| {
         h.u64(s.len() as u64);
@@ -119,6 +132,7 @@ fn content_id(gates: &str, policy: &str, reflexes: &BTreeMap<String, String>) ->
     };
     put(gates);
     put(policy);
+    put(phrasebook);
     for (name, src) in reflexes {
         put(name);
         put(src);

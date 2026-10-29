@@ -61,8 +61,17 @@ pub struct AgentsConfig {
     /// Presence-mode batch rate in Hz (D38/D42).
     pub presence_hz: u16,
     /// Questions per ask (d1 cost is 10–50 ms per question).
+    ///
+    /// The phase-4 pack asks the move gate, the five talk gates and their
+    /// five presence gates, so the whole pack is eleven questions: a
+    /// smaller cap would leave the talk gates unanswered and the agents
+    /// would never speak.
     pub max_questions: u16,
     /// HTTP deadline per ask, in milliseconds; later than that is a refusal.
+    ///
+    /// The deadline follows the pack: the eleven-question pack of phase 4
+    /// is a longer prompt than the one gate of phase 3, and a deadline
+    /// that fits the old pack would refuse every real answer.
     pub request_timeout_ms: u32,
     /// How strongly a squad's shared usage counts in queue priority (D16).
     pub squad_weight: f32,
@@ -78,6 +87,37 @@ pub struct AgentsConfig {
     /// Allies farther away than this many cells (Chebyshev) are not stated in
     /// the facts. Was a constant; a parameter since Task 5.
     pub ally_range_cells: i32,
+    /// How the agents word their lines (D37).
+    #[serde(default)]
+    pub utter: UterConfig,
+}
+
+/// The rules of the wording: which realizer words the lines, and which
+/// model writes them when the phrasebook cannot.
+///
+/// The choice itself is not here: the gates make it (D37). These are the
+/// knobs of the *wording*.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UterConfig {
+    /// Which realizer words the lines: `template` (the phrasebook),
+    /// `llm` (the model on the Thor) or `auto` (the phrasebook first, the
+    /// model only for a line the phrasebook does not have).
+    pub realizer: String,
+    /// The model that writes the lines, on the Thor.
+    pub llm_model: String,
+    /// The port that model serves on.
+    pub llm_port: u16,
+}
+
+impl Default for UterConfig {
+    fn default() -> Self {
+        UterConfig {
+            realizer: "auto".to_owned(),
+            llm_model: "LFM2-1.2B".to_owned(),
+            llm_port: 8092,
+        }
+    }
 }
 
 impl Default for AgentsConfig {
@@ -101,13 +141,14 @@ impl Default for AgentsConfig {
             think_hz_leader: 1,
             mode: "auto".to_owned(),
             presence_hz: 10,
-            max_questions: 3,
-            request_timeout_ms: 400,
+            max_questions: 11,
+            request_timeout_ms: 1_200,
             squad_weight: 0.5,
             budget_calls_per_round: 400,
             on_exhaust: "reflex".to_owned(),
             stale_enemy_ticks: 6,
             ally_range_cells: 4,
+            utter: UterConfig::default(),
         }
     }
 }
@@ -173,7 +214,15 @@ mod tests {
                 c.stale_enemy_ticks,
                 c.ally_range_cells
             ),
-            (3, 400, 0.5, 400, "reflex", 6, 4)
+            (11, 1_200, 0.5, 400, "reflex", 6, 4)
+        );
+        assert_eq!(
+            (
+                c.utter.realizer.as_str(),
+                c.utter.llm_model.as_str(),
+                c.utter.llm_port
+            ),
+            ("auto", "LFM2-1.2B", 8092)
         );
     }
 
@@ -191,6 +240,13 @@ mod tests {
         // unmentioned ones do not survive.
         let c = AgentsConfig::from_toml("[ports]\nd1-3b = 9000\n").expect("ports toml loads");
         assert_eq!(c.ports, BTreeMap::from([("d1-3b".to_owned(), 9000)]));
+        // The wording's own table is replaced whole, and the fields the
+        // file does not name keep their defaults.
+        let c = AgentsConfig::from_toml("[utter]\nrealizer = \"llm\"\n")
+            .expect("the utter table loads");
+        assert_eq!(c.utter.realizer, "llm");
+        assert_eq!(c.utter.llm_model, UterConfig::default().llm_model);
+        assert_eq!(c.utter.llm_port, UterConfig::default().llm_port);
     }
 
     #[test]

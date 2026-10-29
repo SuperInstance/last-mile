@@ -37,6 +37,12 @@
 # The numbers in the rule are the doctrine's: 6 cells for an enemy (the
 # facts builder's ENEMY_NEAR_CELLS) and 4 cells for an ally (the agents
 # config's ally_range_cells). Change one, change the other.
+#
+# The talk gates below choose what an agent *says* (Task 4). They are asked
+# in the same call as the move gate, and they are worded the same way: as a
+# rule over the stated facts, never as an open question. The wording of the
+# line itself is not here — that is the phrasebook's business
+# (`phrasebook.toml`), and only the wording.
 
 [[gates]]
 id = "move"
@@ -61,10 +67,110 @@ hold = "hold position (the doctrine's second branch: you are standing on a beaco
 follow = "follow the squad leader (no branch of the doctrine says to follow the leader)"
 retreat = "retreat to the squad's spawn (the doctrine's first branch: an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells)"
 
+# ------------------------------------------------------------- the talk gates
+#
+# Five gates choose what a line is, and each of them carries a presence
+# gate: the noul "is this even here?". A noul of about zero means the line
+# is not spoken at all — silence is an outcome, and it costs no airtime
+# (D53). The presence gate of a gate named `x` is named `x_present`.
+
 [[gates]]
-id = "call_out"
+id = "gesture"
+type = "choice"
+options_from = "fixed"
+instructions = "Your squad's doctrine for speaking, in order: (1) If you can see what your squad has to do and it is not doing it, command it. (2) If you need something the facts do not tell you, question it. (3) If the situation itself is the news, state it. (4) If nobody in particular is being addressed, call out."
+
+[gates.criteria]
+command = "a command: your squad is to do something (the doctrine's first branch: you can see what your squad has to do and it is not doing it)"
+question = "a question: you need something the facts do not tell you (the doctrine's second branch)"
+statement = "a statement: the situation itself is the news (the doctrine's third branch)"
+callout = "a callout: nobody in particular is being addressed (the doctrine's fourth branch)"
+
+[[gates]]
+id = "gesture_present"
 type = "noul"
 options_from = "fixed"
-instructions = "Should you call out to your squad?"
-# Logged only in phase 3: the call-outs themselves arrive in phase 4, when
-# agents can speak.
+instructions = "Is there a line worth saying at all right now?"
+
+[[gates]]
+id = "attention"
+type = "choice"
+options_from = "fixed"
+# The agent numbers are this round's roster (eight agents in the default
+# round); a harness for another roster names its own. A line may not name
+# an agent that is not in the round: the addressee is checked against the
+# roster, and an answer that names a stranger is refused.
+instructions = "Who the line is for, in order: (1) If the whole squad has to act on it, your squad. (2) If one agent in particular needs it, that agent by number. (3) Only if the whole field must hear it, everybody."
+
+[gates.criteria]
+squad = "your squad (the doctrine's first branch: the whole squad has to act on it)"
+all = "everybody who can hear (the doctrine's third branch: the whole field must hear it)"
+agent0 = "agent 0 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent1 = "agent 1 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent2 = "agent 2 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent3 = "agent 3 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent4 = "agent 4 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent5 = "agent 5 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent6 = "agent 6 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent7 = "agent 7 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates]]
+id = "attention_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there anyone this line is for?"
+
+[[gates]]
+id = "intention"
+type = "score"
+options_from = "fixed"
+instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. Use the facts: an enemy you can see, a beacon your squad is about to lose and a squad that is not moving together make the moment urgent; a quiet moment makes it idle."
+
+[gates.criteria]
+idle = "the moment is quiet: no enemy is within 6 cells and your squad is where it should be"
+ordinary = "the moment is ordinary: the usual play goes on and nothing has to be said now"
+urgent = "the moment is urgent: an enemy can see you within 6 cells, or a beacon your squad holds is about to be lost"
+
+[[gates]]
+id = "intention_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is this moment worth an urgent tone?"
+
+[[gates]]
+id = "intent"
+type = "choice"
+options_from = "fixed"
+instructions = "What the line is for, in order: (1) If the line asks your squad to act, an order. (2) If it says you have heard and understood, an acknowledgement. (3) If it warns of danger, a warning. (4) If it asks for something you do not know, a query. (5) If it reports what has happened, a report."
+
+[gates.criteria]
+order = "an order: the line asks your squad to act (the doctrine's first branch)"
+ack = "an acknowledgement: the line says you have heard and understood (the doctrine's second branch)"
+warn = "a warning: the line warns of danger (the doctrine's third branch)"
+query = "a query: the line asks for something you do not know (the doctrine's fourth branch)"
+report = "a report: the line reports what has happened (the doctrine's fifth branch)"
+
+[[gates]]
+id = "intent_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a point to make?"
+
+[[gates]]
+id = "subject"
+type = "choice"
+options_from = "menu"
+moves = false
+instructions = "What the line is about: the beacon it names, or nothing in particular. The options are the moves you could make, so the beacons are the ones your squad can reach."
+
+[gates.criteria]
+beacon = "beacon {beacon}"
+hold = "nothing in particular"
+follow = "nothing in particular"
+retreat = "nothing in particular"
+
+[[gates]]
+id = "subject_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a thing to talk about?"

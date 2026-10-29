@@ -377,6 +377,7 @@ mod tests {
             cell: at,
             role,
             stunned: false,
+            airtime_ticks: 0,
         }
     }
 

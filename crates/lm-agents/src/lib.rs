@@ -23,9 +23,16 @@ pub mod harness;
 pub use harness::Harness;
 pub mod mind;
 pub use mind::{Ask, Mind, Mode, Policy, RttEstimator, Thinker, Thought, Tier, TierTable};
+pub mod phrasebook;
+pub use phrasebook::{Phrasebook, PhrasebookError};
 pub mod queue;
 pub use queue::{Budgets, LeastUseQueue, Popped, ThinkReq};
 pub mod sink;
 pub use sink::{ChannelSink, DecisionInbox, DecisionSink};
 pub mod sysone;
 pub use sysone::{Answer, Answers, Refusal, SysOne};
+pub mod utter;
+pub use utter::{
+    pick_realizer, pick_realizer_with, AutoRealizer, GateCtx, Llm, LlmRealizer, Realizer, StubLlm,
+    TemplateRealizer, UtterPlan,
+};

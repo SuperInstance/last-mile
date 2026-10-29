@@ -367,6 +367,13 @@ pub struct Heard {
     pub speaker: u16,
     /// The channel the line was spoken on.
     pub channel: Channel,
+    /// Who the line was for.
+    ///
+    /// The addressee survives the degradation: it is *who was spoken to*,
+    /// not something the listener has to understand. A listener who cannot
+    /// make out the gesture or the point still knows the line was meant
+    /// for them -- and a squad member who was named may answer it (D31).
+    pub addressee: Addressee,
     /// The gesture, if the listener understood it.
     pub act: Option<SpeechAct>,
     /// The point of the line, if the listener understood it.

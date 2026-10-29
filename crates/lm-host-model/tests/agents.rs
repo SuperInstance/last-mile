@@ -29,6 +29,7 @@ use lm_tools::runner;
 /// model behind them is a stub.
 const DEFAULT_GATES: &str = include_str!("../../../assets/harness/default/gates.toml");
 const DEFAULT_POLICY: &str = include_str!("../../../assets/harness/default/policy.toml");
+const DEFAULT_PHRASEBOOK: &str = include_str!("../../../assets/harness/default/phrasebook.toml");
 
 /// A standard round with the shipped reflex.
 fn a_round(seed: u64) -> Header {
@@ -41,6 +42,7 @@ fn default_harness() -> Harness {
         dir: PathBuf::from("assets/harness/default"),
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
+        phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     }

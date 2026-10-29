@@ -117,6 +117,20 @@ pub struct Gate {
     /// Where the options come from.
     #[serde(default, rename = "options_from")]
     pub options_from: OptionsFrom,
+    /// Whether this gate's answer is the agent's **move**.
+    ///
+    /// A `choice` gate over the menu becomes a lane -- the agent's next
+    /// move. A gate that asks about the menu *without* being a move (the
+    /// subject of a line, for instance) sets `moves = false`: it is asked
+    /// and answered like any other gate, and its answer says what the
+    /// line is about, never where to walk.
+    #[serde(default = "moves_by_default", rename = "moves")]
+    pub moves: bool,
+}
+
+/// A gate is a move unless the file says otherwise.
+fn moves_by_default() -> bool {
+    true
 }
 
 impl Gate {
@@ -315,6 +329,14 @@ impl GateSet {
         self.gates.iter().find(|g| g.id == id)
     }
 
+    /// Where the gate with this id sits in the set, if the set has one.
+    ///
+    /// The pack is asked in file order and capped by `max_questions`, so
+    /// the index says whether a gate was asked at all.
+    pub fn index_of(&self, id: &str) -> Option<usize> {
+        self.gates.iter().position(|gate| gate.id == id)
+    }
+
     /// How many gates the set holds.
     pub fn len(&self) -> usize {
         self.gates.len()
@@ -390,9 +412,16 @@ pub fn answers_to_decisions(
 
     let mut decisions = Vec::new();
     for (index, gate) in set.gates().iter().enumerate() {
-        // A gate with fixed options is not a lane in phase 3: it is asked,
-        // answered and logged, and whatever it calls for arrives in phase 4.
+        // A gate with fixed options is not a lane: it is asked, answered
+        // and logged, and whatever it calls for arrives in phase 4.
         if gate.options_from != OptionsFrom::Menu {
+            continue;
+        }
+        // A gate that asks about the menu without being a move -- the
+        // subject of a line -- is asked and answered like any other gate,
+        // and never becomes a lane: the agent does not walk because of
+        // what it says.
+        if !gate.moves {
             continue;
         }
         // A gate the model did not answer produces no decision: nothing is
@@ -575,14 +604,14 @@ mod tests {
             .unwrap_or_default()
             .contains("an enemy can see you within 6 cells"));
 
-        // The noul gate is asked too, but it has no options.
-        let call_out = &questions["call_out"];
-        assert_eq!(call_out["type"], "noul");
+        // The presence gate is asked too, but it has no options.
+        let presence = &questions["gesture_present"];
+        assert_eq!(presence["type"], "noul");
         assert_eq!(
-            call_out["instructions"],
-            "Should you call out to your squad?"
+            presence["instructions"],
+            "Is there a line worth saying at all right now?"
         );
-        assert!(call_out.get("criteria").is_none());
+        assert!(presence.get("criteria").is_none());
     }
 
     #[test]
@@ -693,7 +722,9 @@ beacon = "walk to beacon {beacon}"
         let harness = Harness::open(&dir).expect("the default harness opens");
         let set = GateSet::parse(&harness.gates_toml).expect("the harness gates parse");
 
-        assert_eq!(set.len(), 2);
+        // The move gate and the five talk gates, each with its presence
+        // gate (D53).
+        assert_eq!(set.len(), 11);
         let move_gate = set.gate("move").expect("the move gate is there");
         assert_eq!(move_gate.kind, GateKind::Choice);
         assert_eq!(move_gate.options_from, OptionsFrom::Menu);
@@ -705,9 +736,14 @@ beacon = "walk to beacon {beacon}"
         assert!(move_gate.criteria.contains_key("hold"));
         assert!(move_gate.criteria.contains_key("follow"));
         assert!(move_gate.criteria.contains_key("retreat"));
-        let call_out = set.gate("call_out").expect("the call-out gate is there");
-        assert_eq!(call_out.kind, GateKind::Noul);
-        assert_eq!(call_out.instructions, "Should you call out to your squad?");
+        let presence = set
+            .gate("gesture_present")
+            .expect("the presence gate is there");
+        assert_eq!(presence.kind, GateKind::Noul);
+        assert_eq!(
+            presence.instructions,
+            "Is there a line worth saying at all right now?"
+        );
     }
 
     #[test]
@@ -716,7 +752,7 @@ beacon = "walk to beacon {beacon}"
         // phase 4. It never becomes a decision.
         let set = default_set();
         let menu = menu();
-        let answers = answers_for("call_out", Answer::Noul(0.8));
+        let answers = answers_for("gesture_present", Answer::Noul(0.8));
 
         let decisions = answers_to_decisions(&set, &answers, &menu, 1, 5, 1, SITUATION)
             .expect("the answer is accepted");

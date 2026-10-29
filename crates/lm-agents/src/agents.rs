@@ -59,8 +59,10 @@ impl Agents {
             .roster
             .iter()
             .map(|entry| {
-                let mind =
-                    Mind::new(entry.agent, entry.role, harness, cfg).with_params(&header.params);
+                let mind = Mind::new(entry.agent, entry.role, harness, cfg)
+                    .with_params(&header.params)
+                    .with_roster(&header.roster)
+                    .with_talk(&header.talk);
                 (entry.agent, mind)
             })
             .collect();

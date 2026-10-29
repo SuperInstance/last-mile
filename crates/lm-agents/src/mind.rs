@@ -39,9 +39,13 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use lm_core::header::Role;
+use lm_core::decision::{Kind, Provenance, Source};
+use lm_core::header::{Role, RosterEntry};
+use lm_core::opal::TalkContext;
 use lm_core::params::Params;
 use lm_core::sched::lead_ticks;
+use lm_core::talk::TalkParams;
+use lm_core::utterance::Addressee;
 use lm_core::view::{Menu, ScoreView};
 use lm_core::world::World;
 use lm_core::{Decision, Tick};
@@ -52,8 +56,13 @@ use crate::config::AgentsConfig;
 use crate::facts::Facts;
 use crate::gates::{answers_to_decisions, GateSet};
 use crate::harness::Harness;
+use crate::phrasebook::Phrasebook;
 use crate::queue::ThinkReq;
 use crate::sysone::{Answers, Refusal, SysOne};
+use crate::utter::{
+    pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
+    GATE_GESTURE, UTTERANCE_GATES,
+};
 
 /// The shipped default policy, the single source of `Policy`'s defaults.
 const DEFAULT_POLICY_TOML: &str = include_str!("../../../assets/harness/default/policy.toml");
@@ -674,6 +683,19 @@ struct Flight {
     tier: String,
     /// The tick the answer was expected to land on (D55).
     expected_land: Tick,
+    /// The facts the question was asked over.
+    ///
+    /// The wording of a line is written over the same situation the
+    /// choice was made over, so the line and the choice agree.
+    facts: Facts,
+    /// How many questions the pack held.
+    ///
+    /// The utterance needs the whole talk pack; a pack that was cut short
+    /// says nothing about the line, and the agent stays quiet.
+    questions_n: u16,
+    /// The tick the reply is to be applied on, when it was pre-drafted
+    /// (D31): the tick after the line it answers ends.
+    pre_draft_at: Option<Tick>,
 }
 
 /// One agent's cognition loop.
@@ -697,6 +719,21 @@ pub struct Mind {
     thoughts: Vec<ThoughtRecord>,
     refusals: Vec<(Tick, Refusal)>,
     seq_counter: u32,
+    /// The round's roster: who exists, so a line may not name an agent
+    /// that is not in the round (D37).
+    roster: Vec<RosterEntry>,
+    /// The round's talk rules: the airtime budget every agent shares.
+    talk: TalkParams,
+    /// How the lines are worded (Task 4).
+    realizer: Box<dyn Realizer>,
+    /// The airtime this mind has committed, in ticks.
+    ///
+    /// The mind checks the budget before it submits a line, so the sim's
+    /// backstop is rarely needed. The sim is still the authority: it
+    /// counts what it applied, and it refuses what does not fit.
+    spoken_ticks: u32,
+    /// The line that was pre-drafted for a reply (D31), by its id.
+    pre_drafted: Option<u64>,
 }
 
 impl Mind {
@@ -708,6 +745,7 @@ impl Mind {
     /// them uses the parameter defaults).
     pub fn new(agent: u16, role: Role, harness: &Harness, cfg: &AgentsConfig) -> Mind {
         let gates = GateSet::parse(&harness.gates_toml).unwrap_or_default();
+        let phrasebook = Phrasebook::parse(&harness.phrasebook_toml).unwrap_or_default();
         Mind {
             agent,
             role,
@@ -728,6 +766,11 @@ impl Mind {
             thoughts: Vec::new(),
             refusals: Vec::new(),
             seq_counter: 0,
+            roster: Vec::new(),
+            talk: TalkParams::default(),
+            realizer: pick_realizer_with(cfg, &phrasebook),
+            spoken_ticks: 0,
+            pre_drafted: None,
         }
     }
 
@@ -735,6 +778,50 @@ impl Mind {
     pub fn with_params(mut self, params: &Params) -> Self {
         self.params = *params;
         self
+    }
+
+    /// Pin the round's roster: who is in the round.
+    ///
+    /// A line may not name an agent that is not in the round, so the mind
+    /// needs to know who exists (D37).
+    pub fn with_roster(mut self, roster: &[RosterEntry]) -> Self {
+        self.roster = roster.to_vec();
+        self
+    }
+
+    /// Pin the round's talk rules: the airtime budget every agent shares.
+    pub fn with_talk(mut self, talk: &TalkParams) -> Self {
+        self.talk = talk.clone();
+        self
+    }
+
+    /// Pin the realizer: how this mind's lines are worded.
+    ///
+    /// The harness's phrasebook and the configuration's `utter.realizer`
+    /// choose one by default; this is the seam for a host that has its own
+    /// wording, and for the tests, which must not reach the network.
+    pub fn with_realizer(mut self, realizer: Box<dyn Realizer>) -> Self {
+        self.realizer = realizer;
+        self
+    }
+
+    /// The tick a reply to a line now being spoken should be applied on
+    /// (D31): the tick after the line ends.
+    ///
+    /// The reply is drafted while the line is still being spoken, so it is
+    /// on the runway when the line ends instead of a full thought later.
+    /// A line is drafted once: while the same line is still going, no
+    /// second reply is drafted for it.
+    fn pre_draft(&self, view: &ScoreView) -> Option<(u64, Tick)> {
+        let heard = view
+            .heard
+            .iter()
+            .filter(|heard| heard.ongoing && heard.addressee == Addressee::Agent(self.agent))
+            .min_by_key(|heard| heard.ended_tick)?;
+        if self.pre_drafted == Some(heard.id) {
+            return None;
+        }
+        Some((heard.id, heard.ended_tick.saturating_add(1)))
     }
 
     /// The agent this mind thinks for.
@@ -804,8 +891,14 @@ impl Mind {
         if self.in_flight.is_some() {
             return None;
         }
+        // D31: a line that is still being spoken and names this agent is
+        // answered at once: the reply is drafted now and applied when the
+        // line ends.
+        let pre_draft = self.pre_draft(view);
+        let pre_draft_at = pre_draft.map(|(_, at)| at);
         // The think rate gates everything, facts included: a mind that
-        // cannot ask this tick has no use for a situation summary.
+        // cannot ask this tick has no use for a situation summary. A
+        // pre-drafted reply is the exception: it is already late.
         let mode = self.effective_mode();
         let rate_hz = match mode {
             Mode::Presence => self.cfg.presence_hz,
@@ -818,9 +911,10 @@ impl Mind {
             }
         };
         let period = period_ticks(self.params.tick_hz, rate_hz);
-        if self
-            .last_ask
-            .is_some_and(|asked| now.saturating_sub(asked) < period)
+        if pre_draft_at.is_none()
+            && self
+                .last_ask
+                .is_some_and(|asked| now.saturating_sub(asked) < period)
         {
             return None;
         }
@@ -839,9 +933,16 @@ impl Mind {
             // Presence mode samples continuously.
             Mode::Presence => true,
         };
+        // A pre-drafted reply is a thought of its own: it is asked now,
+        // whatever the novelty and the cache say.
+        let want = want || pre_draft_at.is_some();
 
         // The verdict cache answers a returning situation on the spot.
-        if want && self.policy.verdict_cache && self.cached(facts.key, menu.id) {
+        if want
+            && pre_draft_at.is_none()
+            && self.policy.verdict_cache
+            && self.cached(facts.key, menu.id)
+        {
             let answers = self
                 .cache
                 .get(&(facts.key, menu.id))
@@ -929,7 +1030,15 @@ impl Mind {
             menu: menu.clone(),
             tier: tier.name().to_owned(),
             expected_land,
+            facts: facts.clone(),
+            questions_n,
+            pre_draft_at,
         };
+        // The line is drafted now, so it is not drafted again while it is
+        // still going (D31).
+        if let Some((id, _)) = pre_draft {
+            self.pre_drafted = Some(id);
+        }
         self.last_tier_name = Some(tier.name().to_owned());
         self.pending = Some((flight, ask));
         self.last_asked_key = Some(facts.key);
@@ -1023,10 +1132,137 @@ impl Mind {
                     self.refusals.push((now, refusal));
                     Vec::new()
                 });
+                // The line, if the gates chose one and the wording held
+                // (Task 4).
+                if let Some(line) = self.utterance(&answers, &flight, now, lead) {
+                    decisions.push(line);
+                }
                 self.restamp(&mut decisions);
                 decisions
             }
         }
+    }
+
+    /// The line this mind says, if it says one (Task 4).
+    ///
+    /// The gates chose it and the realizer worded it; the score is the
+    /// line the simulation will play. Everything that can go wrong is a
+    /// refusal with a name, and a refusal is silence: no decision, no
+    /// airtime spent, and the round's hash untouched (D26).
+    ///
+    /// * a pack that did not cover the talk gates says nothing about the
+    ///   line: the agent stays quiet (no refusal: nothing was refused);
+    /// * a choice the gates did not make, or made badly, is a refusal;
+    /// * a presence gate of about zero is silence (D53);
+    /// * a wording that does not compile is a refusal (D26);
+    /// * a line that does not fit the airtime budget is not said.
+    fn utterance(
+        &mut self,
+        answers: &Answers,
+        flight: &Flight,
+        now: Tick,
+        lead: u16,
+    ) -> Option<Decision> {
+        // A harness without the talk gates has nothing to say.
+        self.gates.gate(GATE_GESTURE)?;
+        // A pack that was cut short never asked the talk gates: the line
+        // is unknown, and the agent says nothing. The pack is asked in
+        // file order, so a gate is in it when its index is under the
+        // pack's length.
+        let asked = usize::from(flight.questions_n);
+        let covered = UTTERANCE_GATES.iter().all(|gate| {
+            self.gates.index_of(gate).is_some_and(|index| index < asked)
+                && self
+                    .gates
+                    .index_of(&presence_gate(gate))
+                    .is_some_and(|index| index < asked)
+        });
+        if !covered {
+            return None;
+        }
+        // A gate the model did not answer produces no line: nothing is
+        // invented to fill the gap (D26), and — as in phase 3 — an
+        // unanswered gate is not a refusal either.
+        let answered = UTTERANCE_GATES.iter().all(|gate| {
+            answers.per_gate.contains_key(*gate)
+                && answers.per_gate.contains_key(&presence_gate(gate))
+        });
+        if !answered {
+            return None;
+        }
+        let ctx = GateCtx {
+            agent: self.agent,
+            roster: &self.roster,
+        };
+        let plan = match plan_from_gates(answers, &flight.menu, &ctx) {
+            Ok(plan) => plan,
+            Err(refusal) => {
+                self.refusals.push((now, refusal));
+                return None;
+            }
+        };
+        // Silence is an outcome (D53): the presence gate said this is not
+        // even here, and nothing is said at all.
+        if !plan.should_speak {
+            return None;
+        }
+        // The airtime budget, checked before the line is submitted (D31).
+        // The sim is the authority and refuses what does not fit; the mind
+        // checks first so the refusal is rare.
+        let budget = self.airtime_budget_ticks();
+        if u64::from(self.spoken_ticks) >= budget {
+            return None;
+        }
+        let text = match self.realizer.realize(&plan, &flight.facts) {
+            Ok(text) => text,
+            Err(refusal) => {
+                self.refusals.push((now, refusal));
+                return None;
+            }
+        };
+        let talk_ctx = TalkContext {
+            speaker: self.agent,
+            roster: &self.roster,
+        };
+        let utterance = match utterance_from_text(&talk_ctx, &plan, &text) {
+            Ok(utterance) => utterance,
+            Err(refusal) => {
+                self.refusals.push((now, refusal));
+                return None;
+            }
+        };
+        // The line has to fit the budget as well: a line that would take
+        // the speaker over it is not said.
+        let duration = utterance.duration_ticks();
+        if u64::from(self.spoken_ticks) + u64::from(duration) > budget {
+            return None;
+        }
+        self.spoken_ticks = self.spoken_ticks.saturating_add(duration);
+        Some(Decision {
+            // A pre-drafted reply lands right after the line it answers
+            // ends (D31); every other line lands with the rest of the
+            // thought.
+            apply_tick: flight
+                .pre_draft_at
+                .unwrap_or(now.saturating_add(u64::from(lead))),
+            source: Source::Agent(self.agent),
+            seq: 0,
+            kind: Kind::Utterance(utterance),
+            provenance: Provenance::System1 {
+                model: answers.model.clone(),
+                tokens: answers.input_tokens,
+                latency_ms: answers.latency_ms,
+                situation_key: flight.req.situation_key,
+            },
+        })
+    }
+
+    /// The airtime one agent may spend in a round, in ticks (D31).
+    ///
+    /// The budget is the round's and every agent shares it, so the mind
+    /// reads it from the round's talk rules.
+    fn airtime_budget_ticks(&self) -> u64 {
+        u64::from(self.talk.airtime_s) * u64::from(self.params.tick_hz)
     }
 
     /// Decisions made without a model call this tick (verdict-cache hits),
@@ -1064,7 +1300,10 @@ impl Mind {
     }
 
     /// The questions this mind asks per pack.
-    fn pack_len(&self) -> u16 {
+    ///
+    /// The pack is the gates the harness has, capped by the policy's or the
+    /// configuration's `max_questions` (D56).
+    pub fn pack_len(&self) -> u16 {
         u16::try_from(
             self.gates
                 .len()
@@ -1101,10 +1340,12 @@ mod tests {
     use crate::config::AgentsConfig;
     use crate::queue::{Budgets, LeastUseQueue};
     use crate::sysone::{Answer, StubBackend};
+    use crate::utter::{AutoRealizer, LlmRealizer, StubLlm, TemplateRealizer};
     use lm_core::decision::{Kind, Source};
     use lm_core::log::{Recorder, RoundLog};
     use lm_core::sched::Sequencer;
     use lm_core::sim::Sim;
+    use lm_core::utterance::Heard;
     use lm_core::view::menu;
     use lm_core::world::{CellKind, CellXY, Grid, World};
     use lm_core::{Header, MenuOption, RosterEntry};
@@ -1113,6 +1354,10 @@ mod tests {
 
     /// The shipped gates, the same file the default harness serves.
     const DEFAULT_GATES: &str = include_str!("../../../assets/harness/default/gates.toml");
+
+    /// The shipped phrasebook: the wording of the lines.
+    const DEFAULT_PHRASEBOOK: &str =
+        include_str!("../../../assets/harness/default/phrasebook.toml");
 
     /// The shipped reflex, so host rounds move by reflex.
     const DEFAULT_REFLEX: &str = include_str!("../../../assets/reflexes/default.rhai");
@@ -1171,12 +1416,13 @@ mod tests {
 
     // ------------------------------------------------------------ the helpers
 
-    /// A harness that serves the shipped gates and `policy`.
+    /// A harness that serves the shipped gates, phrasebook and `policy`.
     fn harness(policy: &str) -> Harness {
         Harness {
             dir: PathBuf::from("test-harness"),
             gates_toml: DEFAULT_GATES.to_owned(),
             policy_toml: policy.to_owned(),
+            phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
             reflexes: BTreeMap::new(),
             commit: "test".to_owned(),
         }
@@ -1211,12 +1457,14 @@ mod tests {
                 cell: CellXY { x, y },
                 role: Role::Member,
                 stunned: false,
+                airtime_ticks: 0,
             },
             squad: vec![lm_core::view::AgentSnap {
                 id,
                 cell: CellXY { x, y },
                 role: Role::Member,
                 stunned: false,
+                airtime_ticks: 0,
             }],
             enemies: vec![],
             beacons: vec![lm_core::view::BeaconSnap {
@@ -1247,6 +1495,75 @@ mod tests {
             input_tokens: 64,
             latency_ms: 0,
         }
+    }
+
+    /// The answers of a mind that says something: the move, the five talk
+    /// gates and their presence gates.
+    ///
+    /// The presence gates are high, so the line is spoken; the gesture is
+    /// a command to the squad and the subject is the beacon the menu's
+    /// first option names.
+    fn talk_answers(menu: &Menu, best: usize) -> Answers {
+        let mut answers = lane_answers(menu, best);
+        // The subject gate is asked over the same menu, so it is answered
+        // over it too: the line is about the option the model picked.
+        let probs = match answers.per_gate.get("move") {
+            Some(Answer::Choice { probs, .. }) => probs.clone(),
+            _ => BTreeMap::new(),
+        };
+        answers.per_gate.insert(
+            "subject".to_owned(),
+            Answer::Choice {
+                probs,
+                confidence: 0.9,
+            },
+        );
+        answers.per_gate.insert(
+            "gesture".to_owned(),
+            Answer::Choice {
+                probs: BTreeMap::from([
+                    ("command".to_owned(), 0.8),
+                    ("question".to_owned(), 0.1),
+                    ("statement".to_owned(), 0.05),
+                    ("callout".to_owned(), 0.05),
+                ]),
+                confidence: 0.9,
+            },
+        );
+        answers.per_gate.insert(
+            "attention".to_owned(),
+            Answer::Choice {
+                probs: BTreeMap::from([("squad".to_owned(), 0.9), ("all".to_owned(), 0.1)]),
+                confidence: 0.9,
+            },
+        );
+        answers.per_gate.insert(
+            "intention".to_owned(),
+            Answer::Score {
+                probs: BTreeMap::from([("urgent".to_owned(), 0.8)]),
+                score: 1.5,
+                confidence: 0.9,
+            },
+        );
+        answers.per_gate.insert(
+            "intent".to_owned(),
+            Answer::Choice {
+                probs: BTreeMap::from([
+                    ("order".to_owned(), 0.8),
+                    ("ack".to_owned(), 0.1),
+                    ("warn".to_owned(), 0.05),
+                    ("query".to_owned(), 0.03),
+                    ("report".to_owned(), 0.02),
+                ]),
+                confidence: 0.9,
+            },
+        );
+        for gate in ["gesture", "attention", "intention", "intent", "subject"] {
+            answers
+                .per_gate
+                .insert(format!("{gate}_present"), Answer::Noul(0.9));
+        }
+        answers
     }
 
     /// A small round: `squads` × `size` agents on a 2×2-chunk world.
@@ -1298,7 +1615,9 @@ mod tests {
                 .iter()
                 .map(|entry| {
                     let mind = Mind::new(entry.agent, entry.role, &harness(STUB_POLICY), cfg)
-                        .with_params(&header.params);
+                        .with_params(&header.params)
+                        .with_roster(&header.roster)
+                        .with_talk(&header.talk);
                     (entry.agent, mind)
                 })
                 .collect();
@@ -1462,7 +1781,7 @@ mod tests {
         assert_eq!(p.buy_time_above_ticks, 4);
         assert!(!p.pay_priority);
         assert_eq!(p.max_questions, None);
-        assert_eq!(p.max_questions_of(&AgentsConfig::default()), 3);
+        assert_eq!(p.max_questions_of(&AgentsConfig::default()), 11);
     }
 
     #[test]
@@ -1564,10 +1883,11 @@ mod tests {
         let mut m = mind(7, &cfg, STUB_POLICY);
         // The deep tier is the one a calm moment picks (it out-ranks fast),
         // so its estimate is the batch p99 auto resolves on.
-        m.note_tier("deep", 200, 2);
+        let questions = m.pack_len();
+        m.note_tier("deep", 200, questions);
         assert_eq!(m.effective_mode(), Mode::Point);
         for _ in 0..RTT_WINDOW {
-            m.note_tier("deep", 20, 2);
+            m.note_tier("deep", 20, questions);
         }
         assert_eq!(m.effective_mode(), Mode::Presence);
 
@@ -1608,7 +1928,8 @@ mod tests {
         // thought is in flight the mind buys time and asks nothing new. The
         // deep tier is the one a calm moment picks.
         let mut slow = mind(4, &cfg, STUB_POLICY);
-        slow.note_tier("deep", 250, 2);
+        let questions = slow.pack_len();
+        slow.note_tier("deep", 250, questions);
         let req = slow
             .on_tick(0, &view, &world, &view_menu)
             .expect("a novel moment asks");
@@ -1808,6 +2129,244 @@ mod tests {
             !host.submitted.is_empty(),
             "the recovery produced decisions"
         );
+    }
+
+    // ------------------------------------------------------------ the lines
+
+    /// A roster of two agents, for the line tests.
+    fn two_roster() -> Vec<RosterEntry> {
+        vec![
+            RosterEntry {
+                agent: 0,
+                squad: 0,
+                role: Role::Leader,
+                voice: "default".to_owned(),
+                harness_commit: "test".to_owned(),
+                reflex: "default".to_owned(),
+            },
+            RosterEntry {
+                agent: 1,
+                squad: 0,
+                role: Role::Member,
+                voice: "default".to_owned(),
+                harness_commit: "test".to_owned(),
+                reflex: "default".to_owned(),
+            },
+        ]
+    }
+
+    /// A mind that speaks: the shipped gates and phrasebook, the stub
+    /// policy, and the round's roster and talk rules.
+    fn speaking_mind(agent: u16, cfg: &AgentsConfig) -> Mind {
+        Mind::new(agent, Role::Member, &harness(STUB_POLICY), cfg)
+            .with_params(&Params::default())
+            .with_roster(&two_roster())
+            .with_talk(&TalkParams::default())
+    }
+
+    /// Ask once and answer, and hand back the decisions.
+    fn think_once(
+        mind: &mut Mind,
+        view: &ScoreView,
+        world: &World,
+        answers: Answers,
+    ) -> Vec<Decision> {
+        let menu = menu(view);
+        let req = mind
+            .on_tick(0, view, world, &menu)
+            .expect("a novel situation asks");
+        let ask = mind.take_flight(&req).expect("the ask flies");
+        mind.on_answer(ask, Ok(answers))
+    }
+
+    #[test]
+    fn the_utterance_is_a_logged_decision() {
+        let h = header(3, 1, 2);
+        let cfg = AgentsConfig::default();
+        let probe = Sim::new(&h).expect("the round starts");
+        let answers = talk_answers(&menu(&probe.view(1)), 0);
+        let mut host = Host::new(h, &cfg, vec![(Duration::from_millis(20), Ok(answers))]);
+        let log = host.run(300);
+
+        // The line is in the log, with the provenance of the thought that
+        // chose it.
+        let spoken: Vec<_> = log
+            .segments
+            .iter()
+            .flat_map(|s| &s.decisions)
+            .filter(|s| matches!(s.d.kind, Kind::Utterance(_)))
+            .collect();
+        assert!(!spoken.is_empty(), "the round spoke");
+        for stamped in &spoken {
+            match &stamped.d.provenance {
+                lm_core::Provenance::System1 {
+                    model,
+                    tokens,
+                    latency_ms,
+                    situation_key,
+                } => {
+                    assert_eq!(model, "stub");
+                    assert_eq!(*tokens, 64);
+                    assert_eq!(*latency_ms, 20);
+                    assert_ne!(*situation_key, 0);
+                }
+                other => panic!("the line's provenance is {other:?}"),
+            }
+            // And the line is a score: a gesture, an addressee, a point and
+            // its words.
+            let Kind::Utterance(utterance) = &stamped.d.kind else {
+                panic!("the decision is not a line");
+            };
+            assert!(!utterance.words.is_empty(), "the line has words");
+        }
+
+        // And the round replays bit-exact with the lines in it.
+        assert!(log.verify().is_ok());
+        let mut replay = Sim::new(&log.header).expect("the replay starts");
+        let mut hashes = Vec::new();
+        for t in 0..300 {
+            let out = replay.step(log.decisions_for(t));
+            if let Some(hash) = out.hash {
+                hashes.push(hash);
+            }
+        }
+        let recorded: Vec<u64> = log.hashes().into_iter().map(|(_, h)| h).collect();
+        assert_eq!(hashes, recorded, "the replay reproduced every hash");
+    }
+
+    #[test]
+    fn the_presence_gate_silences_the_agent() {
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let view = view_at(1, 2, 2);
+        let mut m = speaking_mind(1, &cfg);
+
+        // Every presence gate says the line is not there.
+        let mut answers = talk_answers(&menu(&view), 0);
+        for gate in ["gesture", "attention", "intention", "intent", "subject"] {
+            answers
+                .per_gate
+                .insert(format!("{gate}_present"), Answer::Noul(0.0));
+        }
+        let decisions = think_once(&mut m, &view, &world, answers);
+        assert!(
+            decisions
+                .iter()
+                .all(|d| !matches!(d.kind, Kind::Utterance(_))),
+            "a line that is not there is not said: {decisions:?}"
+        );
+        assert!(m.refusals().is_empty(), "silence is not a refusal");
+    }
+
+    #[test]
+    fn bad_realizer_output_is_a_refusal() {
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let view = view_at(1, 2, 2);
+        // The model answers with something that is not the notation.
+        let mut m = speaking_mind(1, &cfg).with_realizer(Box::new(LlmRealizer::new(
+            Box::new(StubLlm::new("stub", "hold on")),
+            Duration::from_millis(50),
+        )));
+
+        let decisions = think_once(&mut m, &view, &world, talk_answers(&menu(&view), 0));
+        assert!(
+            decisions
+                .iter()
+                .all(|d| !matches!(d.kind, Kind::Utterance(_))),
+            "a line that does not compile is not said: {decisions:?}"
+        );
+        assert!(
+            m.refusals()
+                .iter()
+                .any(|(_, refusal)| matches!(refusal, Refusal::Malformed(_))),
+            "the refusal is logged: {:?}",
+            m.refusals()
+        );
+    }
+
+    #[test]
+    fn llm_down_falls_back_to_the_template() {
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let view = view_at(1, 2, 2);
+
+        // The model is down and the phrasebook has the line: the automatic
+        // realizer words it from the phrasebook.
+        let mut m = speaking_mind(1, &cfg).with_realizer(Box::new(AutoRealizer::new(
+            TemplateRealizer::shipped(),
+            LlmRealizer::new(
+                Box::new(StubLlm::refusing("stub", Refusal::Timeout)),
+                Duration::from_millis(50),
+            ),
+        )));
+        let decisions = think_once(&mut m, &view, &world, talk_answers(&menu(&view), 0));
+        assert!(
+            decisions
+                .iter()
+                .any(|d| matches!(d.kind, Kind::Utterance(_))),
+            "the phrasebook worded the line: {decisions:?}"
+        );
+
+        // The model alone, with the model down: nothing is said, and the
+        // refusal is logged.
+        let mut m = speaking_mind(1, &cfg).with_realizer(Box::new(LlmRealizer::new(
+            Box::new(StubLlm::refusing("stub", Refusal::Timeout)),
+            Duration::from_millis(50),
+        )));
+        let decisions = think_once(&mut m, &view, &world, talk_answers(&menu(&view), 0));
+        assert!(
+            decisions
+                .iter()
+                .all(|d| !matches!(d.kind, Kind::Utterance(_))),
+            "a model that is down says nothing: {decisions:?}"
+        );
+        assert!(
+            m.refusals()
+                .iter()
+                .any(|(_, refusal)| matches!(refusal, Refusal::Timeout)),
+            "the refusal is logged: {:?}",
+            m.refusals()
+        );
+    }
+
+    #[test]
+    fn a_pre_drafted_reply_lands_after_the_utterance() {
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let mut view = view_at(1, 2, 2);
+        // A line that is still being spoken, addressed to this agent.
+        view.heard = vec![Heard {
+            id: 7,
+            speaker: 0,
+            channel: lm_core::utterance::Channel::Voice,
+            addressee: Addressee::Agent(1),
+            act: Some(lm_core::utterance::SpeechAct::Command),
+            intent: Some(lm_core::utterance::Intent::Order),
+            affect: lm_core::utterance::Affect::Calm,
+            subject: lm_core::utterance::Subject::None,
+            clarity_q16: 65_536,
+            words: Vec::new(),
+            spoken_words: 2,
+            started_tick: 0,
+            ended_tick: 9,
+            ongoing: true,
+        }];
+        let mut m = speaking_mind(1, &cfg);
+
+        let decisions = think_once(&mut m, &view, &world, talk_answers(&menu(&view), 0));
+        let line = decisions
+            .iter()
+            .find(|d| matches!(d.kind, Kind::Utterance(_)))
+            .expect("the reply is drafted");
+        assert_eq!(
+            line.apply_tick, 10,
+            "the reply lands just after the line ends"
+        );
+
+        // While the same line is still going, no second reply is drafted.
+        let again = m.on_tick(1, &view, &world, &menu(&view));
+        assert!(again.is_none(), "the line is not drafted twice");
     }
 
     #[test]
