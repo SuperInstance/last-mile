@@ -25,6 +25,7 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 | [`docs/design/decisions.md`](docs/design/decisions.md) | Running log of design decisions, with reasons. Start here. |
 | [`docs/research/forclaude2/`](docs/research/forclaude2/00-overview.md) | Research digests: the MIDI principle, the MIDI Maze source study, utterance scores, EdenLive, pre-render-ahead, self-harnessing agents |
 | [`docs/research/fleet/`](docs/research/fleet/00-overview.md) | Scouting Casey's other repos: COLOR SQUAD, thor-firstline, reflex gates, chrono-tensor, the whole-house quilt; measured LAN and Thor facts |
+| [`docs/research/thor-transfer/`](docs/research/thor-transfer/00-overview.md) | What the Otherhere/Thor lane measured: the generators, the asset tiers, the licences, the hazards; and what each of those means for last-mile |
 | [`docs/superpowers/specs/`](docs/superpowers/specs/2026-10-28-last-mile-m1-design.md) | The Milestone 1 design spec |
 
 ## For agents picking this up
