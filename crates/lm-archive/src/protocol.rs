@@ -79,6 +79,12 @@ pub enum FrameError {
     },
     /// The frame's bytes are not a message.
     Decode(ProtoError),
+    /// The peer said nothing for the whole read timeout.
+    ///
+    /// A peer that opens a socket and then goes quiet must not pin a thread
+    /// of the service forever, so the connection is dropped when the timeout
+    /// is up — and the reason is named.
+    TimedOut,
     /// The socket failed.
     Io(String),
 }
@@ -98,6 +104,9 @@ impl fmt::Display for FrameError {
             }
             FrameError::Decode(ProtoError::Malformed(err)) => {
                 write!(f, "the frame is not a message: {err}")
+            }
+            FrameError::TimedOut => {
+                write!(f, "the peer said nothing for the whole read timeout")
             }
             FrameError::Io(message) => write!(f, "the socket failed: {message}"),
         }
@@ -251,6 +260,15 @@ fn read_up_to(r: &mut impl Read, buf: &mut [u8]) -> Result<usize, FrameError> {
             Ok(0) => break,
             Ok(read) => got += read,
             Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+            // The read timeout is up: the peer is not talking. It is named,
+            // so the log says a silent peer was dropped rather than a
+            // mysterious socket failure.
+            Err(err)
+                if err.kind() == io::ErrorKind::WouldBlock
+                    || err.kind() == io::ErrorKind::TimedOut =>
+            {
+                return Err(FrameError::TimedOut)
+            }
             Err(err) => return Err(FrameError::Io(err.to_string())),
         }
     }
@@ -397,6 +415,43 @@ fn close_segment(segments: &mut Vec<Segment>, current: &mut Option<Segment>, hea
     segments.push(segment);
 }
 
+/// Store a round and count it in the service's state.
+///
+/// The round is written atomically, so a half-written round is never visible
+/// to the verifier, and the state file counts the round as taken in.
+pub fn store_round(store: &Store, log: &RoundLog, name: &str) -> Result<PathBuf, IngestError> {
+    let path = store
+        .save_round(name, log)
+        .map_err(|err| IngestError::Store(err.to_string()))?;
+
+    let mut state = store.read_state();
+    state.rounds_ingested += 1;
+    store
+        .write_state(&state)
+        .map_err(|err| IngestError::Store(err.to_string()))?;
+
+    Ok(path)
+}
+
+/// Record a verdict in the service's state.
+///
+/// A round that verified clean is counted, and named; a round that did not
+/// is counted as a failure. The state is the service's own bookkeeping, and
+/// it is written the same way the rounds are.
+pub fn record_verdict(store: &Store, name: &str, report: &VerifyReport) -> Result<(), IngestError> {
+    let mut state = store.read_state();
+    if report.ok {
+        state.rounds_verified += 1;
+        state.last_verified_round = Some(name.to_owned());
+    } else {
+        state.rounds_failed += 1;
+    }
+    store
+        .write_state(&state)
+        .map_err(|err| IngestError::Store(err.to_string()))?;
+    Ok(())
+}
+
 /// Store a round, verify it and write the report.
 ///
 /// This is the whole ingest, minus the wire: the round is written atomically,
@@ -408,9 +463,7 @@ pub fn ingest_round(
     name: &str,
     verify_on_arrival: bool,
 ) -> Result<IngestReport, IngestError> {
-    let path = store
-        .save_round(name, log)
-        .map_err(|err| IngestError::Store(err.to_string()))?;
+    let path = store_round(store, log, name)?;
 
     let decisions: usize = log.segments.iter().map(|s| s.decisions.len()).sum();
     let hashes: usize = log.segments.iter().map(|s| s.hashes.len()).sum();
@@ -425,24 +478,11 @@ pub fn ingest_round(
         store
             .save_report(name, &report)
             .map_err(|err| IngestError::Store(err.to_string()))?;
+        record_verdict(store, name, &report)?;
         Some(report)
     } else {
         None
     };
-
-    let mut state = store.read_state();
-    state.rounds_ingested += 1;
-    match &verified {
-        Some(report) if report.ok => {
-            state.rounds_verified += 1;
-            state.last_verified_round = Some(name.to_owned());
-        }
-        Some(_) => state.rounds_failed += 1,
-        None => {}
-    }
-    store
-        .write_state(&state)
-        .map_err(|err| IngestError::Store(err.to_string()))?;
 
     Ok(IngestReport {
         name: name.to_owned(),
@@ -453,12 +493,147 @@ pub fn ingest_round(
     })
 }
 
+/// Read a push off the wire: the header, the decisions, the hashes and the
+/// goodbye.
+///
+/// The round is rebuilt but **not** stored: what happens to it is the
+/// caller's business. The service stores it and hands the replay to a
+/// worker; the command-line ingest stores it and replays it right here.
+///
+/// Every way a push can be wrong is refused **by name**: a second header, a
+/// decision before the header, a decision from before the round started, a
+/// message this build does not understand, a peer that speaks another
+/// version, a round that claims more ticks than the archive will rebuild.
+pub fn read_push(reader: &mut impl Read, cfg: &ArchiveConfig) -> Result<RoundLog, IngestError> {
+    let mut header: Option<Header> = None;
+    let mut decisions: Vec<Stamped> = Vec::new();
+    let mut hashes: Vec<(Tick, u64)> = Vec::new();
+    let mut total: u64 = 0;
+
+    loop {
+        let frame = match read_frame(reader, cfg.max_log_bytes) {
+            Ok(frame) => frame,
+            // The peer hung up between the frames: the round is incomplete,
+            // and the push is refused for exactly that reason.
+            Err(FrameError::Closed) => return Err(IngestError::NoBye),
+            Err(err) => return Err(err.into()),
+        };
+        total = total.saturating_add(frame.len);
+        if total > cfg.max_log_bytes {
+            return Err(IngestError::TooLarge {
+                len: total,
+                max: cfg.max_log_bytes,
+            });
+        }
+
+        match frame.msg {
+            // The handshake of the phase-3 transport: accepted, and its
+            // version checked against the one this build speaks.
+            Msg::Hello { proto_version, .. } => {
+                if proto_version != lm_proto::PROTO_VERSION {
+                    return Err(IngestError::VersionMismatch {
+                        local: lm_proto::PROTO_VERSION,
+                        remote: proto_version,
+                    });
+                }
+            }
+            Msg::Header(next) => {
+                if header.is_some() {
+                    return Err(IngestError::OutOfOrder {
+                        what: "a second header",
+                    });
+                }
+                header = Some(next);
+            }
+            Msg::Stamped(stamped) => {
+                if header.is_none() {
+                    return Err(IngestError::OutOfOrder {
+                        what: "a stamped decision before the header",
+                    });
+                }
+                decisions.push(stamped);
+            }
+            Msg::StateHash { tick, hash } => {
+                if header.is_none() {
+                    return Err(IngestError::OutOfOrder {
+                        what: "a state hash before the header",
+                    });
+                }
+                hashes.push((tick, hash));
+            }
+            // A decision the sequencer never stamped: this build does not
+            // know what to do with it, and it will not guess.
+            Msg::Decision(_) => {
+                return Err(IngestError::Unknown {
+                    what: "an unstamped decision",
+                });
+            }
+            Msg::Bye { .. } => {
+                // The only way out of the loop: the push is over.
+                break;
+            }
+        }
+    }
+
+    let Some(header) = header else {
+        return Err(IngestError::NoHeader);
+    };
+    // A decision that lands before the round started cannot be replayed: the
+    // sequencer never stamps one, and the archive will not quietly drop it.
+    if decisions
+        .iter()
+        .any(|stamped| stamped.tick < header.start_tick)
+    {
+        return Err(IngestError::OutOfOrder {
+            what: "a decision from before the round started",
+        });
+    }
+
+    reconstruct(&header, &decisions, &hashes).map_err(IngestError::Reconstruct)
+}
+
+/// Write the verdict of a push back to the peer.
+///
+/// A round that verified clean is answered with a `Msg::StateHash` and the
+/// round's last hash — the ProArt's HUD shows that. A round that did not is
+/// answered with a `Msg::Bye` that says why: a mismatch is reported, never
+/// swallowed.
+pub fn write_verdict(
+    writer: &mut impl Write,
+    verified: Option<&VerifyReport>,
+    log: &RoundLog,
+    name: &str,
+) -> io::Result<()> {
+    let answer = match verified {
+        Some(report) if report.ok => match log.hashes().last() {
+            Some((tick, hash)) => Msg::StateHash {
+                tick: *tick,
+                hash: *hash,
+            },
+            None => Msg::Bye {
+                reason: "the round carried no state hash".to_owned(),
+            },
+        },
+        Some(report) => Msg::Bye {
+            reason: report.summary(),
+        },
+        None => Msg::Bye {
+            reason: format!("stored as {name}"),
+        },
+    };
+    write_frame(writer, &answer)
+}
+
 /// Take a pushed round in: read it, store it, verify it and answer.
 ///
 /// The connection is read until the peer's `Msg::Bye`. The round is rebuilt,
 /// stored atomically and verified; the verdict goes back over the same
 /// socket: a `Msg::StateHash` with the round's last hash when it verified
 /// clean, a `Msg::Bye` with the reason when it did not.
+///
+/// This is the whole ingest on one thread. The service does it in two: the
+/// round is stored here and the replay is handed to a worker, so a slow
+/// round never holds the accept loop up.
 pub fn handle_connection(
     stream: TcpStream,
     cfg: &ArchiveConfig,
@@ -472,122 +647,13 @@ pub fn handle_connection(
             .map_err(|err| IngestError::Io(err.to_string()))?,
     );
 
-    let mut header: Option<Header> = None;
-    let mut decisions: Vec<Stamped> = Vec::new();
-    let mut hashes: Vec<(Tick, u64)> = Vec::new();
-    let mut total: u64 = 0;
-    let mut said_goodbye = false;
-
-    loop {
-        let frame = match read_frame(&mut reader, cfg.max_log_bytes) {
-            Ok(frame) => frame,
-            // The peer hung up between the frames: the round is incomplete.
-            Err(FrameError::Closed) => break,
-            Err(err) => {
-                return Err(refuse(&mut writer, IngestError::Frame(err)));
-            }
-        };
-        total = total.saturating_add(frame.len);
-        if total > cfg.max_log_bytes {
-            return Err(refuse(
-                &mut writer,
-                IngestError::TooLarge {
-                    len: total,
-                    max: cfg.max_log_bytes,
-                },
-            ));
-        }
-
-        match frame.msg {
-            // The handshake of the phase-3 transport: accepted, and its
-            // version checked against the one this build speaks.
-            Msg::Hello { proto_version, .. } => {
-                if proto_version != lm_proto::PROTO_VERSION {
-                    return Err(refuse(
-                        &mut writer,
-                        IngestError::VersionMismatch {
-                            local: lm_proto::PROTO_VERSION,
-                            remote: proto_version,
-                        },
-                    ));
-                }
-            }
-            Msg::Header(next) => {
-                if header.is_some() {
-                    return Err(refuse(
-                        &mut writer,
-                        IngestError::OutOfOrder {
-                            what: "a second header",
-                        },
-                    ));
-                }
-                header = Some(next);
-            }
-            Msg::Stamped(stamped) => {
-                if header.is_none() {
-                    return Err(refuse(
-                        &mut writer,
-                        IngestError::OutOfOrder {
-                            what: "a stamped decision before the header",
-                        },
-                    ));
-                }
-                decisions.push(stamped);
-            }
-            Msg::StateHash { tick, hash } => {
-                if header.is_none() {
-                    return Err(refuse(
-                        &mut writer,
-                        IngestError::OutOfOrder {
-                            what: "a state hash before the header",
-                        },
-                    ));
-                }
-                hashes.push((tick, hash));
-            }
-            // A decision the sequencer never stamped: this build does not
-            // know what to do with it, and it will not guess.
-            Msg::Decision(_) => {
-                return Err(refuse(
-                    &mut writer,
-                    IngestError::Unknown {
-                        what: "an unstamped decision",
-                    },
-                ));
-            }
-            Msg::Bye { .. } => {
-                said_goodbye = true;
-                break;
-            }
-        }
-    }
-
-    if !said_goodbye {
-        return Err(refuse(&mut writer, IngestError::NoBye));
-    }
-    let Some(header) = header else {
-        return Err(refuse(&mut writer, IngestError::NoHeader));
-    };
-    // A decision that lands before the round started cannot be replayed: the
-    // sequencer never stamps one, and the archive will not quietly drop it.
-    if decisions
-        .iter()
-        .any(|stamped| stamped.tick < header.start_tick)
-    {
-        return Err(refuse(
-            &mut writer,
-            IngestError::OutOfOrder {
-                what: "a decision from before the round started",
-            },
-        ));
-    }
-
-    let log = match reconstruct(&header, &decisions, &hashes) {
+    let log = match read_push(&mut reader, cfg) {
         Ok(log) => log,
-        Err(err) => return Err(refuse(&mut writer, IngestError::Reconstruct(err))),
+        Err(err) => return Err(refuse(&mut writer, err)),
     };
+
     let store = cfg.store();
-    let name = store.free_round_name(header.seed, store::now_unix_secs());
+    let name = store.free_round_name(log.header.seed, store::now_unix_secs());
     let report = match ingest_round(&store, &log, &name, cfg.verify_on_arrival) {
         Ok(report) => report,
         // The peer is told why the round did not go in.
@@ -599,30 +665,16 @@ pub fn handle_connection(
     }
 
     // The verdict, back over the wire.
-    let answer = match &report.verified {
-        Some(verified) if verified.ok => match log.hashes().last() {
-            Some((tick, hash)) => Msg::StateHash {
-                tick: *tick,
-                hash: *hash,
-            },
-            None => Msg::Bye {
-                reason: "the round carried no state hash".to_owned(),
-            },
-        },
-        Some(verified) => Msg::Bye {
-            reason: verified.summary(),
-        },
-        None => Msg::Bye {
-            reason: format!("stored as {}", report.name),
-        },
-    };
-    let _ = write_frame(&mut writer, &answer);
+    let _ = write_verdict(&mut writer, report.verified.as_ref(), &log, &report.name);
 
     Ok(report)
 }
 
 /// Tell the peer why the push was refused, and hand the reason back.
-fn refuse(writer: &mut impl Write, err: IngestError) -> IngestError {
+///
+/// The reason goes over the wire as a `Msg::Bye`, so the peer knows *why* it
+/// was turned away and not merely that it was.
+pub fn refuse(writer: &mut impl Write, err: IngestError) -> IngestError {
     let _ = write_frame(
         writer,
         &Msg::Bye {
@@ -630,6 +682,106 @@ fn refuse(writer: &mut impl Write, err: IngestError) -> IngestError {
         },
     );
     err
+}
+
+/// Why a push did not get through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PushError {
+    /// The archive could not be reached at all.
+    Connect(String),
+    /// The socket failed.
+    Io(String),
+    /// The archive refused the push, and said why.
+    Refused(String),
+}
+
+impl fmt::Display for PushError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PushError::Connect(message) => write!(f, "the archive could not be reached: {message}"),
+            PushError::Io(message) => write!(f, "the socket failed: {message}"),
+            PushError::Refused(reason) => write!(f, "the archive refused the push: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for PushError {}
+
+/// The biggest frame the push client will read back.
+///
+/// The verdict is one small message, but the cap keeps a confused peer from
+/// making the client allocate whatever it says.
+const PUSH_FRAME_CAP: u64 = 64 * 1024 * 1024;
+
+/// How long the push client waits for the verdict, in seconds.
+///
+/// The verdict comes back after the replay, so this is generous: the point
+/// is not to hang forever, not to cut a slow replay short.
+const PUSH_TIMEOUT_S: u64 = 300;
+
+/// Push a round to an archive, and read the verdict.
+///
+/// This is the ProArt's side of the wire: the same frames the service reads,
+/// in the same order, with the same goodbye. The verdict comes back over the
+/// same socket — a `Msg::StateHash` when the round verified clean, a
+/// `Msg::Bye` that says why not.
+///
+/// The archive answers with a greeting first, so the push waits for it: a
+/// connection to something that is not an archive is caught before a round
+/// is half sent.
+pub fn push_round(addr: &str, log: &RoundLog) -> Result<Msg, PushError> {
+    let mut stream = TcpStream::connect(addr).map_err(|err| PushError::Connect(err.to_string()))?;
+    stream
+        .set_nodelay(true)
+        .map_err(|err| PushError::Io(err.to_string()))?;
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(PUSH_TIMEOUT_S)))
+        .map_err(|err| PushError::Io(err.to_string()))?;
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .map_err(|err| PushError::Io(err.to_string()))?,
+    );
+
+    // The handshake, then the round itself.
+    let mut send = |msg: &Msg| -> Result<(), PushError> {
+        write_frame(&mut stream, msg).map_err(|err| PushError::Io(err.to_string()))
+    };
+    send(&Msg::Hello {
+        proto_version: lm_proto::PROTO_VERSION,
+        node: lm_proto::NodeKind::Host,
+        caps: Vec::new(),
+    })?;
+    send(&Msg::Header(log.header.clone()))?;
+    for segment in &log.segments {
+        for stamped in &segment.decisions {
+            send(&Msg::Stamped(stamped.clone()))?;
+        }
+    }
+    for (tick, hash) in log.hashes() {
+        send(&Msg::StateHash { tick, hash })?;
+    }
+    send(&Msg::Bye {
+        reason: "round over".to_owned(),
+    })?;
+    stream
+        .flush()
+        .map_err(|err| PushError::Io(err.to_string()))?;
+
+    // The greeting, then the verdict.
+    let greeting =
+        read_frame(&mut reader, PUSH_FRAME_CAP).map_err(|err| PushError::Io(err.to_string()))?;
+    if !matches!(greeting.msg, Msg::Hello { .. }) {
+        return Err(PushError::Refused(
+            "the archive did not greet the push".to_owned(),
+        ));
+    }
+    let verdict =
+        read_frame(&mut reader, PUSH_FRAME_CAP).map_err(|err| PushError::Io(err.to_string()))?;
+    match verdict.msg {
+        Msg::Bye { reason } => Err(PushError::Refused(reason)),
+        other => Ok(other),
+    }
 }
 
 #[cfg(test)]

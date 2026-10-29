@@ -62,7 +62,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 | [`lm-core`](crates/lm-core/src/lib.rs) | The deterministic simulation: fixed-point math, worldgen, LOS, JPS, decisions and sequencer, lane conditioner, agents with safe branches, fog-of-war views and menus, Beacons rules, sandboxed Rhai reflexes, the hash-chained round log | No floats, no unordered containers, no clock, no network. Overflow checks on in release |
 | [`lm-proto`](crates/lm-proto/src/lib.rs) | Wire messages, a strict postcard codec, the version handshake | No transport yet (QUIC comes in phase 3) |
 | [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI (the crate is `lm-tools`, the binary it builds is `lm`): `run`, `replay`, `diff`, `golden` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
-| [`lm-archive`](crates/lm-archive/src/lib.rs) | The Orin archive: the `lm-archive` command and the crate behind it — the flat store (rounds, reports, state, every file written atomically), the framed `lm_proto::Msg` ingest and the headless verifier that replays a round and checks every state hash | No floats, no clock in the round, std-only networking. A round is never rewritten |
+| [`lm-archive`](crates/lm-archive/src/lib.rs) | The Orin archive: the `lm-archive` command and the crate behind it — the flat store (rounds, reports, state, every file written atomically), the framed `lm_proto::Msg` ingest, the headless verifier that replays a round and checks every state hash, the service (accept loop, a thread per connection, a verification worker with a bounded queue), the yielding to the desktop (`nice`/`ionice`, applied by re-executing the process) and the cross-architecture golden check | No floats, no clock in the round, std-only networking. A round is never rewritten |
 
 ## Repository map
 
@@ -73,6 +73,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 | [`docs/superpowers/specs/`](docs/superpowers/specs/2026-10-28-last-mile-m1-design.md) | The Milestone 1 design spec |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/2026-10-28-m1-phase1-core.md) | The Phase 1 implementation plan (TDD tasks) |
 | [`docs/research/forclaude2/`](docs/research/forclaude2/00-overview.md) | Research digests: the MIDI principle, the MIDI Maze source study, utterance scores, EdenLive, pre-render-ahead, self-harnessing agents |
+| [`docs/handoffs/`](docs/handoffs/orin-archive-and-golden.md) | Handoffs to the other boxes: building the archive on the Orin, running the golden check there and on the Thor, and running the service under `systemd --user` |
 | [`docs/research/fleet/`](docs/research/fleet/00-overview.md) | Casey's other repos (COLOR SQUAD, thor-firstline, the whole-house quilt, Syzygy…), decision models, where it all leads |
 | [`docs/research/poc/`](docs/research/poc/) | Proof-of-concept experiments with code and results: presence lanes, adaptive lead, tiles, trainer/student, generation as decisions, Jev/Clef/d1 on our task, Wi-Fi cost, the determinism audit |
 

@@ -26,9 +26,12 @@
 //!   the ingest that turns a pushed round into a stored, verified round.
 //! - [`verify`] — the verifier: the headless replay and the report it writes
 //!   for the ProArt's HUD.
-//!
-//! The service itself (the accept loop, the yielding, the priority) is the
-//! next task; this crate is everything the archive needs to be *correct*.
+//! - [`server`] — the service: the accept loop, a thread per connection, and
+//!   the verification worker that keeps a slow replay off the accept loop.
+//! - [`priority`] — the yielding: the CPU and I/O priority the service runs
+//!   at, applied by re-executing itself under `nice` and `ionice`.
+//! - [`golden`] — the cross-architecture golden check, run natively on the
+//!   Orin so that the ProArt's HUD can show the ARM verdict.
 
 #![deny(
     clippy::float_arithmetic,
@@ -37,7 +40,10 @@
 )]
 #![forbid(unsafe_code)]
 
+pub mod golden;
+pub mod priority;
 pub mod protocol;
+pub mod server;
 pub mod store;
 pub mod verify;
 
@@ -46,7 +52,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub use protocol::{handle_connection, IngestError, IngestReport};
+pub use golden::{GoldenMismatch, GoldenReport};
+pub use priority::{apply_to_self, is_low_priority};
+pub use protocol::{handle_connection, push_round, IngestError, IngestReport, PushError};
+pub use server::{Server, Stats, Verifier};
 pub use store::{ArchiveState, Store};
 pub use verify::{verify_file, verify_log, VerifyError, VerifyReport};
 
@@ -59,6 +68,14 @@ pub const DEFAULT_STORE_DIR: &str = "/var/lib/last-mile/archive";
 /// The biggest log the service accepts, unless the config says otherwise:
 /// 256 MiB.
 pub const DEFAULT_MAX_LOG_BYTES: u64 = 256 * 1024 * 1024;
+
+/// How long a connection may stay silent before the service drops it,
+/// unless the config says otherwise: 30 seconds.
+pub const DEFAULT_READ_TIMEOUT_S: u64 = 30;
+
+/// How many rounds may wait for the verification worker at once, unless the
+/// config says otherwise.
+pub const DEFAULT_QUEUE_CAPACITY: usize = 8;
 
 /// The configuration of the archive service.
 ///
@@ -75,6 +92,8 @@ pub const DEFAULT_MAX_LOG_BYTES: u64 = 256 * 1024 * 1024;
 /// nice = 10
 /// ionice_class = 3
 /// workers = 1
+/// read_timeout_s = 30
+/// queue_capacity = 8
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -96,6 +115,17 @@ pub struct ArchiveConfig {
     pub ionice_class: u8,
     /// How many verification workers the service runs.
     pub workers: usize,
+    /// How long a connection may stay silent before the service drops it.
+    ///
+    /// A peer that opens a socket and says nothing must not pin a thread of
+    /// the service forever.
+    pub read_timeout_s: u64,
+    /// How many rounds may wait for the verification worker at once.
+    ///
+    /// The queue is the archive's buffer cap: a burst of pushes is held, not
+    /// swallowed, and a full queue is backpressure on the push rather than
+    /// on the accept loop.
+    pub queue_capacity: usize,
 }
 
 impl Default for ArchiveConfig {
@@ -106,9 +136,11 @@ impl Default for ArchiveConfig {
             max_log_bytes: DEFAULT_MAX_LOG_BYTES,
             verify_on_arrival: true,
             retain_rounds: 0,
-            nice: 10,
-            ionice_class: 3,
+            nice: priority::DEFAULT_NICE,
+            ionice_class: priority::DEFAULT_IO_CLASS,
             workers: 1,
+            read_timeout_s: DEFAULT_READ_TIMEOUT_S,
+            queue_capacity: DEFAULT_QUEUE_CAPACITY,
         }
     }
 }
@@ -251,6 +283,8 @@ mod tests {
         assert_eq!(cfg.nice, 10);
         assert_eq!(cfg.ionice_class, 3);
         assert_eq!(cfg.workers, 1);
+        assert_eq!(cfg.read_timeout_s, 30);
+        assert_eq!(cfg.queue_capacity, 8);
     }
 
     #[test]

@@ -160,6 +160,25 @@ impl Store {
         self.reports_dir().join(format!("{name}.json"))
     }
 
+    /// The file the golden report lives in.
+    ///
+    /// It sits in the report directory next to the rounds' own reports, so
+    /// the ProArt reads one directory for everything the Orin found.
+    pub fn golden_report_path(&self) -> PathBuf {
+        self.reports_dir().join(crate::golden::GOLDEN_REPORT_NAME)
+    }
+
+    /// Write the golden report: the cross-architecture verdict of this
+    /// machine.
+    pub fn save_golden_report(&self, report: &crate::golden::GoldenReport) -> io::Result<PathBuf> {
+        self.ensure_layout()?;
+        let json = serde_json::to_vec_pretty(report)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
+        let path = self.golden_report_path();
+        write_atomic(&path, &json)?;
+        Ok(path)
+    }
+
     /// The temporary file a round of this name is written through.
     pub fn round_temp_path(&self, name: &str) -> PathBuf {
         temp_path(&self.round_path(name))
