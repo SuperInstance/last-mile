@@ -201,4 +201,4 @@ The leader is a role flag plus the squad-plan duty.
 
 - The Thor model inventory (the user's spec sheet) decides the default System-1 model, summarizer model, Riva voices and vector DB.
 - Provider terms for subscription-backed automated use (research/12).
-- Windows toolchain on the ProArt (native `cargo` vs cross-compiling from WSL). To be settled in the plan.
+- Windows toolchain: **checked.** Rust 1.99 is installed in WSL, and native `cargo` exists on Windows (`C:\Users\casey\.cargo\bin`). Plan: develop and test `lm-core`/`lm-proto` in WSL; build and run `lm-host` with Windows `cargo` from a Windows-side checkout (or a Windows path), not across `\\wsl.localhost` (UNC paths break `cmd`).
