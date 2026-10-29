@@ -5,6 +5,7 @@
 //! No float ever enters this crate.
 
 use crate::trig_table::SIN_Q14;
+use serde::{Deserialize, Serialize};
 
 /// Units per metre.
 pub const UNITS_PER_M: i32 = 1024;
@@ -109,7 +110,9 @@ fn carry_axis(chunk: i32, off: i32) -> (i32, i32) {
 }
 
 /// An angle: 65536 units make a full turn, counter-clockwise from +x.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Angle(pub u16);
 
 impl Angle {

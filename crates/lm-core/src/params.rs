@@ -38,6 +38,9 @@ pub struct Params {
     pub min_lead_ticks: u16,
     /// Maximum decision scheduling lead in ticks (D44).
     pub max_lead_ticks: u16,
+    /// Margin added to the measured one-way p99 when computing the decision
+    /// lead, in milliseconds (10 ms, D44; spec §11 `sched.lead_estimator`).
+    pub lead_margin_ms: u32,
     /// Lateness beyond this window is dropped as stale (D20).
     pub stale_window_ticks: u16,
     /// A state hash is emitted every this many ticks (D20).
@@ -103,6 +106,7 @@ impl Default for Params {
             tick_hz: 30,
             min_lead_ticks: 3,
             max_lead_ticks: 9,
+            lead_margin_ms: 10,
             stale_window_ticks: 15,
             hash_interval_ticks: 30,
             segment_ticks: 300,
@@ -221,6 +225,7 @@ impl StateHash for Params {
         h.u16(self.tick_hz);
         h.u16(self.min_lead_ticks);
         h.u16(self.max_lead_ticks);
+        h.u32(self.lead_margin_ms);
         h.u16(self.stale_window_ticks);
         h.u16(self.hash_interval_ticks);
         h.u32(self.segment_ticks);
@@ -270,6 +275,12 @@ mod tests {
     #[test]
     fn defaults_validate() {
         assert!(Params::default().validate().is_ok());
+    }
+
+    #[test]
+    fn lead_margin_is_the_spec_default() {
+        // D44: the adaptive lead adds a 10 ms margin to the measured p99.
+        assert_eq!(Params::default().lead_margin_ms, 10);
     }
 
     #[test]
