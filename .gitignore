@@ -1,0 +1,14 @@
+/target/
+**/*.rs.bk
+*.pdb
+
+# local secrets / provider keys never go in the repo
+.env
+*.key
+secrets/
+
+# generated round logs, asset caches, model weights
+/runs/
+/cache/
+*.safetensors
+*.gguf
