@@ -20,6 +20,7 @@ pub mod lane;
 pub mod params;
 pub mod rng;
 pub mod trig_table;
+pub mod world;
 
 pub use fixed::{Angle, Pos, CHUNK_UNITS, UNITS_PER_M};
 pub use hash::{Fnv64, StateHash};
