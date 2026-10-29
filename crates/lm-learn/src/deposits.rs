@@ -79,7 +79,7 @@ pub fn from_markdown(s: &str) -> Result<Deposit, String> {
     let mut current_content = String::new();
 
     for line in lines {
-        if line.starts_with("## ") {
+        if let Some(heading) = line.strip_prefix("## ") {
             // Save the previous section
             if !current_section.is_empty() {
                 match current_section.as_str() {
@@ -103,13 +103,7 @@ pub fn from_markdown(s: &str) -> Result<Deposit, String> {
                         } else {
                             deposit.questions = current_content
                                 .lines()
-                                .filter_map(|l| {
-                                    if l.starts_with("- ") {
-                                        Some(l[2..].to_string())
-                                    } else {
-                                        None
-                                    }
-                                })
+                                .filter_map(|l| l.strip_prefix("- ").map(str::to_string))
                                 .collect();
                         }
                     }
@@ -124,7 +118,7 @@ pub fn from_markdown(s: &str) -> Result<Deposit, String> {
             }
 
             // Start new section
-            current_section = line[3..].to_string();
+            current_section = heading.to_string();
             current_content = String::new();
         } else {
             if !current_content.is_empty() {
@@ -157,13 +151,7 @@ pub fn from_markdown(s: &str) -> Result<Deposit, String> {
                 } else {
                     deposit.questions = current_content
                         .lines()
-                        .filter_map(|l| {
-                            if l.starts_with("- ") {
-                                Some(l[2..].to_string())
-                            } else {
-                                None
-                            }
-                        })
+                        .filter_map(|l| l.strip_prefix("- ").map(str::to_string))
                         .collect();
                 }
             }
