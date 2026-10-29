@@ -3,6 +3,13 @@
 The audit of this repo against the 2026-10-29 Thor measurements. Every line number is against
 `28da80f` (2026-10-28). **Nothing here has been changed** — this is the work list.
 
+> **Read this first.** last-mile has two branches in flight that are *past* `28da80f`: `phase5-learning`
+> and `phase6-3d` (118 files, 3D rendering, the archive and the Orin build). The file and line numbers
+> below are against `28da80f` and are a **starting point for a search**, not a current map. The
+> `phase6-3d` branch already implements a lot of what this list asks for, and
+> [`BRIEFING.md`](BRIEFING.md) §7 says exactly what it does and does not yet have. Check the branches
+> before editing a file.
+
 Last-mile's decisions are append-only, so a number that is wrong is **superseded, not rewritten**.
 The amendments in [`05-decision-inputs.md`](05-decision-inputs.md) are written in the log's own row
 format.

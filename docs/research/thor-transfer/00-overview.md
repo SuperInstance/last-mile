@@ -19,7 +19,6 @@ a delivery format that needs a step last-mile does not have yet.
 | [`05-decision-inputs.md`](05-decision-inputs.md) | Proposed entries for `docs/design/decisions.md`. **Nothing is decided here.** |
 | [`06-what-to-change.md`](06-what-to-change.md) | The work list: what last-mile states today that the measurements contradict, and where. |
 | [`BRIEFING.md`](BRIEFING.md) | For the agent doing the work: what is on the Thor, how to call it, what to do first. |
-
 ## The short version
 
 **1. The generator last-mile named has a licence problem; the one that was actually measured has a

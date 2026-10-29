@@ -187,7 +187,30 @@ framing rule.
 
 ---
 
-## 7. The one thing to get right
+## 7. Where this lands in the code that is already being written
+
+last-mile's Phase 6 branch, `phase6-3d`, is building the 3D and archive work that most of this
+folder is about. Three things there, and one handoff that already exists.
+
+**Read `docs/handoffs/orin-archive-and-golden.md` on `phase6-3d` first.** It is already a handoff for
+an agent running on the Orin or the Thor: the ARM golden check, the pinned rounds, and the commands.
+This folder does not repeat it.
+
+Three observations about the branch, each with something to do:
+
+| What is there | The observation |
+|---|---|
+| `crates/lm-archive/src/store.rs` — the store keeps `<store>/rounds/*.lml`, `<store>/reports/*.json`, `<store>/state.json` | The README says the Orin holds "round logs, **content-addressed asset bank**, headless replay verification". The archive implements the round logs and the verification. **The asset bank is not there yet.** It is the place where this folder's vouching record belongs. |
+| `crates/lm-archive/src/verify.rs` — every failure is refused by name, and the module's own heading says "No false OK" | This is exactly the refusal discipline the vouching record needs, already written and working. **The asset bank should inherit it rather than invent a second way to fail.** |
+| `crates/lm-render/src/hash.rs:41` — `structure_hash(world, chunk, cfg) -> u64`, an FNV-1a over the chunk's cell tags and two float bit patterns | This is a **cache key**, and a good one: world-anchored, stable, and cheap. It is not a byte-level content address for a payload that ships. A u64 FNV hash does not carry a byte count or a content type, and cannot refuse a truncated file. **The render cache and the asset bank want different hashes of the same thing.** |
+
+The third row is the one to get right. A chunk's structure hash answers "is this the same chunk in
+the same shape". A shipped asset's record answers "is this the same file, whole". last-mile needs
+both, and it already has the first.
+
+---
+
+## 8. The one thing to get right
 
 Everything else in this folder is a number or a licence. **The one thing that is a discipline:**
 a generated asset that lands in the wrong place, or a tier that is drawn but invisible, **produces
