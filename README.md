@@ -35,9 +35,12 @@ Measured facts that shape the design live in [`docs/design/decisions.md`](docs/d
 
 ```bash
 bash scripts/check.sh          # fmt, clippy -D warnings, no-float guard, tests (debug + release), lm golden, acceptance session
+bash scripts/live.sh           # the live lane: the ignored tests that need the real Thor (run it on the LAN)
 cargo test --workspace         # tests only
 cargo run --bin lm -- gen-trig > /tmp/t.rs   # regenerate the pinned trig table (it must stay byte-identical)
 ```
+
+**The live lane.** `bash scripts/live.sh` runs the ignored tests that need the real Thor: `live_thor`, `live_round_on_thor`, the gates tuning and the talk soak. Run it before merging anything that touches `lm-agents`' wire format, the gates or the harness packs — those are the changes that can break the System One request without breaking a single offline test, and the gate cannot see them. It preflights the Thor's health on the ports in `AgentsConfig`'s defaults and prints `SKIP: Thor unreachable` (exit 0) when the Thor is not up, because a missing Thor is not a failure of the code; otherwise it runs the tests and checks the live facts: the Thor's answers become decisions in the game, and the soak prints its table.
 
 The headless tools. The crate is `lm-tools`; the binary it builds is `lm`:
 
