@@ -19,4 +19,7 @@ cargo test --workspace
 echo "==> cargo test (release)"
 cargo test --workspace --release
 
+echo "==> lm golden"
+cargo run -p lm-tools --release -- golden
+
 echo "==> all checks passed"

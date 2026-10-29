@@ -9,9 +9,9 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 | **Jetson Orin Nano Super** (2 TB NVMe) | Archive: round logs, content-addressed asset bank, headless replay verification. It yields to Casey's desktop |
 | **Cloud subscriptions** (Claude, MiniMax, Kimi, z.ai, plus Jev/Clef APIs) | Slow "System 2" thinking and teacher-side judging, spent from per-provider allotments |
 
-**Status (2026-10-28):** building **Milestone 1, Phase 1 (Core)** on branch [`phase1-core`](https://github.com/SuperInstance/last-mile/tree/phase1-core). It's a headless, fixed-point, deterministic simulation of a 2-squad "Beacons" round that replays bit-exact.
-- Twelve of fifteen plan tasks are merged, with 153 tests green in debug and release.
-- Remaining: the sim step (Task 11), the CLI and replay proof (Task 14), and `lm branch` (Task 15).
+**Status (2026-10-28):** **Phase 1 core: headless rounds replay bit-exact.** A headless, fixed-point, deterministic simulation of a 2-squad "Beacons" round, played by reflex-only agents and replayed tick by tick to the same hashes. Building on branch [`phase1-core`](https://github.com/SuperInstance/last-mile/tree/phase1-core).
+- Thirteen of fifteen plan tasks are merged, with 176 tests green in debug and release.
+- Remaining: `lm branch` (Task 15), the permanent "watch a stretch, change one thing, re-run" test.
 - Plan: [`docs/superpowers/plans/2026-10-28-m1-phase1-core.md`](docs/superpowers/plans/2026-10-28-m1-phase1-core.md).
 
 ## Core ideas (one line each)
@@ -26,9 +26,26 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 ## Build and test (WSL / Linux)
 
 ```bash
-bash scripts/check.sh          # fmt, clippy -D warnings, no-float guard, tests (debug + release)
+bash scripts/check.sh          # fmt, clippy -D warnings, no-float guard, tests (debug + release), lm golden
 cargo test --workspace         # tests only
 cargo run -p lm-tools -- gen-trig > /tmp/t.rs   # regenerate the pinned trig table (it must stay byte-identical)
+```
+
+The headless tools:
+
+```bash
+cargo run -p lm-tools --release -- run --seed 1 --ticks 9000 --out /tmp/r.lml   # play a round, write its log
+cargo run -p lm-tools --release -- replay /tmp/r.lml                            # OK <n> hashes
+cargo run -p lm-tools --release -- diff /tmp/a.lml /tmp/b.lml                   # the first tick that moves
+cargo run -p lm-tools --release -- golden                                       # OK 3/3, against tests/golden.toml
+cargo run -p lm-tools --release -- golden --write                               # re-pin tests/golden.toml
+```
+
+`lm run` can also inject decisions from a JSON Lines file
+(`--inject decisions.jsonl`), one decision and its arrival tick per line:
+
+```json
+{"arrived": 120, "decision": {"apply_tick": 120, "source": {"Agent": 0}, "seq": 1, "kind": {"ActionOn": "Hold"}, "provenance": "Test"}}
 ```
 
 Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy host (phase 2) builds with Windows `cargo` from a Windows path.
@@ -39,13 +56,14 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 |---|---|---|
 | [`lm-core`](crates/lm-core/src/lib.rs) | The deterministic simulation: fixed-point math, worldgen, LOS, JPS, decisions and sequencer, lane conditioner, agents with safe branches, fog-of-war views and menus, Beacons rules, sandboxed Rhai reflexes, the hash-chained round log | No floats, no unordered containers, no clock, no network. Overflow checks on in release |
 | [`lm-proto`](crates/lm-proto/src/lib.rs) | Wire messages, a strict postcard codec, the version handshake | No transport yet (QUIC comes in phase 3) |
-| [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI: `gen-trig` today; `run` / `replay` / `diff` / `golden` / `branch` coming in Tasks 14–15 | Floats allowed here only (the table generator) |
+| [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI: `run`, `replay`, `diff`, `golden` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
 
 ## Repository map
 
 | Path | What |
 |---|---|
-| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D50) with reasons. **Start here.** |
+| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D51) with reasons. **Start here.** |
+| [`tests/golden.toml`](tests/golden.toml) | The pinned golden hashes of the headless rounds. Re-pin with `lm golden --write`, and say in the commit why the world moved |
 | [`docs/superpowers/specs/`](docs/superpowers/specs/2026-10-28-last-mile-m1-design.md) | The Milestone 1 design spec |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/2026-10-28-m1-phase1-core.md) | The Phase 1 implementation plan (TDD tasks) |
 | [`docs/research/forclaude2/`](docs/research/forclaude2/00-overview.md) | Research digests: the MIDI principle, the MIDI Maze source study, utterance scores, EdenLive, pre-render-ahead, self-harnessing agents |
