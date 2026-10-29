@@ -1,0 +1,59 @@
+grid,text,voice_alias,style,voice_id,expected_urgency,expected_order_question,wav,transcript,urgency_answer_raw,urgency_answer,order_answer_raw,order_answer,seconds,rms,peak
+1-words-fixed,hold,mia,Default,Magpie-Multilingual.EN-US.Mia,ordinary,order,intent/000_g1_hold_mia_Default.wav,hold.,urgent,urgent,order,order,0.418,996.0,6119
+1-words-fixed,hold,mia,Neutral,Magpie-Multilingual.EN-US.Mia.Neutral,calm,order,intent/001_g1_hold_mia_Neutral.wav,Hold.,urgent,urgent,order,order,0.464,621.7,3551
+1-words-fixed,hold,mia,Calm,Magpie-Multilingual.EN-US.Mia.Calm,calm,order,intent/002_g1_hold_mia_Calm.wav,Hold.,calm,calm,order,order,0.604,1119.5,5535
+1-words-fixed,hold,mia,Angry,Magpie-Multilingual.EN-US.Mia.Angry,urgent,order,intent/003_g1_hold_mia_Angry.wav,Old!,urgent,urgent,question,question,0.464,3245.0,10719
+1-words-fixed,hold,mia,Happy,Magpie-Multilingual.EN-US.Mia.Happy,ordinary,order,intent/004_g1_hold_mia_Happy.wav,Old!,urgent,urgent,question,question,0.557,1727.7,7175
+1-words-fixed,hold,mia,Sad,Magpie-Multilingual.EN-US.Mia.Sad,ordinary,order,intent/005_g1_hold_mia_Sad.wav,Hold.,urgent,urgent,question,question,0.557,1807.3,8687
+1-words-fixed,hold,jason,Default,Magpie-Multilingual.EN-US.Jason,ordinary,order,intent/006_g1_hold_jason_Default.wav,Hold.,urgent,urgent,order,order,0.511,1364.4,11279
+1-words-fixed,hold,jason,Neutral,Magpie-Multilingual.EN-US.Jason.Neutral,calm,order,intent/007_g1_hold_jason_Neutral.wav,old.,urgent,urgent,order,order,0.511,652.7,5415
+1-words-fixed,hold,jason,Calm,Magpie-Multilingual.EN-US.Jason.Calm,calm,order,intent/008_g1_hold_jason_Calm.wav,Oh.,urgent,urgent,question,question,0.65,1147.4,5031
+1-words-fixed,hold,jason,Angry,Magpie-Multilingual.EN-US.Jason.Angry,urgent,order,intent/009_g1_hold_jason_Angry.wav,OLD!,urgent,urgent,question,question,0.65,4276.5,16431
+1-words-fixed,hold,jason,Happy,Magpie-Multilingual.EN-US.Jason.Happy,ordinary,order,intent/010_g1_hold_jason_Happy.wav,Hold.,urgent,urgent,order,order,0.65,3334.6,14479
+1-words-fixed,hold,aria,Default,Magpie-Multilingual.EN-US.Aria,ordinary,order,intent/011_g1_hold_aria_Default.wav,Hold.,urgent,urgent,order,order,0.511,1340.6,9071
+1-words-fixed,hold,aria,Neutral,Magpie-Multilingual.EN-US.Aria.Neutral,calm,order,intent/012_g1_hold_aria_Neutral.wav,Hold.,urgent,urgent,order,order,0.464,1192.2,5615
+1-words-fixed,hold,aria,Calm,Magpie-Multilingual.EN-US.Aria.Calm,calm,order,intent/013_g1_hold_aria_Calm.wav,Hold.,urgent,urgent,order,order,0.557,1758.5,8575
+1-words-fixed,hold,aria,Angry,Magpie-Multilingual.EN-US.Aria.Angry,urgent,order,intent/014_g1_hold_aria_Angry.wav,OLD!,urgent,urgent,order,order,0.511,2355.1,11447
+1-words-fixed,hold,aria,Happy,Magpie-Multilingual.EN-US.Aria.Happy,ordinary,order,intent/015_g1_hold_aria_Happy.wav,Hold!,urgent,urgent,order,order,0.511,3202.0,13879
+1-words-fixed,hold,aria,Sad,Magpie-Multilingual.EN-US.Aria.Sad,ordinary,order,intent/016_g1_hold_aria_Sad.wav,Hold!,urgent,urgent,order,order,0.464,2637.9,10551
+1-words-fixed,fall back,mia,Default,Magpie-Multilingual.EN-US.Mia,ordinary,order,intent/017_g1_fall_back_mia_Default.wav,Fall back.,urgent,urgent,order,order,0.65,1799.3,9679
+1-words-fixed,fall back,mia,Neutral,Magpie-Multilingual.EN-US.Mia.Neutral,calm,order,intent/018_g1_fall_back_mia_Neutral.wav,Pull back.,calm,calm,order,order,0.511,579.5,4111
+1-words-fixed,fall back,mia,Calm,Magpie-Multilingual.EN-US.Mia.Calm,calm,order,intent/019_g1_fall_back_mia_Calm.wav,Fall back.,calm,calm,order,order,0.882,842.6,4315
+1-words-fixed,fall back,mia,Angry,Magpie-Multilingual.EN-US.Mia.Angry,urgent,order,intent/020_g1_fall_back_mia_Angry.wav,It's all back.,urgent,urgent,order,order,0.65,2331.5,12039
+1-words-fixed,fall back,mia,Happy,Magpie-Multilingual.EN-US.Mia.Happy,ordinary,order,intent/021_g1_fall_back_mia_Happy.wav,Fall back.,urgent,urgent,order,order,0.697,3128.7,15927
+1-words-fixed,fall back,mia,Sad,Magpie-Multilingual.EN-US.Mia.Sad,ordinary,order,intent/022_g1_fall_back_mia_Sad.wav,Fall back!,urgent,urgent,order,order,0.836,2391.6,13063
+1-words-fixed,fall back,jason,Default,Magpie-Multilingual.EN-US.Jason,ordinary,order,intent/023_g1_fall_back_jason_Default.wav,Fall back.,calm,calm,order,order,0.557,2029.6,16639
+1-words-fixed,fall back,jason,Neutral,Magpie-Multilingual.EN-US.Jason.Neutral,calm,order,intent/024_g1_fall_back_jason_Neutral.wav,Fall back.,urgent,urgent,order,order,0.511,828.4,5823
+1-words-fixed,fall back,jason,Calm,Magpie-Multilingual.EN-US.Jason.Calm,calm,order,intent/025_g1_fall_back_jason_Calm.wav,Fall back.,urgent,urgent,order,order,1.393,963.9,6871
+1-words-fixed,fall back,jason,Angry,Magpie-Multilingual.EN-US.Jason.Angry,urgent,order,intent/026_g1_fall_back_jason_Angry.wav,All back!,urgent,urgent,order,order,0.975,2828.3,17855
+1-words-fixed,fall back,jason,Happy,Magpie-Multilingual.EN-US.Jason.Happy,ordinary,order,intent/027_g1_fall_back_jason_Happy.wav,Fall back.,urgent,urgent,order,order,0.836,2997.2,22175
+1-words-fixed,fall back,aria,Default,Magpie-Multilingual.EN-US.Aria,ordinary,order,intent/028_g1_fall_back_aria_Default.wav,Call back.,urgent,urgent,question,question,0.557,2579.4,15159
+1-words-fixed,fall back,aria,Neutral,Magpie-Multilingual.EN-US.Aria.Neutral,calm,order,intent/029_g1_fall_back_aria_Neutral.wav,Fall back.,calm,calm,order,order,0.604,1085.9,10055
+1-words-fixed,fall back,aria,Calm,Magpie-Multilingual.EN-US.Aria.Calm,calm,order,intent/030_g1_fall_back_aria_Calm.wav,Fall back.,urgent,urgent,order,order,0.975,997.9,5615
+1-words-fixed,fall back,aria,Angry,Magpie-Multilingual.EN-US.Aria.Angry,urgent,order,intent/031_g1_fall_back_aria_Angry.wav,Fall back!,urgent,urgent,order,order,0.697,4254.7,21103
+1-words-fixed,fall back,aria,Happy,Magpie-Multilingual.EN-US.Aria.Happy,ordinary,order,intent/032_g1_fall_back_aria_Happy.wav,Hallback.,urgent,urgent,question,question,0.65,2260.4,15887
+1-words-fixed,fall back,aria,Sad,Magpie-Multilingual.EN-US.Aria.Sad,ordinary,order,intent/033_g1_fall_back_aria_Sad.wav,Fall back.,urgent,urgent,order,order,0.743,1836.5,13279
+2-text-variants,hold,mia,Default,Magpie-Multilingual.EN-US.Mia,ordinary,order,intent/034_g2_hold_mia_Default.wav,Hold.,urgent,urgent,order,order,0.418,951.1,4883
+2-text-variants,hold,jason,Default,Magpie-Multilingual.EN-US.Jason,ordinary,order,intent/035_g2_hold_jason_Default.wav,old.,urgent,urgent,order,order,0.418,1792.1,9767
+2-text-variants,hold,aria,Default,Magpie-Multilingual.EN-US.Aria,ordinary,order,intent/036_g2_hold_aria_Default.wav,Hold.,urgent,urgent,order,order,0.418,2040.2,10471
+2-text-variants,hold!,mia,Default,Magpie-Multilingual.EN-US.Mia,urgent,order,intent/037_g2_hold!_mia_Default.wav,Hold.,urgent,urgent,order,order,0.418,1264.0,6447
+2-text-variants,hold!,jason,Default,Magpie-Multilingual.EN-US.Jason,urgent,order,intent/038_g2_hold!_jason_Default.wav,Hold.,urgent,urgent,order,order,0.511,1413.0,7575
+2-text-variants,hold!,aria,Default,Magpie-Multilingual.EN-US.Aria,urgent,order,intent/039_g2_hold!_aria_Default.wav,Hold.,urgent,urgent,order,order,0.464,1816.8,8247
+2-text-variants,hold... hold,mia,Default,Magpie-Multilingual.EN-US.Mia,urgent,order,intent/040_g2_hold..._hold_mia_Default.wav,"Hold, hold.",urgent,urgent,order,order,1.115,1006.8,5535
+2-text-variants,hold... hold,jason,Default,Magpie-Multilingual.EN-US.Jason,urgent,order,intent/041_g2_hold..._hold_jason_Default.wav,"Hold, hold.",urgent,urgent,order,order,1.207,1849.9,15511
+2-text-variants,hold... hold,aria,Default,Magpie-Multilingual.EN-US.Aria,urgent,order,intent/042_g2_hold..._hold_aria_Default.wav,"Hold, hold.",urgent,urgent,order,order,1.254,1166.8,7375
+2-text-variants,fall back,mia,Default,Magpie-Multilingual.EN-US.Mia,ordinary,order,intent/043_g2_fall_back_mia_Default.wav,Fall back.,urgent,urgent,order,order,0.604,1817.0,9623
+2-text-variants,fall back,jason,Default,Magpie-Multilingual.EN-US.Jason,ordinary,order,intent/044_g2_fall_back_jason_Default.wav,Fall back.,urgent,urgent,order,order,0.65,2324.6,19391
+2-text-variants,fall back,aria,Default,Magpie-Multilingual.EN-US.Aria,ordinary,order,intent/045_g2_fall_back_aria_Default.wav,Fall back.,calm,calm,order,order,0.65,1915.8,11127
+2-text-variants,fall back now!,mia,Default,Magpie-Multilingual.EN-US.Mia,urgent,order,intent/046_g2_fall_back_now!_mia_Default.wav,fall back now.,urgent,urgent,order,order,0.882,1305.4,7679
+2-text-variants,fall back now!,jason,Default,Magpie-Multilingual.EN-US.Jason,urgent,order,intent/047_g2_fall_back_now!_jason_Default.wav,Fall back now.,urgent,urgent,order,order,0.836,1996.4,17583
+2-text-variants,fall back now!,aria,Default,Magpie-Multilingual.EN-US.Aria,urgent,order,intent/048_g2_fall_back_now!_aria_Default.wav,Call back now.,urgent,urgent,order,order,0.882,2647.2,14799
+3-order-question,hold?,mia,Default,Magpie-Multilingual.EN-US.Mia,ordinary,question,intent/049_g3_hold?_mia_Default.wav,Hold.,urgent,urgent,order,order,0.418,1014.0,5347
+3-order-question,hold?,jason,Default,Magpie-Multilingual.EN-US.Jason,ordinary,question,intent/050_g3_hold?_jason_Default.wav,Hold.,urgent,urgent,order,order,0.418,1712.6,8063
+3-order-question,hold?,aria,Default,Magpie-Multilingual.EN-US.Aria,ordinary,question,intent/051_g3_hold?_aria_Default.wav,Hold?,urgent,urgent,question,question,0.418,2321.6,12519
+3-order-question,should we hold?,mia,Default,Magpie-Multilingual.EN-US.Mia,ordinary,question,intent/052_g3_should_we_hold?_mia_Default.wav,Should we hold?,urgent,urgent,question,question,0.743,1016.1,4583
+3-order-question,should we hold?,jason,Default,Magpie-Multilingual.EN-US.Jason,ordinary,question,intent/053_g3_should_we_hold?_jason_Default.wav,Should we hold?,urgent,urgent,question,question,0.882,1301.6,8103
+3-order-question,should we hold?,aria,Default,Magpie-Multilingual.EN-US.Aria,ordinary,question,intent/054_g3_should_we_hold?_aria_Default.wav,Should we hold?,urgent,urgent,question,question,0.743,1336.6,7999
+3-order-question,are you with me?,mia,Default,Magpie-Multilingual.EN-US.Mia,ordinary,question,intent/055_g3_are_you_with_me?_mia_Default.wav,Are you with me?,urgent,urgent,question,question,0.743,954.9,6087
+3-order-question,are you with me?,jason,Default,Magpie-Multilingual.EN-US.Jason,ordinary,question,intent/056_g3_are_you_with_me?_jason_Default.wav,Are you with me?,urgent,urgent,question,question,0.789,1488.3,10511
+3-order-question,are you with me?,aria,Default,Magpie-Multilingual.EN-US.Aria,ordinary,question,intent/057_g3_are_you_with_me?_aria_Default.wav,Are you with me?,urgent,urgent,question,question,0.65,1560.0,11551

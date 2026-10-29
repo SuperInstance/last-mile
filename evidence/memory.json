@@ -1,0 +1,44 @@
+[
+ {
+  "label": "ears running",
+  "gpu_free_gib_samples": [
+   3.845,
+   3.96,
+   4.136,
+   4.0,
+   4.212
+  ],
+  "gpu_free_gib_median": 4.0,
+  "gpu_used_mib_median": 53374,
+  "ears_gpu_mib": 3715,
+  "unit_memory_current": "939589632"
+ },
+ {
+  "label": "ears stopped",
+  "gpu_free_gib_samples": [
+   8.493,
+   8.556,
+   8.185,
+   8.276,
+   8.092
+  ],
+  "gpu_free_gib_median": 8.276,
+  "gpu_used_mib_median": 49659,
+  "ears_gpu_mib": 0,
+  "unit_memory_current": "[not set]"
+ },
+ {
+  "label": "ears running again",
+  "gpu_free_gib_samples": [
+   3.445,
+   3.822,
+   4.155,
+   4.176,
+   4.197
+  ],
+  "gpu_free_gib_median": 4.155,
+  "gpu_used_mib_median": 53270,
+  "ears_gpu_mib": 3611,
+  "unit_memory_current": "760877056"
+ }
+]
