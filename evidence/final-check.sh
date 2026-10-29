@@ -34,7 +34,7 @@ echo "  ops log: $(wc -c < /home/caseydigennaro/last-mile-ops.md) bytes"
 
 echo
 echo "=== 6. the doc ==="
-ls -la crates/lm-voice-ears/EARS.md
+ls -la docs/research/ears/EARS.md
 echo
 echo "=== 7. git (nothing committed) ==="
 git status --short | head -20
