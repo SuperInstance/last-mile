@@ -6,14 +6,15 @@ members = ["crates/*"]
 # Build it on Windows instead: `bash scripts/win-build.sh build -p lm-host`.
 # Details: docs/notes/bevy-0.20.md, "Building lm-host".
 #
-# Everything else is in: the agents and the host model are pure logic too, and
-# they belong to the gate.
+# Everything else is in: the agents, the host model and the voice service are
+# pure logic too, and they belong in the gate.
 default-members = [
     "crates/lm-core",
     "crates/lm-proto",
     "crates/lm-tools",
     "crates/lm-agents",
     "crates/lm-host-model",
+    "crates/lm-voice",
 ]
 resolver = "2"
 
