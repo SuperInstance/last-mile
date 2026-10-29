@@ -1,0 +1,1 @@
+//! Hash module (empty placeholder)

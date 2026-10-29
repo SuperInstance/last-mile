@@ -1,0 +1,1 @@
+//! Figure module (empty placeholder)

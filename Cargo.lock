@@ -328,6 +328,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lm-render"
+version = "0.1.0"
+dependencies = [
+ "lm-core",
+ "serde",
+]
+
+[[package]]
 name = "lm-tools"
 version = "0.1.0"
 dependencies = [
