@@ -209,12 +209,14 @@ fn the_agents_refuse_rather_than_guess() {
 /// clock would let the answers land many ticks late, which is not how the
 /// host plays.
 ///
-/// The confidence floor is pinned low on purpose. The Thor's own confidence
-/// on this pack is measured at 0.20–0.47, below the shipped floor of 0.55,
-/// so with the shipped floor every answer is a refusal and the reflex plays
-/// every moment. The test proves the *pipeline* — the question, the answer,
-/// the decision, the log — and leaves the calibration where it belongs: a
-/// decision about the floor is Casey's, not the test's.
+/// The confidence floor is pinned low on purpose. The test proves the
+/// *pipeline* — the question, the answer, the decision, the log — and
+/// leaves the calibration where it belongs: a decision about the floor is
+/// Casey's, not the test's. The pack's own confidence is measured
+/// separately, in `tests/gates_tuning.rs` and written up in
+/// docs/research/poc/thor/GATES-TUNING.md: the "what should you do now?"
+/// pack scored 0.20-0.57 (p10-p50), and the pack that states the squad's
+/// doctrine as a rule scores 0.40-0.91 with a median of 0.87.
 #[test]
 #[ignore = "needs the Thor on the LAN (192.168.0.78:8093)"]
 fn live_round_on_thor() {

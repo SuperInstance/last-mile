@@ -14,12 +14,52 @@
 #
 # This file is part of the harness, so it is edited between rounds and
 # pinned into the round log by the harness commit (D27).
+#
+# The move gate below states the squad's doctrine as a rule over the facts
+# the facts builder emits, because that is what the local decision models
+# can actually apply (E4c: d1-3B scored 0.97 on a rule over stated facts
+# and 0.45 on "what would you do?"). The rule is written so that every term
+# in it is a fact the builder states in words:
+#
+#   * "an enemy can see you within 6 cells" — the builder counts the fresh
+#     enemies within 6 cells and how many of them have a clear line of
+#     sight to you (crates/lm-agents/src/facts.rs, ENEMY_NEAR_CELLS);
+#   * "fewer allies within 4 cells than there are enemies within 6 cells" —
+#     both counts are stated ("You have 2 allies within 4 cells of you.",
+#     "3 enemies are within 6 cells of you, and 1 of them can see you.");
+#   * "you are standing on a beacon your squad holds" — the builder says it
+#     in exactly those words ("You are standing on beacon 2, which your
+#     squad holds.");
+#   * "the nearest beacon your squad does not hold" — the builder names it
+#     ("Beacon 0 ... it is the nearest beacon your squad does not hold"),
+#     so the model picks the option whose beacon is named.
+#
+# The numbers in the rule are the doctrine's: 6 cells for an enemy (the
+# facts builder's ENEMY_NEAR_CELLS) and 4 cells for an ally (the agents
+# config's ally_range_cells). Change one, change the other.
 
 [[gates]]
 id = "move"
 type = "choice"
 options_from = "menu"
-instructions = "What should you do now?"
+instructions = "Your squad's doctrine, in order: (1) If an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells, retreat. (2) If you are standing on a beacon your squad holds and no enemy is within 6 cells, hold. (3) Otherwise go to the nearest beacon your squad does not hold, if there is one; if there is none, hold."
+
+# How each kind of menu option is described. The menu decides how many
+# beacon options there are, so the file describes the kinds; `{beacon}` is
+# filled with that beacon's number.
+#
+# Every option says which branch of the doctrine it answers, so the model
+# matches the rule to the option instead of guessing what "what should you
+# do now?" means.
+#
+# The path is spelled out (`gates.criteria`, not `criteria`): a bare
+# `[criteria]` header would land at the top of the file, beside the gates
+# instead of inside one.
+[gates.criteria]
+beacon = "go to beacon {beacon} (the doctrine's third branch: go to the nearest beacon your squad does not hold)"
+hold = "hold position (the doctrine's second branch: you are standing on a beacon your squad holds and no enemy is within 6 cells, or there is no beacon your squad does not hold)"
+follow = "follow the squad leader (no branch of the doctrine says to follow the leader)"
+retreat = "retreat to the squad's spawn (the doctrine's first branch: an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells)"
 
 [[gates]]
 id = "call_out"
