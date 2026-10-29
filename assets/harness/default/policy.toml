@@ -1,0 +1,45 @@
+# When an agent thinks, on which tier of model, and with which levers
+# (D55/D56). Parsed by lm-agents::mind::Policy; a missing or unparsable
+# policy.toml means these defaults.
+
+# The tiers a thought can run on. `quality` ranks them (higher is better
+# thinking); `backend` names a System One backend (lm-agents::sysone) — or
+# "reflex", the tier that means "don't ask a model; the reflex keeps playing".
+[[tiers]]
+name = "reflex"
+backend = "reflex"
+quality = 0
+
+[[tiers]]
+name = "fast"
+backend = "thor-d1-3b"
+quality = 1
+
+[[tiers]]
+name = "deep"
+backend = "jev"
+quality = 2
+
+[think]
+# A fresh threat gives the mind this many ticks; a thought must land within
+# them or the reflex plays the moment instead.
+threat_horizon_ticks = 3
+# Quiet thinking (no threat, a beacon plan) may take up to this many ticks.
+max_think_ticks = 6
+# An enemy sighting younger than this many ticks is a fresh threat.
+threat_age_ticks = 2
+
+[levers]
+# While a thought slower than buy_time_above_ticks is in flight, hold or
+# follow the safe branch (in M1: the reflex) instead of acting on stale lanes.
+buy_time = true
+buy_time_above_ticks = 4
+# In quiet ticks, ask about the likeliest next situation and cache the
+# verdict (in M1 the likeliest next situation is the current one).
+prethink = true
+# Cache verdicts by situation key and reuse them when the situation returns.
+verdict_cache = true
+# Spend extra budget to jump the model queue when the situation is urgent.
+pay_priority = false
+# Questions per ask; absent means AgentsConfig.max_questions.
+# max_questions = 3

@@ -1,0 +1,30 @@
+# The default harness's gates: the questions every agent asks its decision
+# model (D37).
+#
+# A gate is a typed question. `choice` picks one of a set of options, `noul`
+# is a yes/no question and `score` is a level. The model answers a
+# probability per option, and the questions are asked over the agent's
+# plain-language facts — never over a grid (D49).
+#
+# The options of a gate with `options_from = "menu"` come from the
+# simulation's legal menu at the moment of the question, so the model always
+# chooses between moves the simulation can carry out. The options of a gate
+# with `options_from = "fixed"` are the ones written here, under
+# `criteria`.
+#
+# This file is part of the harness, so it is edited between rounds and
+# pinned into the round log by the harness commit (D27).
+
+[[gates]]
+id = "move"
+type = "choice"
+options_from = "menu"
+instructions = "What should you do now?"
+
+[[gates]]
+id = "call_out"
+type = "noul"
+options_from = "fixed"
+instructions = "Should you call out to your squad?"
+# Logged only in phase 3: the call-outs themselves arrive in phase 4, when
+# agents can speak.

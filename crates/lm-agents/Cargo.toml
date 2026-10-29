@@ -1,0 +1,18 @@
+[package]
+name = "lm-agents"
+version = "0.1.0"
+edition = "2021"
+description = "last-mile agent cognition: facts, gates, System One client, least-use-first queue (phase 3)"
+
+[dependencies]
+lm-core = { path = "../lm-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Task 2: the gates. `gates.toml` is the harness's own file, parsed with the
+# `toml` crate so the syntax is the real one (no hand-rolled parser).
+toml = "1"
+# Task 3: the System One client. ureq 3.x is a blocking HTTP client with a
+# per-agent connection pool, so one client per backend keeps its connections
+# alive (D50). rustls is the pure-Rust TLS stack (no OpenSSL on the Thor).
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+# Task 1: agents.toml configuration.
