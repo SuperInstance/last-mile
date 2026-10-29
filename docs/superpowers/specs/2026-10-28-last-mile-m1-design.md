@@ -1,7 +1,7 @@
 # last-mile Milestone 1: design spec
 
-**Date:** 2026-10-28 · **Status:** written and refined with fleet research (D23–D41); awaiting user review
-**Decision log:** [`docs/design/decisions.md`](../../design/decisions.md) (D1–D41) · **Research:** [`docs/research/forclaude2/`](../../research/forclaude2/00-overview.md), [`docs/research/fleet/`](../../research/fleet/00-overview.md)
+**Date:** 2026-10-28 · **Status:** written and refined with fleet research (D23–D45, including PoC results); awaiting user review
+**Decision log:** [`docs/design/decisions.md`](../../design/decisions.md) (D1–D45) · **Research:** [`docs/research/forclaude2/`](../../research/forclaude2/00-overview.md), [`docs/research/fleet/`](../../research/fleet/00-overview.md)
 
 ## 1. Goal
 
@@ -53,7 +53,7 @@ ProArt (Windows, native)            Thor (aarch64 Linux)              Orin (aarc
 - **Decision:** `{apply_tick, source, seq, kind, provenance}`, where kind is one of `ActionOn | ActionOff | Control | Program | Utterance | Intent | Marker | Roll | Lane`. Provenance records reflex, system1 (model, tokens, latency, situation key), system2 (provider, tokens) or human.
 - **Roll (D23):** `{menu_id, options, p: [u16], seed_stream}`. `lm-core` rolls it at `apply_tick` with the agent's seeded RNG stream and applies the chosen option. Every mirror rolls identically. Field names follow the quilt's `ROLL` shape (D36).
 - **Lane (D38):** `{gate, values: [u8]}`: one presence-mode sample of a gate's probabilities. `lm-core` conditions lanes in fixed point (EMA ⚙ α, then a deadband with hysteresis ⚙ width). An action changes only when a lane leaves its deadband.
-- **Intent TTL (D26):** `Intent` decisions carry `ttl_ticks` (⚙ 300). When an intent expires, reflex defaults take over.
+- **Intent TTL and safe branch (D26, D45):** `Intent` decisions carry `ttl_ticks` (⚙ 300), an optimistic plan (it may cross unknown/fog cells), and a **safe branch** (known-free cells only, ending in cover or a hold). When an intent expires, is refused or arrives late, the agent follows its safe branch. Paths come from integer Jump Point Search on the coarse grid.
 - **Scheduling:** AI decisions request `apply_tick ≥ now + lead`. ⚙ `sched.lead_mode = adaptive` (D34): lead = clamp(measured one-way p99 + margin, ⚙ min 3, ⚙ max 9 ticks). With `fixed`, the lead is the minimum. The sequencer stamps the final tick: on time → as requested; late → next tick, with lateness logged; older than the stale window (⚙ 15 ticks) → dropped. **The sim never waits.**
 - **Integrity:** a state hash every ⚙ 30 ticks; hash-chained log segments. Replay = header + stamped decision stream, bit-exact.
 - **Wire:** postcard over QUIC (`quinn`), one reliable ordered stream per peer for decisions, plus a separate stream for bulk payloads (TTS audio, later bake results).
@@ -89,7 +89,7 @@ The leader is a role flag plus the squad-plan duty.
    - priority = this-round usage (⚙ unit tokens | gpu_ms; ⚙ squad weight; ⚙ decay),
    - batching window ⚙ 20 ms,
    - **System-1 is a decision model (D37):** state (the typed summary) + the agent's gates (bool / choice / score; options generated from the sim's legal menu) → `p[]` per gate.
-     - choices are rolled (D23); scores are sampled or rounded; booleans are thresholded with hysteresis.
+     - actions use **argmax with hysteresis over conditioned lanes** (D43); seeded rolls are only for exploration (⚙ `s1.explore_temp`, default 0) and for procgen; scores are rounded; booleans are thresholded with hysteresis.
      - the decision model picks the speech act, addressee, intent and affect; the wording comes from ⚙ `utter.realizer = template | llm | auto`.
    - **Modes (D38):** ⚙ `s1.mode = point | presence | auto`. Point mode is the policy-triggered think. Presence mode evaluates the whole squad's gates as one batch at ⚙ `s1.presence_hz` and emits `Lane` decisions. `auto` uses presence mode while measured batch p99 + transit fits the period.
    - **Pre-drafting (D31):** an agent addressed by a teammate may enqueue its reply when the utterance *starts*, and target `apply_tick` just after it ends.
@@ -237,8 +237,10 @@ All are parameters. During a round, think requests are quilt *reaction/conversat
 | `archive.buffer_cap` | 1 GB | client config |
 | `agent.s1_output` / `menu_max` | distribution (actions), direct (text) / 8 | header |
 | `s1.backend` | d1 (member) / clef_flash (leader); stub in tests | Thor config |
-| `s1.mode` / `presence_hz` | auto / 10 (PoC pending) | header |
-| `lane.alpha` / `lane.deadband` | 1/4 / 0.10 (PoC pending) | header |
+| `s1.mode` / `presence_hz` | auto / 10 (PoC A, D42) | header |
+| `lane.alpha` / `lane.deadband` | 1/4 / 0.10 (PoC A) | header |
+| `s1.explore_temp` | 0 | header |
+| `sched.lead_estimator` | host-level, N=32, +10 ms margin (PoC B, D44) | header |
 | `gates.max_questions` | 8 per agent (Clef limit 64) | harness |
 | `utter.realizer` | auto | header |
 | `dial.target` | per role | harness |
