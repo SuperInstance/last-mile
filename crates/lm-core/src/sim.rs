@@ -44,7 +44,7 @@ use crate::hearing;
 use crate::lane::LaneConditioner;
 use crate::params::{ParamError, Params};
 use crate::rng::{Domain, Rng};
-use crate::rules::{Event, Outcome, Ruleset};
+use crate::rules::{Event, Outcome, Refusal, Ruleset};
 use crate::script::{ReflexOut, RhaiRuntime, ScriptRuntime};
 use crate::talk::{ListenerRecord, TalkParams, TalkRecord};
 use crate::utterance::{Addressee, Channel, Heard, Subject, Utterance};
@@ -78,6 +78,8 @@ pub struct SimStats {
     pub reflex_error: u64,
     /// Reflex calls that refused to answer.
     pub reflex_refused: u64,
+    /// Effects the ruleset refused to apply.
+    pub ruleset_refused: u64,
 }
 
 /// The cell offsets, relative to the spawn, the agents of a squad start on.
@@ -140,7 +142,13 @@ impl Sim {
         let world = crate::world::generate(h.seed, &h.params);
 
         let mut runtime = RhaiRuntime::new();
+        // The script a scripted ruleset runs is the rules of the round, not a
+        // reflex: it is loaded by the ruleset, and it is not loaded here.
+        let rules_script = crate::rules::rhai_script_name(&h.ruleset);
         for (name, src) in &h.scripts {
+            if rules_script == Some(name.as_str()) {
+                continue;
+            }
             runtime.load(name, src).map_err(SimError::Script)?;
         }
 
@@ -176,7 +184,7 @@ impl Sim {
             }
         }
 
-        let ruleset = crate::rules::by_name(&h.ruleset, &world, &h.params)?;
+        let ruleset = crate::rules::by_name(&h.ruleset, &world, &h.params, &h.scripts)?;
 
         // The roster is the truth about who plays; it is kept in agent-id
         // order, so every hash of the round walks the agents in one fixed
@@ -272,6 +280,16 @@ impl Sim {
         &self.talk_records
     }
 
+    /// The refusals the ruleset has recorded, oldest first.
+    ///
+    /// A ruleset that applies a script refuses the effects it will not apply
+    /// — an effect that names an agent the round does not have, say — and
+    /// records why (D26: a refusal is an outcome). A native ruleset refuses
+    /// nothing and records nothing.
+    pub fn ruleset_refusals(&self) -> &[Refusal] {
+        self.ruleset.refusals()
+    }
+
     /// How the round ended, or `None` while it is still running.
     pub fn outcome(&self) -> Option<&Outcome> {
         self.ruleset.outcome()
@@ -353,6 +371,9 @@ impl Sim {
             self.ruleset
                 .step(&self.world, &mut self.agents, now, &order, &self.params);
         events.extend(rule_events);
+        // A ruleset that applies a script records every effect it refused to
+        // apply: the count is how a host sees a broken rules script.
+        self.stats.ruleset_refused = self.ruleset.refused_count();
 
         // 5. The hash of the tick, and the next tick.
         let hash = if (now + 1).is_multiple_of(u64::from(self.params.hash_interval_ticks)) {

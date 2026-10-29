@@ -67,6 +67,12 @@ pub struct RunStats {
     pub stale: u64,
     /// Decisions the sequencer refused, for any reason.
     pub refused: u64,
+    /// Effects the ruleset refused to apply, for any reason.
+    ///
+    /// A ruleset that applies a script checks every effect the script asks
+    /// for. An effect the round will not have is refused and never applied,
+    /// and the refusal is counted here.
+    pub ruleset_refused: u64,
     /// True when the round ended before the last tick it was given.
     pub round_over: bool,
     /// How the round ended, if it ended.
@@ -185,6 +191,9 @@ pub fn run(h: Header, ticks: u64, inject: &[(Tick, Decision)]) -> (RoundLog, Run
     stats.stale = sched.stale;
     stats.outcome = sim.outcome().cloned();
     stats.scores = sim.scores().to_vec();
+    // The refusals of the ruleset: an effect the rules will not apply is
+    // refused and named, never applied and never lost.
+    stats.ruleset_refused = sim.stats().ruleset_refused;
 
     (recorder.finish(), stats)
 }
@@ -522,6 +531,23 @@ mod tests {
         let (tick, left, right) = diff(&a, &b).expect("the two rounds differ");
         assert_eq!(tick, 29);
         assert_ne!(left, right);
+    }
+
+    /// The refusals of a scripted ruleset reach the host: a script that asks
+    /// for an effect the round will not have is refused every tick, and the
+    /// round goes on.
+    #[test]
+    fn a_ruleset_refusal_is_counted_and_the_round_goes_on() {
+        let mut h = Header::default_round(1, REFLEX);
+        h.ruleset = "rhai:bad".to_owned();
+        h.scripts.insert(
+            "bad".to_owned(),
+            r#"fn rules(v) { [ #{ kind: "tag", by: 0, "target": 999 } ] }"#.to_owned(),
+        );
+        let (log, stats) = run(h, 60, &[]);
+        assert_eq!(stats.ruleset_refused, 60);
+        assert_eq!(stats.ticks, 60);
+        assert!(!log.hashes().is_empty());
     }
 
     #[test]

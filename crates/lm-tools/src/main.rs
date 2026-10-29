@@ -294,6 +294,9 @@ fn describe(stats: &runner::RunStats) -> String {
             stats.refused, stats.stale
         ));
     }
+    if stats.ruleset_refused > 0 {
+        text.push_str(&format!(", {} ruleset refusals", stats.ruleset_refused));
+    }
     if let Some(outcome) = &stats.outcome {
         text.push_str(&format!(
             ", over at tick {} (winner {:?})",
@@ -474,6 +477,19 @@ mod tests {
         assert_eq!(split_arg("=x"), None);
         assert_eq!(split_arg("x="), None);
         assert_eq!(split_arg("no-equals"), None);
+    }
+
+    #[test]
+    fn a_ruleset_refusal_is_named_in_the_report() {
+        let mut stats = runner::RunStats {
+            ticks: 10,
+            scores: vec![0, 0],
+            ..runner::RunStats::default()
+        };
+        assert!(!describe(&stats).contains("ruleset refusals"));
+        stats.ruleset_refused = 3;
+        let text = describe(&stats);
+        assert!(text.contains(", 3 ruleset refusals"), "{text}");
     }
 
     #[test]

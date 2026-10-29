@@ -6,11 +6,14 @@
 //! agents and the same tick always produce the same events, so a replay is
 //! bit-exact.
 //!
-//! Phase 1 ships one ruleset, [`Beacons`]. A Rhai-scripted ruleset arrives in
-//! phase 5, which is why the ruleset is chosen by name ([`by_name`]) behind
-//! the [`Ruleset`] trait rather than hard-wired into the sim.
+//! Two rulesets ship: [`Beacons`], the native one, and [`RhaiRuleset`], which
+//! runs the rules of the tick as a script. They are chosen by name
+//! ([`by_name`]) behind the [`Ruleset`] trait rather than hard-wired into the
+//! sim, so a round can name either one — and a scripted round is checked
+//! against the native one, tick for tick.
 
 pub mod beacons;
+pub mod rhai;
 
 use crate::agent::Agent;
 use crate::decision::Tick;
@@ -19,8 +22,40 @@ use crate::params::{ParamError, Params};
 use crate::script::ScriptError;
 use crate::world::World;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub use beacons::Beacons;
+pub use rhai::{Effect, RhaiRuleset};
+
+/// The prefix a ruleset name carries when its rules are a script:
+/// `"rhai:beacons"` runs the script `beacons` of the round's scripts.
+pub const RHAI_PREFIX: &str = "rhai:";
+
+/// What kind of refusal it was.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefusalKind {
+    /// The script's answer was not a list of effects at all.
+    BadAnswer,
+    /// The effect named something the round does not have, or asked for
+    /// something the rules of the round do not allow.
+    IllegalEffect,
+    /// The script ran out of fuel, so the tick had no effects.
+    OutOfFuel,
+}
+
+/// One refusal: something the rules did not do, and why (D26).
+///
+/// A refusal is an outcome: it is recorded, it is never applied, and the rest
+/// of the round goes on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    /// The tick the refusal happened on.
+    pub tick: Tick,
+    /// What kind of refusal it was.
+    pub kind: RefusalKind,
+    /// Why, in words.
+    pub reason: String,
+}
 
 /// Something the rules did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +187,22 @@ pub trait Ruleset: StateHash + Send + Sync {
 
     /// How the round ended, or `None` while it is still running.
     fn outcome(&self) -> Option<&Outcome>;
+
+    /// The refusals the ruleset has recorded, oldest first.
+    ///
+    /// A ruleset that applies a script records every effect it refused to
+    /// apply, with the reason (D26: a refusal is an outcome). A ruleset
+    /// that never refuses records nothing.
+    fn refusals(&self) -> &[Refusal] {
+        &[]
+    }
+
+    /// How many effects the ruleset has refused, in total.
+    ///
+    /// The refusals themselves are capped, so this is the honest count.
+    fn refused_count(&self) -> u64 {
+        0
+    }
 }
 
 /// Why a round could not be set up.
@@ -185,13 +236,116 @@ impl From<ScriptError> for SimError {
 
 /// The ruleset with this name.
 ///
-/// Phase 1 has exactly one: `"beacons"`. The name is looked up rather than
-/// hard-wired, because a Rhai-scripted ruleset arrives in phase 5 and the
-/// round header carries the name it wants.
-pub fn by_name(name: &str, world: &World, p: &Params) -> Result<Box<dyn Ruleset>, SimError> {
+/// `"beacons"` is the native ruleset. A name that starts with
+/// [`RHAI_PREFIX`] names a script of the round's `scripts`: `"rhai:beacons"`
+/// plays the round with the rules of the script `beacons`.
+///
+/// The scripts are needed because a scripted ruleset is a script: a round
+/// that names one carries its source in the header, and a header that does
+/// not carry it is refused before the round starts.
+pub fn by_name(
+    name: &str,
+    world: &World,
+    p: &Params,
+    scripts: &BTreeMap<String, String>,
+) -> Result<Box<dyn Ruleset>, SimError> {
     match name {
         "beacons" => Ok(Box::new(Beacons::new(world, p))),
-        other => Err(SimError::UnknownRuleset(other.to_owned())),
+        other => {
+            let Some(script) = rhai_script_name(other) else {
+                return Err(SimError::UnknownRuleset(other.to_owned()));
+            };
+            let Some(src) = scripts.get(script) else {
+                return Err(SimError::Script(ScriptError::Missing(script.to_owned())));
+            };
+            Ok(Box::new(RhaiRuleset::new(script, src, world, p)?))
+        }
+    }
+}
+
+/// The script a ruleset runs, if the ruleset is a scripted one.
+///
+/// `"rhai:beacons"` runs the script `beacons`; `"beacons"` runs none.
+pub fn rhai_script_name(ruleset: &str) -> Option<&str> {
+    ruleset.strip_prefix(RHAI_PREFIX)
+}
+
+/// Hash the state a Beacons-shaped ruleset keeps: the scores of the squads,
+/// who holds every beacon and how the round ended.
+///
+/// The native ruleset and the scripted one keep the same state in the same
+/// shape, so they hash the same bytes — which is what lets a round played by
+/// one be bit-identical to a round played by the other.
+pub(crate) fn hash_rule_state(
+    h: &mut Fnv64,
+    scores: &[i64],
+    holders: &[Option<u8>],
+    outcome: &Option<Outcome>,
+) {
+    h.u32(scores.len() as u32);
+    for s in scores {
+        h.i64(*s);
+    }
+    h.u32(holders.len() as u32);
+    for holder in holders {
+        match holder {
+            None => h.write(&[0]),
+            Some(squad) => {
+                h.write(&[1]);
+                h.write(&[*squad]);
+            }
+        }
+    }
+    match outcome {
+        None => h.write(&[0]),
+        Some(outcome) => {
+            h.write(&[1]);
+            outcome.hash_into(h);
+        }
+    }
+}
+
+/// Add points to a squad, if the round has a score for it.
+///
+/// The score saturates instead of overflowing: a round is played by scripts
+/// too, and a script must not be able to panic the sim with a big number.
+pub(crate) fn add_score(scores: &mut [i64], squad: u8, points: i64) {
+    if let Some(slot) = scores.get_mut(usize::from(squad)) {
+        *slot = slot.saturating_add(points);
+    }
+}
+
+/// Whether the agent is stunned at this tick.
+///
+/// A stun runs from the tick of the tag up to (but not including) the tick it
+/// ends on: `stunned_until = now + stun_ticks` holds for `stun_ticks` ticks.
+pub(crate) fn is_stunned(agent: &Agent, now: Tick) -> bool {
+    agent.stunned_until.is_some_and(|end| now < end)
+}
+
+/// The id an event carries for a beacon.
+pub(crate) fn beacon_id(index: usize) -> u8 {
+    u8::try_from(index).unwrap_or(u8::MAX)
+}
+
+/// The squad with the strictly highest score; `None` when they tie.
+pub(crate) fn winner(scores: &[i64]) -> Option<u8> {
+    let mut best: Option<(usize, i64)> = None;
+    let mut tied = false;
+    for (index, &score) in scores.iter().enumerate() {
+        match best {
+            None => best = Some((index, score)),
+            Some((_, high)) if score > high => {
+                best = Some((index, score));
+                tied = false;
+            }
+            Some((_, high)) if score == high => tied = true,
+            Some(_) => {}
+        }
+    }
+    match best {
+        Some((index, _)) if !tied => u8::try_from(index).ok(),
+        _ => None,
     }
 }
 
@@ -210,11 +364,17 @@ mod tests {
         }
     }
 
+    /// No scripts: the native rulesets do not need any.
+    fn no_scripts() -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
+
     #[test]
     fn by_name_builds_beacons() {
         let world = flat_world();
         let p = Params::default();
-        let rules = by_name("beacons", &world, &p).expect("beacons is a phase-1 ruleset");
+        let rules =
+            by_name("beacons", &world, &p, &no_scripts()).expect("beacons is a phase-1 ruleset");
         assert_eq!(rules.scores().len(), usize::from(p.squads));
         assert!(rules.outcome().is_none());
     }
@@ -223,10 +383,31 @@ mod tests {
     fn by_name_refuses_an_unknown_ruleset() {
         let world = flat_world();
         let p = Params::default();
-        let Err(err) = by_name("capture-the-flag", &world, &p) else {
+        let Err(err) = by_name("capture-the-flag", &world, &p, &no_scripts()) else {
             panic!("an unknown ruleset must be refused");
         };
         assert_eq!(err, SimError::UnknownRuleset("capture-the-flag".to_owned()));
         assert_eq!(err.to_string(), "unknown ruleset: capture-the-flag");
+    }
+
+    #[test]
+    fn by_name_refuses_a_script_the_header_does_not_carry() {
+        let world = flat_world();
+        let p = Params::default();
+        let Err(err) = by_name("rhai:beacons", &world, &p, &no_scripts()) else {
+            panic!("a ruleset whose script is missing must be refused");
+        };
+        assert_eq!(
+            err,
+            SimError::Script(ScriptError::Missing("beacons".to_owned()))
+        );
+        assert!(err.to_string().contains("beacons"), "{err}");
+    }
+
+    #[test]
+    fn the_script_of_a_rhai_ruleset_is_named() {
+        assert_eq!(rhai_script_name("rhai:beacons"), Some("beacons"));
+        assert_eq!(rhai_script_name("beacons"), None);
+        assert_eq!(rhai_script_name("rhai:"), Some(""));
     }
 }

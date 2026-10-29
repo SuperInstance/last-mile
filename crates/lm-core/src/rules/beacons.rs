@@ -20,7 +20,7 @@
 //! 4. **Ending.** The round ends when a squad reaches `win_score` or the
 //!    tick limit runs out. The higher score wins; a tie is a tie.
 
-use super::{Event, Outcome, Ruleset};
+use super::{add_score, beacon_id, hash_rule_state, is_stunned, winner, Event, Outcome, Ruleset};
 use crate::agent::Agent;
 use crate::decision::Tick;
 use crate::fixed::dist2;
@@ -58,9 +58,7 @@ impl Beacons {
 
     /// Add points to a squad, if the round has a score for it.
     fn add_score(&mut self, squad: u8, points: i64) {
-        if let Some(slot) = self.scores.get_mut(usize::from(squad)) {
-            *slot += points;
-        }
+        add_score(&mut self.scores, squad, points);
     }
 }
 
@@ -226,68 +224,14 @@ impl Ruleset for Beacons {
 
 impl StateHash for Beacons {
     fn hash_into(&self, h: &mut Fnv64) {
-        h.u32(self.scores.len() as u32);
-        for s in &self.scores {
-            h.i64(*s);
-        }
-        h.u32(self.holders.len() as u32);
-        for holder in &self.holders {
-            match holder {
-                None => h.write(&[0]),
-                Some(squad) => {
-                    h.write(&[1]);
-                    h.write(&[*squad]);
-                }
-            }
-        }
-        match &self.outcome {
-            None => h.write(&[0]),
-            Some(outcome) => {
-                h.write(&[1]);
-                outcome.hash_into(h);
-            }
-        }
+        hash_rule_state(h, &self.scores, &self.holders, &self.outcome);
     }
-}
-
-/// Whether the agent is stunned at this tick.
-///
-/// A stun runs from the tick of the tag up to (but not including) the tick it
-/// ends on: `stunned_until = now + stun_ticks` holds for `stun_ticks` ticks.
-fn is_stunned(agent: &Agent, now: Tick) -> bool {
-    agent.stunned_until.is_some_and(|end| now < end)
 }
 
 /// A radius in units as the squared distance to compare with.
 fn squared(units: i32) -> i64 {
     let units = i64::from(units);
     units * units
-}
-
-/// The id an event carries for a beacon.
-fn beacon_id(index: usize) -> u8 {
-    u8::try_from(index).unwrap_or(u8::MAX)
-}
-
-/// The squad with the strictly highest score; `None` when they tie.
-fn winner(scores: &[i64]) -> Option<u8> {
-    let mut best: Option<(usize, i64)> = None;
-    let mut tied = false;
-    for (index, &score) in scores.iter().enumerate() {
-        match best {
-            None => best = Some((index, score)),
-            Some((_, high)) if score > high => {
-                best = Some((index, score));
-                tied = false;
-            }
-            Some((_, high)) if score == high => tied = true,
-            Some(_) => {}
-        }
-    }
-    match best {
-        Some((index, _)) if !tied => u8::try_from(index).ok(),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

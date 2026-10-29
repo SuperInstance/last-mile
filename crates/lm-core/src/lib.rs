@@ -48,7 +48,7 @@ pub use log::{LogError, Recorder, RoundLog, RoundLogV1, Segment, MAGIC, MIN_READ
 pub use opal::{OpalError, TalkContext};
 pub use params::{ParamError, Params, BRANCH_FIELDS};
 pub use rng::{Domain, Rng};
-pub use rules::{Beacons, Event, Outcome, Ruleset, SimError};
+pub use rules::{Beacons, Event, Outcome, Refusal, RefusalKind, RhaiRuleset, Ruleset, SimError};
 pub use sched::{lead_ticks, Reject, SchedStats, Sequencer};
 pub use script::{ReflexOut, RhaiRuntime, ScriptError, ScriptRuntime};
 pub use sim::{Sim, SimStats, StepOut};

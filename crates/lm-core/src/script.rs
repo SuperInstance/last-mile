@@ -35,6 +35,9 @@ use std::collections::BTreeMap;
 /// The name of the entry point every reflex script defines.
 pub const ENTRY_POINT: &str = "reflex";
 
+/// The name of the entry point every rules script defines.
+pub const RULES_ENTRY_POINT: &str = "rules";
+
 /// The holder value of a beacon nobody holds.
 const HOLDER_NONE: i64 = -1;
 
@@ -72,6 +75,10 @@ pub enum ScriptError {
     Parse(String),
     /// The source compiled but does not define the entry point.
     NoEntryPoint(String),
+    /// The source compiled but does not define the rules entry point.
+    NoRulesEntryPoint(String),
+    /// The round does not carry a script under this name.
+    Missing(String),
 }
 
 impl std::fmt::Display for ScriptError {
@@ -80,6 +87,12 @@ impl std::fmt::Display for ScriptError {
             ScriptError::Parse(msg) => write!(f, "script does not parse: {msg}"),
             ScriptError::NoEntryPoint(name) => {
                 write!(f, "script {name:?} defines no fn {ENTRY_POINT}(v)")
+            }
+            ScriptError::NoRulesEntryPoint(name) => {
+                write!(f, "script {name:?} defines no fn {RULES_ENTRY_POINT}(v)")
+            }
+            ScriptError::Missing(name) => {
+                write!(f, "the round carries no script named {name:?}")
             }
         }
     }
@@ -123,11 +136,8 @@ pub struct RhaiRuntime {
 impl RhaiRuntime {
     /// A runtime with no scripts loaded.
     pub fn new() -> RhaiRuntime {
-        let mut engine = Engine::new();
-        engine.set_max_call_levels(MAX_CALL_LEVELS);
-        engine.set_max_expr_depths(MAX_EXPR_DEPTH, MAX_FUNCTION_EXPR_DEPTH);
         RhaiRuntime {
-            engine,
+            engine: sandboxed_engine(),
             scripts: BTreeMap::new(),
         }
     }
@@ -152,6 +162,18 @@ impl Default for RhaiRuntime {
     fn default() -> Self {
         RhaiRuntime::new()
     }
+}
+
+/// A fresh engine with the limits the round pins.
+///
+/// Every script in the round — a reflex or the rules of the round itself —
+/// runs on an engine built like this, so the same source parses the same way
+/// everywhere and the fuel is what bounds the work.
+pub(crate) fn sandboxed_engine() -> Engine {
+    let mut engine = Engine::new();
+    engine.set_max_call_levels(MAX_CALL_LEVELS);
+    engine.set_max_expr_depths(MAX_EXPR_DEPTH, MAX_FUNCTION_EXPR_DEPTH);
+    engine
 }
 
 impl ScriptRuntime for RhaiRuntime {
