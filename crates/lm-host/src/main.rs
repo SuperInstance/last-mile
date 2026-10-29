@@ -61,6 +61,7 @@ mod audio_plugin;
 mod between_plugin;
 mod hud_plugin;
 mod input_plugin;
+mod keys;
 mod map_plugin;
 mod roll_plugin;
 mod sim_plugin;
@@ -154,7 +155,7 @@ struct Options {
     ticks: Option<u32>,
 }
 
-/// The host's view switch, as a resource: which view draws, and the `V`
+/// The host's view switch, as a resource: which view draws, and the `B`
 /// that flips it (phase 6 Task 8).
 ///
 /// The switch is data — the round, its tick and its recorder are never
@@ -468,7 +469,7 @@ fn main() -> AppExit {
         ViewMode::Both => {
             // The debugger's layout: the 3D view, with the egui HUD and
             // the piano roll over it (the piano roll is the M1 debugger
-            // and keeps working in 3D), and the 2D map one `V` away. Both
+            // and keeps working in 3D), and the 2D map one `B` away. Both
             // views are installed; the switch says which draws.
             let settings = match view3d::View3dSettings::load(std::path::Path::new(RENDER_TOML)) {
                 Ok(settings) => settings,
@@ -842,7 +843,7 @@ fn parse_window(text: &str) -> Result<(u32, u32), String> {
     Ok((width, height))
 }
 
-/// Keep the cameras with the switch: `V` flips between the 2D map and the
+/// Keep the cameras with the switch: `B` flips between the 2D map and the
 /// 3D view, and the cameras follow — the map's camera or the 3D view's two,
 /// one set on at a time, the panel carrier always. The round never knows.
 #[allow(clippy::type_complexity)]
@@ -877,10 +878,10 @@ fn enforce_view(
         ),
     >,
 ) {
-    if keys.just_pressed(KeyCode::KeyV) {
+    if keys.just_pressed(crate::keys::VIEW_FLIP.key) {
         views.0.toggle();
         println!(
-            "lm-host: the {} view draws (V flips it)",
+            "lm-host: the {} view draws (B flips it)",
             if views.0.showing_3d() { "3D" } else { "2D map" }
         );
     }
@@ -925,4 +926,78 @@ struct FrameCount(u32);
 /// Count the frames: the screenshot mode waits for them.
 fn count_frames(mut frame: ResMut<FrameCount>) {
     frame.0 += 1;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The flip key flips the views, and the talk key does not — held
+    /// against the real system and the real binding table, not a copy of
+    /// the key. `V` once flipped the view too, and holding it to speak in
+    /// `--view both` turned the world under the person; this is the test
+    /// that says it cannot happen again.
+    #[test]
+    fn the_view_flips_on_its_key_and_not_on_the_talk_key() {
+        let mut app = App::new();
+        app.init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(Views(ViewSwitch::new(ViewMode::Both)))
+            .add_systems(Update, enforce_view);
+        let map = app
+            .world_mut()
+            .spawn((Camera::default(), map_plugin::MapCamera))
+            .id();
+        let world = app
+            .world_mut()
+            .spawn((Camera::default(), view3d::warmup::ViewCamera))
+            .id();
+        let blit = app
+            .world_mut()
+            .spawn((Camera::default(), view3d::upscale::BlitCamera))
+            .id();
+
+        let is_active = |app: &mut App, entity| {
+            app.world_mut()
+                .get::<Camera>(entity)
+                .expect("the camera exists")
+                .is_active
+        };
+        let showing_3d = |app: &mut App| app.world().resource::<Views>().0.showing_3d();
+
+        // The layout opens on the 3D view.
+        app.update();
+        assert!(showing_3d(&mut app));
+        assert!(!is_active(&mut app, map));
+        assert!(is_active(&mut app, world) && is_active(&mut app, blit));
+
+        // The flip key turns the whole thing over to the 2D map.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(keys::VIEW_FLIP.key);
+        app.update();
+        assert!(
+            !showing_3d(&mut app),
+            "{} flips the views",
+            keys::VIEW_FLIP.job
+        );
+        assert!(is_active(&mut app, map));
+        assert!(!is_active(&mut app, world) && !is_active(&mut app, blit));
+
+        // The talk key does nothing to the views: pressing it is speaking,
+        // not flipping — even though it is the key that used to do both.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(keys::PUSH_TO_TALK.key);
+        app.update();
+        assert!(
+            !showing_3d(&mut app),
+            "{} must not flip the views",
+            keys::PUSH_TO_TALK.job
+        );
+        assert!(is_active(&mut app, map));
+        assert!(!is_active(&mut app, world) && !is_active(&mut app, blit));
+    }
 }

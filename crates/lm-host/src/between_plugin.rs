@@ -30,6 +30,7 @@ use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Mutex;
 use std::thread;
 
+use bevy::app::OnAppExitSystems;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lm_core::header::Header;
@@ -110,6 +111,14 @@ pub enum Between {
 #[derive(Resource, Default)]
 pub struct Inbox(pub Option<Mutex<Receiver<Result<BetweenModel, String>>>>);
 
+/// The flow's own thread, while it runs.
+///
+/// The app joins it on the way out ([`join_flow_on_exit`]): the flow's
+/// record is the last link of its chain, and a window closed mid-flow must
+/// not leave the ledger with a seal and a verdict but no record.
+#[derive(Resource, Default)]
+pub struct FlowThread(pub Option<thread::JoinHandle<()>>);
+
 /// The last round's log: the one the next round's deltas are against.
 #[derive(Resource, Default)]
 pub struct LastLog(pub Option<PathBuf>);
@@ -184,12 +193,21 @@ impl Plugin for BetweenPlugin {
             .insert_resource(self.next.clone())
             .init_resource::<Between>()
             .init_resource::<Inbox>()
+            .init_resource::<FlowThread>()
             .init_resource::<WindowOpen>()
             .init_resource::<LastLog>()
             .init_resource::<BetweenUi>()
             .add_systems(Update, start_flow.before(poll_flow))
             .add_systems(Update, poll_flow)
-            .add_systems(EguiPrimaryContextPass, between_window);
+            .add_systems(EguiPrimaryContextPass, between_window)
+            // A window closed while the flow runs waits for it here, so the
+            // chain the flow writes is whole on disk before the app is gone.
+            .add_systems(
+                Last,
+                join_flow_on_exit
+                    .in_set(OnAppExitSystems)
+                    .run_if(|messages: Res<Messages<AppExit>>| !messages.is_empty()),
+            );
     }
 }
 
@@ -200,6 +218,7 @@ impl Plugin for BetweenPlugin {
 fn start_flow(
     mut between: ResMut<Between>,
     mut inbox: ResMut<Inbox>,
+    mut flow_thread: ResMut<FlowThread>,
     last_log: Res<LastLog>,
     round: Res<Round>,
     recording: Res<Recording>,
@@ -222,10 +241,16 @@ fn start_flow(
     let (tx, rx) = channel();
     *inbox = Inbox(Some(Mutex::new(rx)));
     *between = Between::Running;
-    thread::spawn(move || {
+    // The flow's story is on the console too: the window says it between
+    // the rounds, and the console says it for the runs that never see one.
+    println!(
+        "lm-host: the learning flow is running (the round is measured and the proposal tested)"
+    );
+    let handle = thread::spawn(move || {
         let answer = run_the_flow(&settings, seed, previous);
         let _ = tx.send(answer);
     });
+    *flow_thread = FlowThread(Some(handle));
 }
 
 /// Run the flow on this thread: the round, the review, the test, the chain.
@@ -266,6 +291,7 @@ fn run_the_flow(
 fn poll_flow(
     mut between: ResMut<Between>,
     inbox: Res<Inbox>,
+    mut flow_thread: ResMut<FlowThread>,
     mut last_log: ResMut<LastLog>,
     mut open: ResMut<WindowOpen>,
 ) {
@@ -283,16 +309,42 @@ fn poll_flow(
             last_log.0 = Some(model.record().log_path.clone());
             open.0 = true;
             *between = Between::Ready(model);
+            flow_thread.0 = None;
         }
         Ok(Err(why)) => {
             open.0 = true;
             *between = Between::Failed(why);
+            flow_thread.0 = None;
         }
         Err(TryRecvError::Empty) => {}
         Err(TryRecvError::Disconnected) => {
             open.0 = true;
             *between = Between::Failed("the flow stopped without an answer".to_string());
+            flow_thread.0 = None;
         }
+    }
+}
+
+/// Wait for the flow when the window is closed mid-flow.
+///
+/// Killing the flow's thread mid-chain would leave the ledger with a seal
+/// and a verdict but no flow record — half a chain, on disk (the record is
+/// the last thing the flow writes). The smaller correct fix is to let the
+/// flow finish: the app waits here, briefly, and the chain lands whole.
+/// Cancelling cleanly instead would mean a new ledger entry for the abort
+/// and a half-written record schema, to save a wait the fixed flow made
+/// short.
+fn join_flow_on_exit(world: &mut World) {
+    let Some(handle) = world.resource_mut::<FlowThread>().0.take() else {
+        return;
+    };
+    println!("lm-host: the learning flow is still running; it finishes before the app closes");
+    let started = std::time::Instant::now();
+    if handle.join().is_ok() {
+        println!(
+            "lm-host: the flow is written down ({:?})",
+            started.elapsed()
+        );
     }
 }
 
@@ -311,7 +363,13 @@ fn between_window(
     let model = match &*between {
         Between::Ready(model) => model.clone(),
         Between::Running => {
+            // The waiting card. egui places a floating window by cascade
+            // from the top-left corner, where this one-line window used to
+            // land entirely inside the dark HUD bar and never be seen;
+            // anchoring it to the centre puts it over the map, where the
+            // person is looking, for as long as the flow runs.
             egui::Window::new("between rounds")
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .collapsible(false)
                 .resizable(false)
                 .show(&ctx, |ui| {
@@ -322,6 +380,7 @@ fn between_window(
         Between::Failed(why) => {
             let why = why.clone();
             egui::Window::new("between rounds")
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                 .open(&mut open.0)
                 .collapsible(false)
                 .resizable(false)

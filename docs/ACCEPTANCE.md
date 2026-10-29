@@ -13,25 +13,6 @@ the pass looked like.
 - **The two exes:** `.\target\release\lm-host.exe` (the game) and `.\target\release\lm.exe` (the CLI). Every command below runs from that directory.
 - Every round the host plays is recorded to `runs\<seed>-<unix-secs>.lml` and the path is printed when the round ends.
 
-## Known issues (seen while verifying, 2026-10-29)
-
-1. **`V` has two jobs in `--view both`.** `V` is push-to-talk
-   (`audio_plugin.rs`: `PUSH_TO_TALK = KeyCode::KeyV`) *and* the 2D↔3D view
-   flip in the `both` layout (`main.rs`: `enforce_view` fires on the same
-   key). Holding `V` to talk in `both` mode also flips the view. The comment
-   on `PUSH_TO_TALK` ("a key nobody else uses") is wrong in that layout. Do
-   the talk section (§3) in the plain 2D layout, where `V` only talks.
-2. **No "the flow is running" feedback between rounds.** While the learning
-   flow runs after a round ends, the code has a waiting window
-   ("the flow is running: the round is measured and the proposal tested"),
-   but it never appeared on screen in two verified runs — nothing shows until
-   the flow answers and the real `between rounds — …` window opens. Related:
-   the flow is slow while the host renders — about 30 s at `--learn-ticks 300`
-   (the same round headless, `lm learn --ticks 300`, takes ~2 s), minutes at
-   the default `--learn-ticks 1500`. Leave the window open: closing it while
-   the flow runs kills the thread mid-chain (the ledger gets the seal and
-   verdict but no flow record is written — seen on disk after two aborted runs).
-
 ## 1. The 2D map, the piano roll and the HUD (phase 2)
 
 ![the 2D host](notes/accept-2d.png)
@@ -112,6 +93,8 @@ the pass looked like.
 
 ## 4. A round ends into the between-round screen (phase 5)
 
+![the flow is running](notes/accept-between-waiting.png)
+
 ![between rounds](notes/accept-between.png)
 
 1. **Play a short round.**
@@ -121,9 +104,16 @@ the pass looked like.
    *Pass:* the round ends at tick 300 — the bar says `round over: a tie`, the
    console prints `lm-host: recorded runs\1-<secs>.lml`, and the app reopens
    its own log (the bottom panel says `replay — runs\…`, the bar says `replay`).
-   Then the learning flow runs for ~30 s (known issue 2: nothing shows while
-   it works — don't close the window), and a window opens:
-   **`between rounds — r1-<stamp>`**.
+   The same moment a small card opens over the middle of the map —
+   **`between rounds` / `the flow is running: the round is measured and the
+   proposal tested`** (the shot below), and the console prints
+   `lm-host: the learning flow is running (…)`. The flow takes ~1.5–2 s at
+   `--learn-ticks 300` (the first one in a fresh `runs\` tree can take
+   ~10–15 s while the disk and the scanner warm up), and when it answers the
+   card is replaced by the real window: **`between rounds — r1-<stamp>`**.
+   Closing the window while the flow runs is safe now: the app waits for the
+   flow (`the learning flow is still running; it finishes before the app
+   closes`) so the chain on disk is whole — try it once if you like.
 2. **Read the screen in order — the promise before the verdict.** *Pass:* top
    to bottom you find `round r1-… (seed 1)`; **what the round measured**
    (a grid of metrics with value and change, e.g. `hold_ticks_squad0 | 5 | +5`);
@@ -150,7 +140,7 @@ the pass looked like.
 5. (Optional, costs a cloud call) `--reviewer router` instead of the default
    `stub` sends the review to the cloud pool.
 
-## 5. The 3D view and `V` (phase 6)
+## 5. The 3D view and `B` (phase 6)
 
 ![3D](notes/accept-3d.png)
 
@@ -168,12 +158,14 @@ the pass looked like.
 2. **Both.** `.\target\release\lm-host.exe --view both --agents stub --possess 0`
    *Pass:* it opens on the **3D** view with the HUD bar and the piano roll
    riding over it (the shot below: `tick 61 … agents think 16 … | playing
-   agent 0` over the 3D world). Press **`V`**: the console prints
-   `lm-host: the 2D map view draws (V flips it)` and the same round is now the
+   agent 0` over the 3D world). Press **`B`**: the console prints
+   `lm-host: the 2D map view draws (B flips it)` and the same round is now the
    2D map — same tick, same scores, same lanes; the round never restarts.
-   `V` again flips back. *Fail:* the flip resets or pauses the round, or the
-   panels vanish in one of the two views. (Remember known issue 1: in `both`,
-   `V` is also push-to-talk.)
+   `B` again flips back. Holding `V` here only talks (§3): the flip key and
+   the talk key are two different keys, and a test in `keys.rs` fails the
+   build if any two of the host's bindings ever share a key again.
+   *Fail:* the flip resets or pauses the round, the panels vanish in one of
+   the two views, or `V` flips the view.
 
 ![both](notes/accept-both.png)
 

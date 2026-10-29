@@ -44,9 +44,11 @@ use crate::sim_plugin::Round;
 
 /// The key that talks: hold it and the microphone is open.
 ///
-/// It is a key nobody else uses, so the push-to-talk never fights with the
-/// map or the piano roll.
-pub const PUSH_TO_TALK: KeyCode = KeyCode::KeyV;
+/// The key is `V`, and it is the talk's alone — every key the host binds
+/// lives in one table ([`crate::keys`]), and a test there fails the day two
+/// bindings share a key. That is what keeps the microphone from flipping
+/// the 2D↔3D view under the person's voice.
+pub use crate::keys::PUSH_TO_TALK;
 
 /// How long the agents stay quiet after the human lets go of the key.
 ///
@@ -224,7 +226,7 @@ fn read_the_voice(
     let now_ms = (time.elapsed_secs() * 1000.0) as u64;
 
     // The key goes down: the turn starts and the capture begins.
-    if keys.just_pressed(PUSH_TO_TALK) {
+    if keys.just_pressed(PUSH_TO_TALK.key) {
         voice.turn.on_press(now_ms);
         // The gate hears the key too: from now on the agents are quiet.
         playback.gate.on_human_press(now_ms);
@@ -234,7 +236,7 @@ fn read_the_voice(
     }
 
     // The key comes up: the turn ends, and the capture is read.
-    if !keys.just_released(PUSH_TO_TALK) {
+    if !keys.just_released(PUSH_TO_TALK.key) {
         return;
     }
     voice.turn.on_release(now_ms);
@@ -303,7 +305,7 @@ fn sync_the_listener(mut round: ResMut<Round>, input: Res<Input>) {
 /// The clip that was playing stops where it is, and it does not come back:
 /// the gate drops the rest of the line, and the dropped clip is not queued.
 fn cut_the_audio(sinks: Query<&AudioSink>, keys: Res<ButtonInput<KeyCode>>) {
-    if !keys.just_pressed(PUSH_TO_TALK) {
+    if !keys.just_pressed(PUSH_TO_TALK.key) {
         return;
     }
     for sink in &sinks {

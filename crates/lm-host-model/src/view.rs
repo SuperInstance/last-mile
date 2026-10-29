@@ -2,7 +2,7 @@
 //! them (phase 6 Task 8).
 //!
 //! The mode is **data, not architecture**: `--view 2d|3d|both` picks the
-//! layout the app opens with, and `V` flips between the 2D map and the 3D
+//! layout the app opens with, and `B` flips between the 2D map and the 3D
 //! view while the round runs. A switch is a change to this resource and
 //! nothing else — the round, its tick and its recorder are not touched,
 //! cannot be touched, because [`ViewSwitch`] holds no round at all. That
@@ -69,7 +69,7 @@ impl ViewSwitch {
     /// The state an app that opened as `mode` starts in.
     ///
     /// `both` opens on the 3D view — the whole point of the layout is the
-    /// 3D view with panels, and the map is one `V` away.
+    /// 3D view with panels, and the map is one `B` away.
     pub fn new(mode: ViewMode) -> ViewSwitch {
         let current = match mode {
             ViewMode::Map2d => CurrentView::Map2d,

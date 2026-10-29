@@ -26,7 +26,7 @@
 //! 2D map's own rule (`lm_render::fog`, one shared implementation), the
 //! camera answers the same verbs the 2D map's does (WASD, drag, wheel,
 //! follow), and `--view both` lays the HUD and the piano roll over this
-//! view while `V` flips between it and the 2D map without touching the
+//! view while `B` flips between it and the 2D map without touching the
 //! round.
 
 pub mod agents;
@@ -45,6 +45,7 @@ use lm_host_model::input::{InputEvent, InputState, Viewer};
 use lm_render::palette::RenderConfig;
 use lm_render::palette::{Palette, UpscaleMode};
 
+use crate::keys::{FOLLOW, LET_GO, LET_GO_ESCAPE, PAN_BACK, PAN_FORWARD, PAN_LEFT, PAN_RIGHT};
 use crate::sim_plugin::Round;
 
 /// The sky: the world camera's clear colour, and the colour its distance
@@ -417,13 +418,13 @@ pub fn update_camera(
         if let Some(agent) = input.0.viewer.possessing().or(input.0.viewer.following()) {
             follow = Some(agent);
         }
-        if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Digit0) {
+        if keys.just_pressed(LET_GO_ESCAPE.key) || keys.just_pressed(LET_GO.key) {
             follow = None;
             rig.follow = None;
         }
 
         // `F` follows the agent under the pointer, the same key as the map.
-        if keys.just_pressed(KeyCode::KeyF) {
+        if keys.just_pressed(FOLLOW.key) {
             if let Some(under) = under_cursor {
                 let picked = sim
                     .agent_ids()
@@ -500,16 +501,16 @@ pub fn update_camera(
 
             // The keys pan.
             let mut pan = Vec2::ZERO;
-            if keys.pressed(KeyCode::KeyW) {
+            if keys.pressed(PAN_FORWARD.key) {
                 pan += forward;
             }
-            if keys.pressed(KeyCode::KeyS) {
+            if keys.pressed(PAN_BACK.key) {
                 pan -= forward;
             }
-            if keys.pressed(KeyCode::KeyD) {
+            if keys.pressed(PAN_RIGHT.key) {
                 pan += right;
             }
-            if keys.pressed(KeyCode::KeyA) {
+            if keys.pressed(PAN_LEFT.key) {
                 pan -= right;
             }
             let speed = rig.distance_m * PAN_PER_DISTANCE;

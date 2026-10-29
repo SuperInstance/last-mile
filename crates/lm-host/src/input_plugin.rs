@@ -8,11 +8,10 @@
 //!
 //! ## The keys
 //!
-//! * `1`..`8` play as an agent (agent 0 is `1`).
-//! * `0` or `Esc` let go of the agent being played.
-//! * `H` holds the ground of the agent being played.
-//! * `F` follows the agent under the pointer.
-//! * `Tab` toggles between watching and playing.
+//! Every key the host binds lives in [`crate::keys`], one job per key. Here
+//! that means: `1`..`8` play as an agent (agent 0 is `1`), `0` or `Esc` let
+//! go, `H` holds the ground, `F` follows the agent under the pointer, `Tab`
+//! toggles between watching and playing, and `WASD` pans the camera.
 //!
 //! ## The mouse
 //!
@@ -25,6 +24,11 @@ use bevy::input::mouse::{MouseButton, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use lm_host_model::input::{InputEvent, InputState, Viewer};
+
+use crate::keys::{
+    FOLLOW, HOLD, LET_GO, LET_GO_ESCAPE, PAN_BACK, PAN_FORWARD, PAN_LEFT, PAN_RIGHT, POSSESS,
+    TOGGLE_PLAY,
+};
 
 use crate::map_plugin::{cursor_cell, hovered_agent, CameraRig, CurrentMap, Layout, TileLayer};
 use crate::sim_plugin::Round;
@@ -112,17 +116,9 @@ fn read_input(
     let cursor = window.cursor_position();
 
     // The keys that play an agent.
-    for (key, agent) in [
-        (KeyCode::Digit1, 0u16),
-        (KeyCode::Digit2, 1),
-        (KeyCode::Digit3, 2),
-        (KeyCode::Digit4, 3),
-        (KeyCode::Digit5, 4),
-        (KeyCode::Digit6, 5),
-        (KeyCode::Digit7, 6),
-        (KeyCode::Digit8, 7),
-    ] {
-        if keys.just_pressed(key) {
+    for (agent, binding) in POSSESS.iter().enumerate() {
+        if keys.just_pressed(binding.key) {
+            let agent = agent as u16;
             last.0 = Some(agent);
             apply(
                 &mut input,
@@ -134,17 +130,17 @@ fn read_input(
     }
 
     // Letting go of the agent being played.
-    if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(LET_GO.key) || keys.just_pressed(LET_GO_ESCAPE.key) {
         apply(&mut input, &mut round, InputEvent::Release, &mut status);
     }
 
     // Standing still.
-    if keys.just_pressed(KeyCode::KeyH) {
+    if keys.just_pressed(HOLD.key) {
         apply(&mut input, &mut round, InputEvent::Hold, &mut status);
     }
 
     // Watching the agent under the pointer.
-    if keys.just_pressed(KeyCode::KeyF) {
+    if keys.just_pressed(FOLLOW.key) {
         if let Some(cursor) = cursor {
             if let Some(agent) = hovered_agent(&rig, &layout, &map, cursor) {
                 if round.live.is_some() {
@@ -167,7 +163,7 @@ fn read_input(
     }
 
     // Watching and playing, one or the other.
-    if keys.just_pressed(KeyCode::Tab) {
+    if keys.just_pressed(TOGGLE_PLAY.key) {
         match input.0.possessing() {
             Some(agent) => {
                 last.0 = Some(agent);
@@ -187,7 +183,7 @@ fn read_input(
     }
 
     // The pointer and the 2D camera belong to the 2D map. When the 3D view
-    // is the one on screen (`--view both`, flipped with `V`), its own
+    // is the one on screen (`--view both`, flipped with `B`), its own
     // camera controller answers these same verbs in depth — this plugin
     // must not read them against a map that is not drawn.
     let map_shown = views.map(|views| !views.0.showing_3d()).unwrap_or(true);
@@ -245,16 +241,16 @@ fn read_input(
 
     // The keys pan the camera.
     let mut pan = Vec2::ZERO;
-    if keys.pressed(KeyCode::KeyW) {
+    if keys.pressed(PAN_FORWARD.key) {
         pan.y += 1.0;
     }
-    if keys.pressed(KeyCode::KeyS) {
+    if keys.pressed(PAN_BACK.key) {
         pan.y -= 1.0;
     }
-    if keys.pressed(KeyCode::KeyA) {
+    if keys.pressed(PAN_LEFT.key) {
         pan.x -= 1.0;
     }
-    if keys.pressed(KeyCode::KeyD) {
+    if keys.pressed(PAN_RIGHT.key) {
         pan.x += 1.0;
     }
     if free && pan != Vec2::ZERO {
