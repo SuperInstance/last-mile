@@ -5,6 +5,7 @@
 //! roster and same reflex sources — so the header hash is the round's
 //! identity.
 
+use crate::decision::{Source, Tick};
 use crate::hash::{Fnv64, StateHash};
 use crate::params::Params;
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,84 @@ impl StateHash for RosterEntry {
     }
 }
 
+/// One change a branch makes when its tick comes (see [`Lineage`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LineageChange {
+    /// Run the reflex source `src` under the name `name` from the change's
+    /// tick on, for every roster entry that names it.
+    Reflex { name: String, src: String },
+    /// Set one parameter field, from the mid-round whitelist
+    /// ([`Params::set_branchable`](crate::params::Params::set_branchable)).
+    Param { field: String, value: i64 },
+    /// Stop applying the decisions of `source` from the change's tick on.
+    DropDecisions { source: Source },
+}
+
+impl StateHash for LineageChange {
+    fn hash_into(&self, h: &mut Fnv64) {
+        match self {
+            LineageChange::Reflex { name, src } => {
+                h.write(&[0]);
+                write_str(h, name);
+                write_str(h, src);
+            }
+            LineageChange::Param { field, value } => {
+                h.write(&[1]);
+                write_str(h, field);
+                h.i64(*value);
+            }
+            LineageChange::DropDecisions { source } => {
+                h.write(&[2]);
+                source.hash_into(h);
+            }
+        }
+    }
+}
+
+/// Where a round came from: a branch of an earlier round.
+///
+/// A branch is the permanent test of the design (`lm branch`): watch a
+/// stretch of play, change one rule, re-run, and see the intended
+/// difference. The lineage is how a branch's header says which round it
+/// forked and what it changed, so a branch log replays from its own header
+/// alone: the changes fire on their ticks during the replay, exactly as
+/// they fired the first time.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Lineage {
+    /// The hash of the parent round's header.
+    pub parent_header: u64,
+    /// The hash of the parent round's last segment; 0 when the parent log
+    /// recorded no segments.
+    pub parent_head: u64,
+    /// The tick the branch forks on: the changes below fire when it begins.
+    pub at: Tick,
+    /// The changes of this fork, applied in order.
+    pub changes: Vec<LineageChange>,
+    /// The parent's own lineage, when the parent was itself a branch: the
+    /// chain records every ancestor back to the root round.
+    #[serde(default)]
+    pub prior: Option<Box<Lineage>>,
+}
+
+impl StateHash for Lineage {
+    fn hash_into(&self, h: &mut Fnv64) {
+        h.u64(self.parent_header);
+        h.u64(self.parent_head);
+        h.u64(self.at);
+        h.u32(self.changes.len() as u32);
+        for change in &self.changes {
+            change.hash_into(h);
+        }
+        match &self.prior {
+            None => h.write(&[0]),
+            Some(prior) => {
+                h.write(&[1]);
+                prior.hash_into(h);
+            }
+        }
+    }
+}
+
 /// Everything a round is decided by, in declaration order for the hash.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Header {
@@ -71,6 +150,12 @@ pub struct Header {
     /// Reflex scripts by name; `RosterEntry::reflex` indexes into this map.
     pub scripts: BTreeMap<String, String>,
     pub start_tick: u64,
+    /// Where this round came from: `None` for a round that started at
+    /// `start_tick`, `Some` for a branch of an earlier round. The field is
+    /// hashed — and joined the round's identity — only when it is present,
+    /// so every header hashed before it existed keeps its hash.
+    #[serde(default)]
+    pub lineage: Option<Lineage>,
 }
 
 impl Header {
@@ -103,6 +188,7 @@ impl Header {
             roster,
             scripts,
             start_tick: 0,
+            lineage: None,
         }
     }
 
@@ -128,6 +214,13 @@ impl StateHash for Header {
             write_str(h, src);
         }
         h.u64(self.start_tick);
+        // A branch's lineage joins the identity only when it is there: a
+        // `None` adds no bytes, so the hash of every header serialized
+        // before the field existed is unchanged.
+        if let Some(lineage) = &self.lineage {
+            h.write(&[1]);
+            lineage.hash_into(h);
+        }
     }
 }
 
@@ -206,8 +299,76 @@ mod tests {
         let mut v = base.clone();
         v.params.win_score = 1;
         variants.push(v);
+        let mut v = base.clone();
+        v.lineage = Some(Lineage {
+            parent_header: 7,
+            parent_head: 9,
+            at: 5,
+            changes: Vec::new(),
+            prior: None,
+        });
+        variants.push(v);
         for v in &variants {
             assert_ne!(base.hash(), v.hash());
         }
+    }
+
+    #[test]
+    fn lineage_joins_the_hash_only_when_present() {
+        let a = Header::default_round(1, "fn reflex(v){}");
+        let mut b = a.clone();
+        // Two headers with no lineage hash alike...
+        assert_eq!(a.hash(), b.hash());
+        // ...and the lineage, when it appears, is the round's new identity.
+        b.lineage = Some(Lineage {
+            parent_header: 7,
+            parent_head: 9,
+            at: 5,
+            changes: vec![LineageChange::Reflex {
+                name: "default".to_owned(),
+                src: "fn reflex(v){ #{ hold: true } }".to_owned(),
+            }],
+            prior: None,
+        });
+        assert_ne!(a.hash(), b.hash());
+        // The lineage itself is covered field by field.
+        let mut c = b.clone();
+        c.lineage.as_mut().expect("just set").at = 6;
+        assert_ne!(b.hash(), c.hash());
+
+        // The header survives the log's codec, both with a lineage and
+        // without one.
+        let bytes = postcard::to_allocvec(&b).expect("the header encodes");
+        let back: Header = postcard::from_bytes(&bytes).expect("the header decodes");
+        assert_eq!(back, b);
+        let bytes = postcard::to_allocvec(&a).expect("the header encodes");
+        let back: Header = postcard::from_bytes(&bytes).expect("the header decodes");
+        assert_eq!(back, a);
+
+        // A header blob written before the field existed is refused, loudly
+        // and by name when it is read as part of a log — postcard is not
+        // self-describing, so the absent trailing `Option` is a short buffer,
+        // never a silently missing lineage.
+        #[derive(Serialize)]
+        struct OldHeader<'a> {
+            proto_version: u16,
+            seed: u64,
+            params: &'a Params,
+            ruleset: &'a str,
+            roster: &'a [RosterEntry],
+            scripts: &'a BTreeMap<String, String>,
+            start_tick: u64,
+        }
+        let old_bytes = postcard::to_allocvec(&OldHeader {
+            proto_version: a.proto_version,
+            seed: a.seed,
+            params: &a.params,
+            ruleset: &a.ruleset,
+            roster: &a.roster,
+            scripts: &a.scripts,
+            start_tick: a.start_tick,
+        })
+        .expect("the old header encodes");
+        assert!(postcard::from_bytes::<Header>(&old_bytes).is_err());
     }
 }

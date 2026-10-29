@@ -98,6 +98,14 @@ pub trait ScriptRuntime {
     /// stops the round before it starts.
     fn load(&mut self, name: &str, src: &str) -> Result<(), ScriptError>;
 
+    /// Check the script `src` without loading it.
+    ///
+    /// A branch round carries its replacement scripts in the header's
+    /// lineage and swaps them in mid-round; they are checked the same way
+    /// at round setup, so a broken script stops the round before it starts
+    /// instead of failing — or silently not failing — halfway through.
+    fn check(&mut self, name: &str, src: &str) -> Result<(), ScriptError>;
+
     /// Run the reflex `name` on `view` with `fuel` operations of budget.
     ///
     /// The budget belongs to this call alone: running out of fuel cuts the
@@ -123,16 +131,9 @@ impl RhaiRuntime {
             scripts: BTreeMap::new(),
         }
     }
-}
 
-impl Default for RhaiRuntime {
-    fn default() -> Self {
-        RhaiRuntime::new()
-    }
-}
-
-impl ScriptRuntime for RhaiRuntime {
-    fn load(&mut self, name: &str, src: &str) -> Result<(), ScriptError> {
+    /// Compile a script and check it defines the entry point.
+    fn compile(&self, name: &str, src: &str) -> Result<AST, ScriptError> {
         let ast = self
             .engine
             .compile(src)
@@ -143,8 +144,25 @@ impl ScriptRuntime for RhaiRuntime {
         if !has_entry {
             return Err(ScriptError::NoEntryPoint(name.to_owned()));
         }
+        Ok(ast)
+    }
+}
+
+impl Default for RhaiRuntime {
+    fn default() -> Self {
+        RhaiRuntime::new()
+    }
+}
+
+impl ScriptRuntime for RhaiRuntime {
+    fn load(&mut self, name: &str, src: &str) -> Result<(), ScriptError> {
+        let ast = self.compile(name, src)?;
         self.scripts.insert(name.to_owned(), ast);
         Ok(())
+    }
+
+    fn check(&mut self, name: &str, src: &str) -> Result<(), ScriptError> {
+        self.compile(name, src).map(|_| ())
     }
 
     fn reflex(&mut self, name: &str, view: &ScoreView, fuel: u64) -> ReflexOut {
@@ -662,6 +680,39 @@ mod tests {
         rt.load("quiet", "fn reflex(v){ }")
             .expect("the script parses");
         let view = view(cell(1, 1), &[(cell(5, 5), None)], &[]);
+        assert_eq!(rt.reflex("quiet", &view, 10_000), ReflexOut::Nothing);
+    }
+
+    #[test]
+    fn check_compiles_without_loading() {
+        let mut rt = RhaiRuntime::new();
+        let view = view(cell(1, 1), &[(cell(5, 5), None)], &[]);
+
+        // A script that does not parse, and one that parses but defines no
+        // entry point, are both refused by `check` alone.
+        assert!(matches!(
+            rt.check("broken", "fn ("),
+            Err(ScriptError::Parse(_))
+        ));
+        assert!(matches!(
+            rt.check("noentry", "fn other(v){ v }"),
+            Err(ScriptError::NoEntryPoint(_))
+        ));
+
+        // Neither was loaded: the runtime still does not know them.
+        assert!(matches!(
+            rt.reflex("broken", &view, 10_000),
+            ReflexOut::Refused(_)
+        ));
+
+        // A good script checks, and still is not loaded until `load` says so.
+        assert!(rt.check("quiet", "fn reflex(v){ }").is_ok());
+        assert!(matches!(
+            rt.reflex("quiet", &view, 10_000),
+            ReflexOut::Refused(_)
+        ));
+        rt.load("quiet", "fn reflex(v){ }")
+            .expect("the script loads");
         assert_eq!(rt.reflex("quiet", &view, 10_000), ReflexOut::Nothing);
     }
 }

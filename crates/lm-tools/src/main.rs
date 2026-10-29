@@ -1,11 +1,30 @@
 //! The `lm` CLI.
 //!
-//! Phase 1 ships one subcommand: `gen-trig`, which writes the Q14 sine table
-//! that `lm-core` commits. The table is generated on the host (where floating
-//! point is allowed) and committed as a literal, so the simulation never
-//! computes a sine and every machine reads identical bytes.
+//! Six subcommands:
+//!
+//! * `lm run` plays a headless round and writes its log;
+//! * `lm replay` replays a log and checks every hash it recorded;
+//! * `lm diff` compares two logs and names the first tick that moves;
+//! * `lm golden` checks (or writes) the pinned golden hashes;
+//! * `lm branch` rewinds a round to a tick, changes one thing and re-runs
+//!   it;
+//! * `lm gen-trig` writes the Q14 sine table that `lm-core` commits.
+//!
+//! The table is generated on the host (where floating point is allowed) and
+//! committed as a literal, so the simulation never computes a sine and every
+//! machine reads identical bytes.
 
-use lm_core::hash::Fnv64;
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use clap::{Parser, Subcommand};
+use lm_core::header::Header;
+use lm_core::log::RoundLog;
+use lm_tools::branch::Change;
+use lm_tools::runner::{self, Golden, ReplayError, DEFAULT_REFLEX, GOLDEN_TICKS};
 
 /// Angle units in a full turn.
 const ANGLE_TURN: f64 = 65_536.0;
@@ -30,18 +49,369 @@ const FILE_HEADER: &str = "\
 //! and ARM read the same bytes, and `TRIG_TABLE_HASH` pins its contents.
 ";
 
-fn main() {
-    let mut args = std::env::args().skip(1);
-    match args.next().as_deref() {
-        Some("gen-trig") => print!("{}", gen_trig()),
-        Some(other) => {
-            eprintln!("lm: unknown command `{other}`");
-            eprintln!("usage: lm gen-trig");
-            std::process::exit(2);
+/// The `lm` command line.
+#[derive(Parser, Debug)]
+#[command(
+    name = "lm",
+    version,
+    about = "The last-mile tools: run, replay, diff and golden-check headless rounds."
+)]
+struct Cli {
+    /// The subcommand to run.
+    #[command(subcommand)]
+    command: Command,
+}
+
+/// The subcommands of `lm`.
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Play a headless round and write its log.
+    Run {
+        /// The seed of the round.
+        #[arg(long)]
+        seed: u64,
+        /// How many ticks the round may run. 0 plays an empty round: a valid
+        /// log with a header and no ticks, which replays as `OK 0 hashes`.
+        #[arg(long)]
+        ticks: u64,
+        /// A JSON Lines file of decisions to inject.
+        #[arg(long)]
+        inject: Option<PathBuf>,
+        /// Where the round log is written.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Replay a round log and check every hash it recorded.
+    Replay {
+        /// The round log to replay.
+        file: PathBuf,
+    },
+    /// Compare two round logs.
+    Diff {
+        /// The first round log.
+        a: PathBuf,
+        /// The second round log.
+        b: PathBuf,
+    },
+    /// Check the pinned golden hashes, or write them.
+    Golden {
+        /// Write the golden file instead of checking it.
+        #[arg(long)]
+        write: bool,
+        /// The golden file; the workspace one by default.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Rewind a round to a tick, change one thing and re-run it.
+    Branch {
+        /// The round log to branch from.
+        parent: PathBuf,
+        /// The tick the changes apply on.
+        #[arg(long)]
+        at: u64,
+        /// Replace a reflex: NAME=FILE, the file holding the new source.
+        /// Repeatable.
+        #[arg(long = "reflex", value_name = "NAME=FILE")]
+        reflexes: Vec<String>,
+        /// Set a whitelisted parameter: FIELD=VALUE. Repeatable.
+        #[arg(long = "param", value_name = "FIELD=VALUE")]
+        params: Vec<String>,
+        /// Where the branch log is written.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Print the Q14 sine table that `lm-core` commits.
+    GenTrig,
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    match cli.command {
+        Command::Run {
+            seed,
+            ticks,
+            inject,
+            out,
+        } => cmd_run(seed, ticks, inject, out),
+        Command::Replay { file } => cmd_replay(file),
+        Command::Diff { a, b } => cmd_diff(a, b),
+        Command::Golden { write, file } => cmd_golden(write, file),
+        Command::Branch {
+            parent,
+            at,
+            reflexes,
+            params,
+            out,
+        } => cmd_branch(parent, at, reflexes, params, out),
+        Command::GenTrig => {
+            print!("{}", gen_trig());
+            ExitCode::SUCCESS
+        }
+    }
+}
+
+/// Branch a round, write the branch log and say what the change did.
+fn cmd_branch(
+    parent: PathBuf,
+    at: u64,
+    reflexes: Vec<String>,
+    params: Vec<String>,
+    out: PathBuf,
+) -> ExitCode {
+    let Some(log) = read_log(&parent) else {
+        return ExitCode::FAILURE;
+    };
+
+    let mut changes = Vec::new();
+    for arg in &reflexes {
+        let Some((name, file)) = split_arg(arg) else {
+            eprintln!("lm: --reflex {arg:?}: expected NAME=FILE");
+            return ExitCode::FAILURE;
+        };
+        let src = match std::fs::read_to_string(file) {
+            Ok(src) => src,
+            Err(err) => {
+                eprintln!("lm: cannot read {file}: {err}");
+                return ExitCode::FAILURE;
+            }
+        };
+        changes.push(Change::Reflex {
+            name: name.to_owned(),
+            src,
+        });
+    }
+    for arg in &params {
+        let Some((field, raw)) = split_arg(arg) else {
+            eprintln!("lm: --param {arg:?}: expected FIELD=VALUE");
+            return ExitCode::FAILURE;
+        };
+        let Ok(value) = raw.trim().parse::<i64>() else {
+            eprintln!("lm: --param {arg:?}: {raw:?} is not a whole number");
+            return ExitCode::FAILURE;
+        };
+        changes.push(Change::Param {
+            field: field.to_owned(),
+            value,
+        });
+    }
+
+    let (child, report) = match lm_tools::branch::branch(&log, at, &changes) {
+        Ok(branch) => branch,
+        Err(err) => {
+            eprintln!("lm: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut file = match File::create(&out) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("lm: cannot write {}: {err}", out.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(err) = child.write(&mut file) {
+        eprintln!("lm: cannot write {}: {err}", out.display());
+        return ExitCode::FAILURE;
+    }
+
+    println!(
+        "branched {} at tick {at} into {}",
+        parent.display(),
+        out.display()
+    );
+    println!("{report}");
+    ExitCode::SUCCESS
+}
+
+/// Split a `NAME=VALUE` argument into its two halves.
+fn split_arg(arg: &str) -> Option<(&str, &str)> {
+    let (name, value) = arg.split_once('=')?;
+    let name = name.trim();
+    if name.is_empty() || value.is_empty() {
+        return None;
+    }
+    Some((name, value))
+}
+
+/// Play a round, write its log and say what happened.
+fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> ExitCode {
+    let mut injections = Vec::new();
+    if let Some(path) = &inject {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(err) => {
+                eprintln!("lm: cannot read {}: {err}", path.display());
+                return ExitCode::FAILURE;
+            }
+        };
+        match runner::parse_injections(&text) {
+            Ok(parsed) => injections = parsed,
+            Err(err) => {
+                eprintln!("lm: {err}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
+    let header = Header::default_round(seed, DEFAULT_REFLEX);
+    let (log, stats) = runner::run(header, ticks, &injections);
+
+    let mut file = match File::create(&out) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("lm: cannot write {}: {err}", out.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(err) = log.write(&mut file) {
+        eprintln!("lm: cannot write {}: {err}", out.display());
+        return ExitCode::FAILURE;
+    }
+
+    println!(
+        "seed {seed}: {} ticks, {} hashes, {} decisions ({})",
+        stats.ticks,
+        stats.hashes,
+        stats.on_time + stats.late,
+        describe(&stats)
+    );
+    println!("wrote {}", out.display());
+    ExitCode::SUCCESS
+}
+
+/// A short description of how the round went.
+fn describe(stats: &runner::RunStats) -> String {
+    let mut text = format!("scores {:?}", stats.scores);
+    if stats.ticks == 0 {
+        // A round of zero ticks is still a round: the log has a header and no
+        // segments, and it replays as `OK 0 hashes`.
+        text = format!("empty round, {text}");
+    }
+    if stats.stale > 0 || stats.refused > 0 {
+        text.push_str(&format!(
+            ", {} refused ({} stale)",
+            stats.refused, stats.stale
+        ));
+    }
+    if let Some(outcome) = &stats.outcome {
+        text.push_str(&format!(
+            ", over at tick {} (winner {:?})",
+            outcome.tick, outcome.winner
+        ));
+    }
+    text
+}
+
+/// Replay a log and report what the replay saw.
+fn cmd_replay(file: PathBuf) -> ExitCode {
+    let Some(log) = read_log(&file) else {
+        return ExitCode::FAILURE;
+    };
+    match runner::replay(&log) {
+        Ok(hashes) => {
+            println!("OK {} hashes", hashes.len());
+            ExitCode::SUCCESS
+        }
+        Err(err @ ReplayError::Diverged { tick, .. }) => {
+            println!("DIVERGED at tick {tick}");
+            eprintln!("lm: {err}");
+            ExitCode::FAILURE
+        }
+        Err(err) => {
+            eprintln!("lm: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Compare two logs and name the first tick that moves.
+fn cmd_diff(a: PathBuf, b: PathBuf) -> ExitCode {
+    let (Some(left), Some(right)) = (read_log(&a), read_log(&b)) else {
+        return ExitCode::FAILURE;
+    };
+    match runner::diff(&left, &right) {
+        Some((tick, x, y)) => {
+            println!("DIFFER at tick {tick}: {x:#018x} != {y:#018x}");
+            ExitCode::FAILURE
         }
         None => {
-            eprintln!("usage: lm gen-trig");
-            std::process::exit(2);
+            println!("IDENTICAL");
+            ExitCode::SUCCESS
+        }
+    }
+}
+
+/// Check the pinned golden hashes, or write them.
+fn cmd_golden(write: bool, file: Option<PathBuf>) -> ExitCode {
+    let path = file.unwrap_or_else(runner::golden_path);
+
+    if write {
+        let mut golden = Golden {
+            ticks: GOLDEN_TICKS,
+            golden: BTreeMap::new(),
+        };
+        for (seed, hash) in runner::golden_hashes(GOLDEN_TICKS) {
+            golden
+                .golden
+                .insert(seed.to_string(), format!("{hash:#018x}"));
+        }
+        if let Err(err) = golden.write(&path) {
+            eprintln!("lm: {err}");
+            return ExitCode::FAILURE;
+        }
+        println!("wrote {} seeds to {}", golden.golden.len(), path.display());
+        return ExitCode::SUCCESS;
+    }
+
+    let golden = match Golden::read(&path) {
+        Ok(golden) => golden,
+        Err(err) => {
+            eprintln!("lm: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // The file says how long its rounds ran; that is the round to compare.
+    let ticks = if golden.ticks == 0 {
+        GOLDEN_TICKS
+    } else {
+        golden.ticks
+    };
+    let computed = runner::golden_hashes(ticks);
+    let mut ok = 0usize;
+    for (seed, hash) in &computed {
+        match golden.hash_of(*seed) {
+            Ok(pinned) if pinned == *hash => ok += 1,
+            Ok(pinned) => {
+                println!("seed {seed}: golden says {pinned:#018x}, the round says {hash:#018x}")
+            }
+            Err(err) => println!("seed {seed}: {err}"),
+        }
+    }
+    if ok == computed.len() {
+        println!("OK {ok}/{}", computed.len());
+        ExitCode::SUCCESS
+    } else {
+        println!("{ok}/{} seeds match", computed.len());
+        ExitCode::FAILURE
+    }
+}
+
+/// Read a round log, saying why it could not be read.
+fn read_log(path: &Path) -> Option<RoundLog> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("lm: cannot read {}: {err}", path.display());
+            return None;
+        }
+    };
+    let mut reader = BufReader::new(file);
+    match runner::read_log(&mut reader) {
+        Ok(log) => Some(log),
+        Err(err) => {
+            eprintln!("lm: {}: {err}", path.display());
+            None
         }
     }
 }
@@ -85,7 +455,7 @@ fn sine_table() -> Vec<i32> {
 
 /// The canonical hash of the table: FNV-1a 64 over its little-endian bytes.
 fn table_hash(values: &[i32]) -> u64 {
-    let mut h = Fnv64::new();
+    let mut h = lm_core::hash::Fnv64::new();
     for v in values {
         h.i32(*v);
     }
@@ -95,6 +465,16 @@ fn table_hash(values: &[i32]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn branch_args_split_on_the_first_equals() {
+        assert_eq!(split_arg("squad0=hold.rhai"), Some(("squad0", "hold.rhai")));
+        // A path may itself contain '='; the name may not be empty.
+        assert_eq!(split_arg("a=b=c"), Some(("a", "b=c")));
+        assert_eq!(split_arg("=x"), None);
+        assert_eq!(split_arg("x="), None);
+        assert_eq!(split_arg("no-equals"), None);
+    }
 
     #[test]
     #[cfg(target_arch = "x86_64")] // host libm sin may differ on other arches; TRIG_TABLE_HASH is the cross-arch check

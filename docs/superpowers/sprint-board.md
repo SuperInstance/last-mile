@@ -22,15 +22,15 @@
 | — | Determinism audit (read-only) | ZCode | ✅ | No divergence; 2 risks and 4 nits fixed (`0c500b0`) |
 | 12 | Hash-chained round log | MiniMax | ✅ | |
 | 13 | lm-proto codec + handshake | MiniMax | ✅ | |
-| 14 | `lm` CLI: run/replay/diff/golden; end-to-end proof | MiniMax | 🔨 | Golden hashes regenerate after the reflex fix |
-| 15 | `lm branch` (the permanent test) | — | ⏳ after 14 | From Grok's review |
+| 14 | `lm` CLI: run/replay/diff/golden; end-to-end proof | MiniMax | ✅ | 176 tests; golden re-pinned against the retuned reflex. **Phase 1 done-when met** (D52) |
+| 15 | `lm branch` (the permanent test) | ZCode | 🔨 | From Grok's review |
 
 ## Phase 2: Host + 2D ([plan](plans/2026-10-28-m1-phase2-host.md)), branch `phase2-host`
 
 | Task | What | Seat | Status | Notes |
 |---|---|---|---|---|
 | 1 | Bevy 0.20.1 spike + Windows build script + API notes | ZCode | 🔨 | Builds on Windows from a mirrored copy; verified by screenshot PNG |
-| 2 | lm-tools as a library + host loop | — | ⏳ after P1-14 | |
+| 2 | lm-tools as a library + host loop | MiniMax | 🔨 | lm-tools is already a library (Task 14) |
 | 3 | Input → decisions, possession | — | ⏳ after P2-2 | |
 | 4 | Map model (fog, interpolation) | — | ⏳ after P2-2 | Can run in parallel with 3 and 5 |
 | 5 | Piano roll + replay scrubber | — | ⏳ after P2-2 | |

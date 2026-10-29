@@ -19,4 +19,10 @@ cargo test --workspace
 echo "==> cargo test (release)"
 cargo test --workspace --release
 
+echo "==> lm golden"
+cargo run --release --bin lm -- golden
+
+echo "==> acceptance session"
+bash scripts/acceptance.sh
+
 echo "==> all checks passed"
