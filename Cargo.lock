@@ -543,6 +543,7 @@ name = "lm-learn"
 version = "0.1.0"
 dependencies = [
  "lm-core",
+ "lm-tools",
  "regex",
  "serde",
  "serde_json",
