@@ -52,7 +52,7 @@ pub use rules::{Beacons, Event, Outcome, Refusal, RefusalKind, RhaiRuleset, Rule
 pub use sched::{lead_ticks, Reject, SchedStats, Sequencer};
 pub use script::{ReflexOut, RhaiRuntime, ScriptError, ScriptRuntime};
 pub use sim::{Sim, SimStats, StepOut};
-pub use talk::{ListenerRecord, TalkParams, TalkRecord};
+pub use talk::{talk_metrics, ListenerRecord, SquadTalk, TalkMetrics, TalkParams, TalkRecord};
 pub use trig_table::{SIN_Q14, TRIG_TABLE_HASH};
 // The speech intent is `TalkIntent` at the crate root: `Intent` already
 // names the decision's plan (the thing an agent intends to do), and the

@@ -47,7 +47,7 @@ use crate::rng::{Domain, Rng};
 use crate::rules::{Event, Outcome, Refusal, Ruleset};
 use crate::script::{ReflexOut, RhaiRuntime, ScriptRuntime};
 use crate::talk::{ListenerRecord, TalkParams, TalkRecord, AIRTIME_ON_EXHAUST_FREEZE};
-use crate::utterance::{Addressee, Channel, Heard, Subject, Utterance};
+use crate::utterance::{Addressee, Channel, Heard, Intent, Subject, Utterance};
 use crate::view::{menu, option_cmd, AgentSnap, BeaconSnap, ScoreView, SquadKnowledge};
 use crate::world::{CellXY, World};
 use std::collections::{BTreeMap, BTreeSet};
@@ -96,6 +96,25 @@ pub struct SimStats {
 /// and has room to spread out on the way in.
 const SPAWN_OFFSETS: [(i32, i32); 4] = [(0, 0), (2, 0), (0, 2), (2, 2)];
 
+/// An order whose uptake window is still open, waiting to be obeyed.
+///
+/// The sim watches the addressees' motor commands from the line's end to
+/// `order_uptake_window_ticks` later (D49): an order is taken up when an
+/// addressee who *heard* it — only a listener has a record to mark — walks
+/// to the cell of the beacon it names. The observation is bookkeeping, not
+/// game state: it marks the talk records and never touches the hash.
+#[derive(Clone, Debug)]
+struct PendingOrder {
+    /// The index of the order's record in `Sim::talk_records`.
+    record: usize,
+    /// The cell of the beacon the order names.
+    beacon: CellXY,
+    /// The tick the window closes on: the line's end plus the window.
+    until: Tick,
+    /// The agents whose walk counts as uptake: the line's addressees.
+    addressees: BTreeSet<u16>,
+}
+
 /// A round in flight.
 pub struct Sim {
     /// The seed every random stream of the round is derived from.
@@ -115,6 +134,8 @@ pub struct Sim {
     heard: Vec<Vec<Heard>>,
     /// The bookkeeping of the talk: every line the round heard.
     talk_records: Vec<TalkRecord>,
+    /// The orders whose uptake window is still open.
+    pending_orders: Vec<PendingOrder>,
     /// The rules that score the round.
     ruleset: Box<dyn Ruleset>,
     /// The reflex scripts of the round, by name.
@@ -236,6 +257,7 @@ impl Sim {
             knowledge,
             heard: (0..agent_count).map(|_| Vec::new()).collect(),
             talk_records: Vec::new(),
+            pending_orders: Vec::new(),
             ruleset,
             runtime,
             reflex_names,
@@ -360,7 +382,9 @@ impl Sim {
             self.update_knowledge(now);
         }
 
-        // 3. The agents, in the tick's rotating order.
+        // 3. The agents, in the tick's rotating order. The uptake windows
+        //    that closed leave the bookkeeping before the walk is watched.
+        self.pending_orders.retain(|order| now <= order.until);
         let order = self.order(now);
         for index in &order {
             // An agent whose airtime is spent stops acting when the round
@@ -375,7 +399,10 @@ impl Sim {
             };
             let agent = &mut self.agents[*index];
             let cmd = agent.choose_cmd(now, cmd);
-            agent.move_step(cmd, &self.world, &self.params, now);
+            // The motor command is the uptake: an addressee who heard an
+            // order and now walks to its beacon has taken it up.
+            self.observe_uptake(*index, cmd, now);
+            self.agents[*index].move_step(cmd, &self.world, &self.params, now);
         }
 
         // 4. The rules.
@@ -644,6 +671,8 @@ impl Sim {
                 words_heard: u16::try_from(copy.words.len()).unwrap_or(u16::MAX),
                 act_known: copy.act.is_some(),
                 intent_known: copy.intent.is_some(),
+                // The uptake is observed later, from the addressee's walk.
+                took_up: false,
             });
         }
 
@@ -667,6 +696,7 @@ impl Sim {
         self.talk_records.push(TalkRecord {
             id: u.state_hash(),
             speaker: u.speaker,
+            squad: speaker_squad,
             at_tick: now,
             ended_tick: now + u64::from(u.duration_ticks()),
             channel: u.channel,
@@ -678,6 +708,101 @@ impl Sim {
             duration_ticks: u.duration_ticks(),
             listeners,
         });
+
+        // An order about a beacon stays live: from the line's end, the sim
+        // watches the addressees' motor commands for the walk that obeys
+        // it. Anything else — an acknowledgement, a warning, an order that
+        // names no beacon — cannot be obeyed by walking, so it never
+        // waits.
+        if u.intent == Intent::Order {
+            if let Subject::Beacon(beacon) = u.subject {
+                if let Some(&cell) = self.world.beacons.get(usize::from(beacon)) {
+                    let ended = self.talk_records.last().expect("just pushed").ended_tick;
+                    self.pending_orders.push(PendingOrder {
+                        record: self.talk_records.len() - 1,
+                        beacon: cell,
+                        until: ended.saturating_add(u64::from(self.talk.order_uptake_window_ticks)),
+                        addressees: self.order_addressees(index, u),
+                    });
+                }
+            }
+        }
+    }
+
+    /// The agents whose walk counts as the uptake of an order: its
+    /// addressees.
+    ///
+    /// The set mirrors the listener candidates — the squad for the squad's
+    /// channel, one agent for a direct line, everybody for an open line —
+    /// because those are the agents the line was for. Only a listener can
+    /// take an order up in the end: the record, not this set, is the gate.
+    fn order_addressees(&self, index: usize, u: &Utterance) -> BTreeSet<u16> {
+        let speaker_squad = self.agents[index].squad;
+        let mut addressees = BTreeSet::new();
+        if u.channel == Channel::Radio && self.talk.radio_is_squad {
+            addressees.extend(
+                self.agents
+                    .iter()
+                    .filter(|a| a.squad == speaker_squad)
+                    .map(|a| a.id),
+            );
+            return addressees;
+        }
+        match u.addressee {
+            Addressee::Squad => addressees.extend(
+                self.agents
+                    .iter()
+                    .filter(|a| a.squad == speaker_squad)
+                    .map(|a| a.id),
+            ),
+            Addressee::All => addressees.extend(self.agents.iter().map(|a| a.id)),
+            Addressee::Agent(agent) => {
+                addressees.insert(agent);
+            }
+        }
+        addressees
+    }
+
+    /// Watch one agent's motor command for the uptake of a live order.
+    ///
+    /// An order is taken up when the addressee's motor command becomes
+    /// `GoTo` the cell of the beacon the order names, on a tick inside the
+    /// uptake window — from the line's end to `order_uptake_window_ticks`
+    /// later. The uptake is observed here, from the command alone (D49):
+    /// never inferred from the words, and only a listener of the line can
+    /// take it up, because only a listener has a record to mark.
+    fn observe_uptake(&mut self, index: usize, cmd: MotorCmd, now: Tick) {
+        if self.pending_orders.is_empty() {
+            return;
+        }
+        let MotorCmd::GoTo(cell) = cmd else {
+            return;
+        };
+        let agent = self.agents[index].id;
+        let mut taken: Vec<usize> = Vec::new();
+        for pending in &self.pending_orders {
+            if pending.beacon != cell || !pending.addressees.contains(&agent) {
+                continue;
+            }
+            // The window opens when the line ends: an order cannot be
+            // obeyed before it has finished being spoken.
+            if self
+                .talk_records
+                .get(pending.record)
+                .is_some_and(|record| now >= record.ended_tick)
+            {
+                taken.push(pending.record);
+            }
+        }
+        for record in taken {
+            let heard = self.talk_records[record]
+                .listeners
+                .iter()
+                .position(|l| l.listener == agent);
+            if let Some(at) = heard {
+                self.talk_records[record].listeners[at].took_up = true;
+            }
+        }
     }
 
     /// Refresh the `ongoing` flag of every line the agents are holding.
@@ -901,6 +1026,7 @@ mod tests {
     use super::*;
     use crate::decision::{Action, Decision, Provenance, Source};
     use crate::header::Header;
+    use crate::talk::talk_metrics;
     use crate::utterance::{Affect, Intent, Prosody, SpeechAct, Word};
     use crate::view::MenuOption;
 
@@ -969,6 +1095,14 @@ mod tests {
             Word::new("on", ticks / 2, ticks),
         ];
         line
+    }
+
+    /// An order from one agent straight to another: the four-word order of
+    /// [`utterance`], addressed to a single listener.
+    fn order_to(speaker: u16, addressee: u16, subject: Subject) -> Utterance {
+        let mut u = utterance(speaker, subject);
+        u.addressee = Addressee::Agent(addressee);
+        u
     }
 
     /// Put an agent where the test needs it.
@@ -1276,6 +1410,176 @@ mod tests {
             "the line must leave the window: {:?}",
             sim.view(1).heard
         );
+    }
+
+    /// An order for beacon 2 that the addressee hears and walks to is
+    /// taken up: the sim watches the addressee's motor command become
+    /// `GoTo` the beacon's cell inside the uptake window — from the line's
+    /// end to `order_uptake_window_ticks` later — and the metrics count it
+    /// (D49: the uptake is observed, never inferred from the words).
+    #[test]
+    fn order_uptake_counts_a_compliant_order() {
+        let h = Header::default_round(1, DEFAULT_REFLEX);
+        let mut sim = Sim::new(&h).expect("the round starts");
+        let beacon = sim.world().beacons[2];
+        clear_row(&mut sim, 0, 0, 8);
+        place_agent(&mut sim, 0, Pos::from_units(0, 0));
+        place_agent(
+            &mut sim,
+            1,
+            Pos::from_units(5 * i64::from(crate::fixed::UNITS_PER_M), 0),
+        );
+
+        // Tick 0: agent 0 orders agent 1 to beacon 2. The line lasts 40
+        // ticks, so the uptake window runs from tick 40 to tick 190.
+        sim.step(&[stamped(
+            0,
+            0,
+            0,
+            Kind::Utterance(order_to(0, 1, Subject::Beacon(2))),
+        )]);
+
+        let records = sim.talk_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].subject, Subject::Beacon(2));
+        let heard = records[0]
+            .listeners
+            .iter()
+            .position(|l| l.listener == 1)
+            .expect("the addressee heard the order");
+        assert!(
+            !records[0].listeners[heard].took_up,
+            "the order is not taken up before it is obeyed"
+        );
+
+        // Tick 45: inside the window, agent 1 walks to beacon 2's cell.
+        for tick in 1..=45u64 {
+            let decisions = if tick == 45 {
+                vec![stamped(1, 45, 1, Kind::ActionOn(Action::GoTo(beacon)))]
+            } else {
+                Vec::new()
+            };
+            sim.step(&decisions);
+        }
+
+        assert!(
+            sim.talk_records()[0].listeners[heard].took_up,
+            "the walk must be observed as the uptake"
+        );
+        let m = talk_metrics(sim.talk_records());
+        assert_eq!(m.orders, 1);
+        assert_eq!(m.orders_taken_up, 1);
+        assert_eq!(m.uptake_rate_q16, 65_536);
+        assert_eq!(m.uptake_by_speaker.get(&0), Some(&(1, 1)));
+        assert_eq!(m.words_per_successful_order, 4);
+    }
+
+    /// An order nobody hears is not taken up, even when the addressee
+    /// walks to the beacon anyway: only a listener of a line can take it
+    /// up, and the speaker's uptake stays at zero.
+    #[test]
+    fn an_unheard_order_is_not_taken_up() {
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        // A round where nobody overhears: the addressee is the only
+        // possible listener, and it stands out of range.
+        h.talk.enemy_overhears_voice = false;
+        let mut sim = Sim::new(&h).expect("the round starts");
+        let beacon = sim.world().beacons[2];
+        clear_row(&mut sim, 0, 0, 40);
+        place_agent(&mut sim, 0, Pos::from_units(0, 0));
+        // Sixty metres out: beyond the 25 m voice range.
+        place_agent(
+            &mut sim,
+            1,
+            Pos::from_units(60 * i64::from(crate::fixed::UNITS_PER_M), 0),
+        );
+
+        sim.step(&[stamped(
+            0,
+            0,
+            0,
+            Kind::Utterance(order_to(0, 1, Subject::Beacon(2))),
+        )]);
+        let records = sim.talk_records();
+        assert_eq!(records.len(), 1);
+        assert!(
+            records[0].listeners.is_empty(),
+            "nobody heard the order: {:?}",
+            records[0].listeners
+        );
+
+        // The addressee walks to the beacon all the same.
+        for tick in 1..=45u64 {
+            let decisions = if tick == 45 {
+                vec![stamped(1, 45, 1, Kind::ActionOn(Action::GoTo(beacon)))]
+            } else {
+                Vec::new()
+            };
+            sim.step(&decisions);
+        }
+
+        let m = talk_metrics(sim.talk_records());
+        assert_eq!(m.orders, 1);
+        assert_eq!(m.orders_taken_up, 0);
+        assert_eq!(m.uptake_rate_q16, 0);
+        assert_eq!(
+            m.uptake_by_speaker.get(&0),
+            Some(&(1, 0)),
+            "the speaker's uptake must stay at zero"
+        );
+    }
+
+    /// The metrics are bookkeeping on top of the round: collecting them
+    /// every tick of a round's life changes no state hash, because the
+    /// records are not hashed (like the reflex counters) — the *knowledge*
+    /// the lines change is.
+    #[test]
+    fn the_metrics_do_not_change_the_state_hash() {
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        h.talk.enemy_overhears_voice = false;
+        let probe = Sim::new(&h).expect("the round starts");
+        let beacon = probe.world().beacons[2];
+
+        let mut talking = Sim::new(&h).expect("the round starts");
+        let mut quiet = Sim::new(&h).expect("the round starts");
+        for sim in [&mut talking, &mut quiet] {
+            clear_row(sim, 0, 0, 8);
+            place_agent(sim, 0, Pos::from_units(0, 0));
+            place_agent(
+                sim,
+                1,
+                Pos::from_units(5 * i64::from(crate::fixed::UNITS_PER_M), 0),
+            );
+        }
+
+        let (mut hashes_a, mut hashes_b) = (Vec::new(), Vec::new());
+        for tick in 0..120u64 {
+            let decisions = match tick {
+                0 => vec![stamped(
+                    0,
+                    0,
+                    0,
+                    Kind::Utterance(order_to(0, 1, Subject::Beacon(2))),
+                )],
+                45 => vec![stamped(1, 45, 1, Kind::ActionOn(Action::GoTo(beacon)))],
+                _ => Vec::new(),
+            };
+            if let Some(hash) = talking.step(&decisions).hash {
+                hashes_a.push(hash);
+            }
+            if let Some(hash) = quiet.step(&decisions).hash {
+                hashes_b.push(hash);
+            }
+            // One round of the pair has its metrics computed every tick.
+            let _ = talk_metrics(talking.talk_records());
+        }
+
+        assert_eq!(hashes_a, hashes_b, "the metrics changed the round");
+        assert_eq!(talking.state_hash(), quiet.state_hash());
+        // And the metrics are real: the order was heard and taken up.
+        let m = talk_metrics(talking.talk_records());
+        assert_eq!(m.orders_taken_up, 1);
+        assert!(m.airtime_ticks > 0);
     }
 
     /// The roster's starting formation is point-symmetric: squad 1's

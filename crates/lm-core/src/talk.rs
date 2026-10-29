@@ -1,10 +1,16 @@
-//! The round's talk rules: `TalkParams`.
+//! The round's talk rules (`TalkParams`) and the talk metrics of a round
+//! (`TalkMetrics`).
 //!
-//! Everything a round needs to know about speech lives here and travels in
-//! the round header: how far a shout carries, what a wall costs, how long
-//! an order stays live, how much airtime an agent has. The rules are the
-//! round's, not the client's: two nodes that agree on the header agree on
-//! who hears what, so a round replays the same way on both (D19).
+//! Everything a round needs to know about speech lives in `TalkParams` and
+//! travels in the round header: how far a shout carries, what a wall costs,
+//! how long an order stays live, how much airtime an agent has. The rules
+//! are the round's, not the client's: two nodes that agree on the header
+//! agree on who hears what, so a round replays the same way on both (D19).
+//!
+//! The metrics are computed by [`talk_metrics`] from the records the sim
+//! collects as it plays: pure, integer-only, and code-computed end to end
+//! (D49 — no model, no guess). The records are bookkeeping and are not
+//! hashed; what the lines changed in the squads' knowledge is.
 //!
 //! The talk params are **not** branchable. A branch may retune how the round
 //! plays, but the talk rules change *what the round is* -- who hears what --
@@ -18,6 +24,7 @@ use crate::hash::{Fnv64, StateHash};
 use crate::params::ParamError;
 use crate::utterance::{Affect, Channel, Intent, SpeechAct, Subject};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Q16: one whole.
 pub const Q16_ONE: u32 = 65_536;
@@ -208,6 +215,11 @@ pub struct ListenerRecord {
     pub act_known: bool,
     /// Whether the listener understood the point of the line.
     pub intent_known: bool,
+    /// Whether the listener took the line's order up: the sim observes the
+    /// addressee's motor command becoming `GoTo` the ordered beacon's cell
+    /// inside the uptake window (D49 — observed by the code, never inferred
+    /// from the words).
+    pub took_up: bool,
 }
 
 /// One line, as the round heard it.
@@ -222,6 +234,9 @@ pub struct TalkRecord {
     pub id: u64,
     /// The agent who spoke the line.
     pub speaker: u16,
+    /// The speaker's squad: the metrics group the talk by it, and a pure
+    /// function over the records cannot look it up anywhere else.
+    pub squad: u8,
     /// The tick the line started on.
     pub at_tick: u64,
     /// The tick the line ended on.
@@ -242,6 +257,134 @@ pub struct TalkRecord {
     pub duration_ticks: u32,
     /// What each listener got of it.
     pub listeners: Vec<ListenerRecord>,
+}
+
+/// The talk of one squad: the lines its agents spoke, and what those lines
+/// cost in airtime.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SquadTalk {
+    /// The lines the squad's agents spoke.
+    pub utterances: u64,
+    /// The ticks of speech the squad's agents spent (the trailing rests do
+    /// not count).
+    pub airtime_ticks: u64,
+}
+
+/// How a round talked, from the records of every line it heard (D49).
+///
+/// Every number here is computed by code from the records — no model, no
+/// guess — and a round with no utterances gives zeros everywhere, never an
+/// `n/a` and never a division by zero.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TalkMetrics {
+    /// The lines the round spoke.
+    pub utterances: u64,
+    /// The ticks of speech the round spent, every speaker added.
+    pub airtime_ticks: u64,
+    /// The airtime per agent, in agent-id order.
+    pub airtime_by_agent: BTreeMap<u16, u64>,
+    /// The orders the round spoke: lines with the `Order` intent about a
+    /// beacon, the only kind an agent can take up by walking.
+    pub orders: u64,
+    /// The orders whose addressee took them up inside the uptake window.
+    pub orders_taken_up: u64,
+    /// The share of orders taken up, in Q16 (65 536 is every order).
+    pub uptake_rate_q16: u32,
+    /// The mean word count of the orders that were taken up.
+    pub words_per_successful_order: u32,
+    /// The share of heard copies that lost a word or a tag, in Q16.
+    pub misread_rate_q16: u32,
+    /// Per speaker, the orders and the taken-up ones: who is worth
+    /// listening to.
+    pub uptake_by_speaker: BTreeMap<u16, (u64, u64)>,
+    /// The talk per squad: its speakers' lines and airtime.
+    pub by_squad: BTreeMap<u8, SquadTalk>,
+}
+
+/// The talk metrics of a round, from the records its sim collected.
+///
+/// The function is pure and integer-only, so the two callers — the sim's
+/// own reports and phase 5's replay of a log — always agree: one
+/// implementation, two callers, and the same records give the same metrics
+/// on every machine.
+///
+/// The definitions (all code-computed, D49):
+///
+/// - an **order** is a line with the `Order` intent about a beacon
+///   (`Subject::Beacon`), the only kind the uptake definition names; it is
+///   **taken up** when a listener the record marks `took_up` obeyed it —
+///   the sim observed that listener's motor command becoming `GoTo` the
+///   beacon's cell within `order_uptake_window_ticks` of the line's end;
+/// - **words per successful order** is the mean word count of the taken-up
+///   orders (0 when there are none);
+/// - the **misread rate** is the share of `(utterance, listener)` pairs
+///   whose copy lost a word or a tag — `words_heard < words`, or the act
+///   or the intent was not understood;
+/// - the **airtime** is the ticks of speech per agent and per squad; the
+///   trailing rests are silence and do not count (`duration_ticks`
+///   already excludes them).
+pub fn talk_metrics(records: &[TalkRecord]) -> TalkMetrics {
+    let mut metrics = TalkMetrics::default();
+    let mut heard_pairs = 0u64;
+    let mut misreads = 0u64;
+    let mut taken_up_words = 0u64;
+
+    for record in records {
+        metrics.utterances += 1;
+        let airtime = u64::from(record.duration_ticks);
+        metrics.airtime_ticks += airtime;
+        *metrics.airtime_by_agent.entry(record.speaker).or_insert(0) += airtime;
+        let squad = metrics.by_squad.entry(record.squad).or_default();
+        squad.utterances += 1;
+        squad.airtime_ticks += airtime;
+
+        for listener in &record.listeners {
+            heard_pairs += 1;
+            let lost = listener.words_heard < record.words
+                || !listener.act_known
+                || !listener.intent_known;
+            if lost {
+                misreads += 1;
+            }
+        }
+
+        let is_order =
+            record.intent == Intent::Order && matches!(record.subject, Subject::Beacon(_));
+        if !is_order {
+            continue;
+        }
+        let taken_up = record.listeners.iter().any(|l| l.took_up);
+        let speaker = metrics
+            .uptake_by_speaker
+            .entry(record.speaker)
+            .or_insert((0, 0));
+        speaker.0 += 1;
+        metrics.orders += 1;
+        if taken_up {
+            speaker.1 += 1;
+            metrics.orders_taken_up += 1;
+            taken_up_words += u64::from(record.words);
+        }
+    }
+
+    metrics.uptake_rate_q16 = share_q16(metrics.orders_taken_up, metrics.orders);
+    // The mean of the taken-up orders, and zero when there are none: an
+    // empty round is zeros, never a division by zero.
+    let mean_words = taken_up_words
+        .checked_div(metrics.orders_taken_up)
+        .unwrap_or(0);
+    metrics.words_per_successful_order = u32::try_from(mean_words).unwrap_or(u32::MAX);
+    metrics.misread_rate_q16 = share_q16(misreads, heard_pairs);
+    metrics
+}
+
+/// A share in Q16: `part` of `whole`, and zero when there is no whole —
+/// an empty round is zeros, never a division by zero.
+fn share_q16(part: u64, whole: u64) -> u32 {
+    if whole == 0 {
+        return 0;
+    }
+    u32::try_from((part << 16) / whole).unwrap_or(u32::MAX)
 }
 
 impl StateHash for TalkParams {
@@ -279,6 +422,281 @@ fn write_str(h: &mut Fnv64, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A record the metrics tests can shape: a line of `words` words and
+    /// `duration_ticks` ticks by `speaker` of `squad`, heard by `listeners`.
+    fn record(
+        speaker: u16,
+        squad: u8,
+        intent: Intent,
+        subject: Subject,
+        words: u16,
+        duration_ticks: u32,
+        listeners: Vec<ListenerRecord>,
+    ) -> TalkRecord {
+        TalkRecord {
+            id: (u64::from(speaker) << 32) | u64::from(words),
+            speaker,
+            squad,
+            at_tick: 0,
+            ended_tick: u64::from(duration_ticks),
+            channel: Channel::Radio,
+            act: SpeechAct::Command,
+            intent,
+            affect: Affect::Calm,
+            subject,
+            words,
+            duration_ticks,
+            listeners,
+        }
+    }
+
+    /// A listener who got everything: every word, the gesture and the point.
+    fn clean_listener(listener: u16, words: u16) -> ListenerRecord {
+        ListenerRecord {
+            listener,
+            clarity_q16: 65_536,
+            words_heard: words,
+            act_known: true,
+            intent_known: true,
+            took_up: false,
+        }
+    }
+
+    /// A listener who heard the whole line and took the order up.
+    fn taker(listener: u16, words: u16) -> ListenerRecord {
+        ListenerRecord {
+            took_up: true,
+            ..clean_listener(listener, words)
+        }
+    }
+
+    #[test]
+    fn metrics_on_empty_round() {
+        let m = talk_metrics(&[]);
+        assert_eq!(m.utterances, 0);
+        assert_eq!(m.airtime_ticks, 0);
+        assert!(m.airtime_by_agent.is_empty());
+        assert_eq!(m.orders, 0);
+        assert_eq!(m.orders_taken_up, 0);
+        assert_eq!(m.uptake_rate_q16, 0);
+        assert_eq!(m.words_per_successful_order, 0);
+        assert_eq!(m.misread_rate_q16, 0);
+        assert!(m.uptake_by_speaker.is_empty());
+        assert!(m.by_squad.is_empty());
+    }
+
+    #[test]
+    fn words_per_successful_order_counts_the_words() {
+        // A four-word order that was obeyed: the mean of one utterance is
+        // its own word count.
+        let taken = record(
+            0,
+            0,
+            Intent::Order,
+            Subject::Beacon(2),
+            4,
+            40,
+            vec![taker(1, 4)],
+        );
+        assert_eq!(talk_metrics(&[taken]).words_per_successful_order, 4);
+
+        // An order nobody obeyed: no mean at all, and never a division by
+        // zero.
+        let ignored = record(
+            0,
+            0,
+            Intent::Order,
+            Subject::Beacon(2),
+            4,
+            40,
+            vec![clean_listener(1, 4)],
+        );
+        assert_eq!(talk_metrics(&[ignored]).words_per_successful_order, 0);
+
+        // Two obeyed orders of four and six words: the mean is five.
+        let short = record(
+            0,
+            0,
+            Intent::Order,
+            Subject::Beacon(0),
+            4,
+            40,
+            vec![taker(1, 4)],
+        );
+        let long = record(
+            0,
+            0,
+            Intent::Order,
+            Subject::Beacon(1),
+            6,
+            60,
+            vec![taker(2, 6)],
+        );
+        assert_eq!(talk_metrics(&[short, long]).words_per_successful_order, 5);
+    }
+
+    #[test]
+    fn misread_rate_counts_the_lost_words() {
+        // A listener who heard three of four words and lost the act: one
+        // misread pair, however many things that one copy lost.
+        let murky = ListenerRecord {
+            listener: 1,
+            clarity_q16: 20_000,
+            words_heard: 3,
+            act_known: false,
+            intent_known: true,
+            took_up: false,
+        };
+        let line = record(0, 0, Intent::Order, Subject::Beacon(1), 4, 40, vec![murky]);
+        assert_eq!(talk_metrics(&[line]).misread_rate_q16, 65_536);
+
+        // One misread of two pairs is half the share.
+        let clear = clean_listener(2, 4);
+        let line = record(
+            0,
+            0,
+            Intent::Order,
+            Subject::Beacon(1),
+            4,
+            40,
+            vec![
+                ListenerRecord {
+                    took_up: true,
+                    ..murky
+                },
+                clear,
+            ],
+        );
+        assert_eq!(talk_metrics(&[line]).misread_rate_q16, 32_768);
+
+        // A round of clean hearing misreads nothing.
+        let clean = record(
+            0,
+            0,
+            Intent::Report,
+            Subject::None,
+            2,
+            20,
+            vec![clean_listener(1, 2), clean_listener(2, 2)],
+        );
+        assert_eq!(talk_metrics(&[clean]).misread_rate_q16, 0);
+    }
+
+    #[test]
+    fn airtime_is_counted_per_agent() {
+        // Two agents speak for three seconds and five seconds (thirty
+        // ticks a second): the airtime is theirs alone, the squad's is the
+        // sum of its speakers, and the round's is the sum of both.
+        let three_s = record(
+            0,
+            0,
+            Intent::Report,
+            Subject::None,
+            2,
+            90,
+            vec![clean_listener(1, 2)],
+        );
+        let five_s = record(
+            5,
+            1,
+            Intent::Order,
+            Subject::Beacon(0),
+            4,
+            150,
+            vec![clean_listener(4, 4)],
+        );
+        let m = talk_metrics(&[three_s, five_s]);
+        assert_eq!(m.airtime_by_agent.get(&0), Some(&90));
+        assert_eq!(m.airtime_by_agent.get(&5), Some(&150));
+        assert_eq!(m.airtime_ticks, 240);
+        assert_eq!(
+            m.by_squad.get(&0),
+            Some(&SquadTalk {
+                utterances: 1,
+                airtime_ticks: 90
+            })
+        );
+        assert_eq!(
+            m.by_squad.get(&1),
+            Some(&SquadTalk {
+                utterances: 1,
+                airtime_ticks: 150
+            })
+        );
+    }
+
+    #[test]
+    fn uptake_by_speaker_separates_the_callers() {
+        // Speaker 0 gives two orders and both are obeyed; speaker 3 gives
+        // two and neither is. Who is worth listening to is a number.
+        let obeyed = [
+            record(
+                0,
+                0,
+                Intent::Order,
+                Subject::Beacon(1),
+                4,
+                40,
+                vec![taker(1, 4)],
+            ),
+            record(
+                0,
+                0,
+                Intent::Order,
+                Subject::Beacon(2),
+                4,
+                40,
+                vec![taker(2, 4)],
+            ),
+        ];
+        let ignored = [
+            record(
+                3,
+                0,
+                Intent::Order,
+                Subject::Beacon(1),
+                4,
+                40,
+                vec![clean_listener(1, 4)],
+            ),
+            record(
+                3,
+                0,
+                Intent::Order,
+                Subject::Beacon(2),
+                4,
+                40,
+                vec![clean_listener(2, 4)],
+            ),
+        ];
+        let m = talk_metrics(&[
+            obeyed[0].clone(),
+            ignored[0].clone(),
+            obeyed[1].clone(),
+            ignored[1].clone(),
+        ]);
+        assert_eq!(m.uptake_by_speaker.get(&0), Some(&(2, 2)));
+        assert_eq!(m.uptake_by_speaker.get(&3), Some(&(2, 0)));
+        assert_eq!(m.orders, 4);
+        assert_eq!(m.orders_taken_up, 2);
+        assert_eq!(m.uptake_rate_q16, 32_768);
+
+        // A line whose intent says order but names no beacon cannot be
+        // walked to, so it is not an order the metrics count.
+        let chatter = record(
+            0,
+            0,
+            Intent::Order,
+            Subject::None,
+            4,
+            40,
+            vec![clean_listener(1, 4)],
+        );
+        let m = talk_metrics(&[chatter]);
+        assert_eq!(m.orders, 0);
+        assert!(m.uptake_by_speaker.is_empty());
+    }
 
     #[test]
     fn the_defaults_are_the_plan_s_defaults() {
