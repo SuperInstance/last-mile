@@ -8,7 +8,7 @@ pub mod path;
 
 pub use gen::generate;
 pub use grid::{CellKind, CellXY, Grid};
-pub use los::clear;
+pub use los::{clear, walls_between};
 pub use path::{jps, path_cost};
 
 use crate::hash::{Fnv64, StateHash};

@@ -40,11 +40,14 @@ use crate::decision::{Kind, Lane, Roll, Source, Stamped, Tick};
 use crate::fixed::Pos;
 use crate::hash::{Fnv64, StateHash};
 use crate::header::{Header, Lineage, LineageChange, Role, RosterEntry};
+use crate::hearing;
 use crate::lane::LaneConditioner;
 use crate::params::{ParamError, Params};
 use crate::rng::{Domain, Rng};
 use crate::rules::{Event, Outcome, Ruleset};
 use crate::script::{ReflexOut, RhaiRuntime, ScriptRuntime};
+use crate::talk::{ListenerRecord, TalkParams, TalkRecord};
+use crate::utterance::{Addressee, Channel, Heard, Subject, Utterance};
 use crate::view::{menu, option_cmd, AgentSnap, BeaconSnap, ScoreView, SquadKnowledge};
 use crate::world::{CellXY, World};
 use std::collections::{BTreeMap, BTreeSet};
@@ -90,12 +93,19 @@ pub struct Sim {
     seed: u64,
     /// Every tunable of the round.
     params: Params,
+    /// The round's talk rules: how far a voice carries, what a wall costs.
+    talk: TalkParams,
     /// The world the round is played on.
     world: World,
     /// The roster, in agent-id order.
     agents: Vec<Agent>,
     /// What each squad knows, in squad order.
     knowledge: Vec<SquadKnowledge>,
+    /// What each agent has heard since the last view update, in agent-id
+    /// order: the degraded copies, one list per listener.
+    heard: Vec<Vec<Heard>>,
+    /// The bookkeeping of the talk: every line the round heard.
+    talk_records: Vec<TalkRecord>,
     /// The rules that score the round.
     ruleset: Box<dyn Ruleset>,
     /// The reflex scripts of the round, by name.
@@ -198,12 +208,19 @@ impl Sim {
             .map(|_| SquadKnowledge::new(&world.grid))
             .collect();
 
+        // One heard-list per agent: the copies are per listener, because
+        // every listener gets its own degraded copy of a line.
+        let agent_count = agents.len();
+
         Ok(Sim {
             seed: h.seed,
             params: h.params,
+            talk: h.talk.clone(),
             world,
             agents,
             knowledge,
+            heard: (0..agent_count).map(|_| Vec::new()).collect(),
+            talk_records: Vec::new(),
             ruleset,
             runtime,
             reflex_names,
@@ -242,6 +259,17 @@ impl Sim {
     /// How the reflexes of the round have been coping.
     pub fn stats(&self) -> SimStats {
         self.stats
+    }
+
+    /// The bookkeeping of the talk: every line the round heard, in the
+    /// order the lines were spoken.
+    ///
+    /// The records are not hashed — they are bookkeeping, like the reflex
+    /// counters — so collecting them does not change the round's state
+    /// hash. What the lines changed in the *knowledge* is hashed, because
+    /// that is game state.
+    pub fn talk_records(&self) -> &[TalkRecord] {
+        &self.talk_records
     }
 
     /// How the round ended, or `None` while it is still running.
@@ -290,6 +318,10 @@ impl Sim {
         let now = self.tick;
         let mut events = Vec::new();
 
+        // The lines the agents are holding are still going, or are over:
+        // the flag says which, at this tick.
+        self.refresh_heard(now);
+
         // 0. The branch fires. A change applies between the tick before it
         //    and its own tick, so the tick it names is the first that runs
         //    with it.
@@ -329,6 +361,17 @@ impl Sim {
             None
         };
         self.tick = now + 1;
+
+        // 6. The window of what the agents heard. At every view update the
+        //    lines that are over leave the window; the ones still being
+        //    spoken stay, because a line that has only started is still
+        //    news (the pre-draft needs it).
+        self.refresh_heard(self.tick);
+        if now.is_multiple_of(u64::from(self.params.view_update_ticks)) {
+            for buffer in &mut self.heard {
+                buffer.retain(|line| line.ongoing);
+            }
+        }
 
         StepOut {
             tick: now,
@@ -449,11 +492,130 @@ impl Sim {
                 Kind::Lane(lane) => self.apply_lane(index, lane, now),
                 Kind::Roll(roll) => self.apply_roll(index, roll, stamped.d.seq, now),
                 Kind::Marker(marker) => events.push(Event::Marker(*marker)),
-                // A line is a score for the ear, not for the world: the
-                // hearing physics lands in a later phase-4 task, so the sim
-                // records the line and leaves the world alone. The log keeps
-                // it either way, so the round still replays exactly.
-                Kind::Utterance(_) => {}
+                // A line is a score for the ear: the sim applies it as one
+                // — the listeners, their clarity and their degraded copies
+                // — and the log keeps the score, so the round replays
+                // exactly.
+                Kind::Utterance(utterance) => self.apply_utterance(index, utterance, now),
+            }
+        }
+    }
+
+    /// Apply an utterance: who hears it, how clearly, and what it teaches
+    /// the squads.
+    ///
+    /// The listener set is the addressee's set — the speaker's squad for
+    /// `Squad`, one agent for `Agent`, everybody in earshot for `All` —
+    /// plus the **enemies** that overhear a voice or a shout in range when
+    /// the round says so. The radio is the squad's channel: it reaches the
+    /// whole squad, through the walls, whatever the addressee says.
+    ///
+    /// Each listener gets its own copy, degraded by its own clarity: the
+    /// words that arrive, the tags they understood. A listener who cannot
+    /// hear the line at all hears nothing — silence is an outcome.
+    fn apply_utterance(&mut self, index: usize, u: &Utterance, now: Tick) {
+        let speaker_squad = self.agents[index].squad;
+        let speaker_pos = self.agents[index].pos;
+
+        let mut candidates: BTreeSet<usize> = BTreeSet::new();
+        if u.channel == Channel::Radio && self.talk.radio_is_squad {
+            candidates.extend(
+                (0..self.agents.len())
+                    .filter(|&i| self.agents[i].squad == speaker_squad && i != index),
+            );
+        } else {
+            match u.addressee {
+                Addressee::Squad => candidates.extend(
+                    (0..self.agents.len())
+                        .filter(|&i| self.agents[i].squad == speaker_squad && i != index),
+                ),
+                Addressee::Agent(id) => {
+                    candidates.extend(
+                        (0..self.agents.len()).filter(|&i| i != index && self.agents[i].id == id),
+                    );
+                }
+                Addressee::All => {
+                    candidates.extend((0..self.agents.len()).filter(|&i| i != index));
+                }
+            }
+        }
+        // The other side of the fight hears a voice or a shout that reach
+        // them.
+        if self.talk.enemy_overhears_voice && matches!(u.channel, Channel::Voice | Channel::Shout) {
+            candidates.extend(
+                (0..self.agents.len())
+                    .filter(|&i| i != index && self.agents[i].squad != speaker_squad),
+            );
+        }
+
+        let mut listeners: Vec<ListenerRecord> = Vec::new();
+        let mut heard_squads: BTreeSet<u8> = BTreeSet::new();
+        for listener_index in candidates {
+            let listener = &self.agents[listener_index];
+            let clarity = hearing::clarity_between(
+                u.channel,
+                speaker_pos,
+                listener.pos,
+                &self.world.grid,
+                self.world.cell_units,
+                &self.talk,
+            );
+            if clarity < self.talk.min_clarity_q16 {
+                // Nothing arrives: the listener never learns the line was
+                // spoken.
+                continue;
+            }
+            let mut copy = hearing::degrade_at(u, now, clarity, listener.id, &self.talk);
+            copy.ongoing = now < copy.ended_tick;
+            self.heard[listener_index].push(copy.clone());
+            heard_squads.insert(listener.squad);
+            listeners.push(ListenerRecord {
+                listener: listener.id,
+                clarity_q16: clarity,
+                words_heard: u16::try_from(copy.words.len()).unwrap_or(u16::MAX),
+                act_known: copy.act.is_some(),
+                intent_known: copy.intent.is_some(),
+            });
+        }
+
+        // What the squads know: the speaker's own squad knows what its
+        // speaker said (the squad shares the speaker's knowledge), and
+        // every other squad knows it only if one of its members heard the
+        // line.
+        if let Subject::Enemy(enemy) = u.subject {
+            if let Some(target) = self.agents.iter().find(|a| a.id == enemy) {
+                let cell = self.world.grid.cell_of(target.pos, self.world.cell_units);
+                let mut squads = heard_squads;
+                squads.insert(speaker_squad);
+                for squad in squads {
+                    if let Some(knowledge) = self.knowledge.get_mut(usize::from(squad)) {
+                        knowledge.tell(enemy, cell, now);
+                    }
+                }
+            }
+        }
+
+        self.talk_records.push(TalkRecord {
+            id: u.state_hash(),
+            speaker: u.speaker,
+            at_tick: now,
+            ended_tick: now + u64::from(u.duration_ticks()),
+            channel: u.channel,
+            act: u.act,
+            intent: u.intent,
+            affect: u.affect,
+            subject: u.subject,
+            words: u16::try_from(u.words.len()).unwrap_or(u16::MAX),
+            duration_ticks: u.duration_ticks(),
+            listeners,
+        });
+    }
+
+    /// Refresh the `ongoing` flag of every line the agents are holding.
+    fn refresh_heard(&mut self, now: Tick) {
+        for buffer in &mut self.heard {
+            for line in buffer.iter_mut() {
+                line.ongoing = now < line.ended_tick;
             }
         }
     }
@@ -566,6 +728,7 @@ impl Sim {
             knowledge,
             self.ruleset.scores(),
             self.ruleset.beacon_holders(),
+            self.heard.get(index).cloned().unwrap_or_default(),
             now,
         )
     }
@@ -595,6 +758,7 @@ impl Sim {
                 .collect(),
             score: self.ruleset.scores().to_vec(),
             squad_id: 0,
+            heard: Vec::new(),
         }
     }
 
@@ -667,6 +831,7 @@ mod tests {
     use super::*;
     use crate::decision::{Action, Decision, Provenance, Source};
     use crate::header::Header;
+    use crate::utterance::{Affect, Intent, Prosody, SpeechAct, Word};
     use crate::view::MenuOption;
 
     /// The default reflex, the one every agent of a standard round runs.
@@ -704,6 +869,238 @@ mod tests {
     /// The distance between two cells, in cells.
     fn chebyshev(a: CellXY, b: CellXY) -> u32 {
         u32::from(a.x.abs_diff(b.x)).max(u32::from(a.y.abs_diff(b.y)))
+    }
+
+    /// A four-word order on the voice channel.
+    fn utterance(speaker: u16, subject: Subject) -> Utterance {
+        Utterance {
+            speaker,
+            channel: Channel::Voice,
+            addressee: Addressee::Squad,
+            act: SpeechAct::Command,
+            intent: Intent::Order,
+            affect: Affect::Urgent,
+            subject,
+            prosody: Prosody::Synthesized,
+            words: vec![
+                Word::new("hold", 0, 10),
+                Word::new("the", 10, 20),
+                Word::new("north", 20, 30),
+                Word::new("beacon", 30, 40),
+            ],
+        }
+    }
+
+    /// Put an agent where the test needs it.
+    fn place_agent(sim: &mut Sim, agent: u16, pos: Pos) {
+        let index = sim
+            .agents
+            .iter()
+            .position(|a| a.id == agent)
+            .expect("the agent is in the round");
+        sim.agents[index].pos = pos;
+    }
+
+    /// Clear a stretch of cells, so a test measures the distance and not
+    /// the map it happens to be standing on.
+    fn clear_row(sim: &mut Sim, y: u16, from: u16, to: u16) {
+        for x in from..=to {
+            sim.world
+                .grid
+                .set(CellXY { x, y }, crate::world::grid::CellKind::Floor);
+        }
+    }
+
+    /// The enemy of squad 0 hears a voice that reaches it, and its squad
+    /// learns the fact it was told.
+    ///
+    /// The enemy is 10 m away — inside the 25 m voice range — and the
+    /// words arrive, degraded: the copy is the truth as it reached that
+    /// ear.
+    #[test]
+    fn enemies_overhear_voice() {
+        let h = Header::default_round(1, DEFAULT_REFLEX);
+        let mut sim = Sim::new(&h).expect("the round starts");
+
+        // A clear corridor on row 0: the speaker at the origin, the enemy
+        // 10 m east.
+        let speaker_pos = Pos::from_units(0, 0);
+        let enemy_pos = Pos::from_units(10 * i64::from(crate::fixed::UNITS_PER_M), 0);
+        clear_row(&mut sim, 0, 0, 8);
+        place_agent(&mut sim, 0, speaker_pos);
+        place_agent(&mut sim, 4, enemy_pos);
+
+        // Squad 0's agent says something about the enemy it sees.
+        sim.step(&[stamped(
+            0,
+            0,
+            0,
+            Kind::Utterance(utterance(0, Subject::Enemy(4))),
+        )]);
+
+        // The enemy heard it: a degraded copy, with the words.
+        let view = sim.view(4);
+        assert_eq!(view.heard.len(), 1, "the enemy must hear the voice");
+        let heard = &view.heard[0];
+        assert_eq!(heard.speaker, 0);
+        assert_eq!(heard.channel, Channel::Voice);
+        assert!(heard.clarity_q16 > 0 && heard.clarity_q16 < 65_536);
+        assert_eq!(heard.words.len(), 4, "the words arrive: {heard:?}");
+        assert_eq!(heard.act, Some(SpeechAct::Command));
+        assert_eq!(heard.intent, Some(Intent::Order));
+
+        // And its squad knows the fact it was told.
+        let knowledge = &sim.knowledge[1];
+        let (cell, tick) = knowledge.told.get(&4).expect("the fact was told");
+        assert_eq!(
+            *cell,
+            sim.world.grid.cell_of(enemy_pos, sim.world.cell_units)
+        );
+        assert_eq!(*tick, 0);
+
+        // The squad that was addressed knows it too: it shares its
+        // speaker's knowledge.
+        assert!(sim.knowledge[0].told.contains_key(&4));
+
+        // The bookkeeping of the talk: one record, with the listener.
+        let records = sim.talk_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].speaker, 0);
+        assert_eq!(records[0].words, 4);
+        assert!(records[0]
+            .listeners
+            .iter()
+            .any(|l| l.listener == 4 && l.words_heard == 4 && l.act_known));
+    }
+
+    /// The hearing physics is recomputed from the world, so it is
+    /// reproducible: the same line, in the same round, is heard the same
+    /// way every time — word for word, drop for drop.
+    #[test]
+    fn the_same_line_is_heard_the_same_way_twice() {
+        /// One round, one line, and what the squad-mate heard of it.
+        fn heard_once() -> Vec<Heard> {
+            let h = Header::default_round(1, DEFAULT_REFLEX);
+            let mut sim = Sim::new(&h).expect("the round starts");
+            clear_row(&mut sim, 0, 0, 8);
+            place_agent(&mut sim, 0, Pos::from_units(0, 0));
+            place_agent(
+                &mut sim,
+                1,
+                Pos::from_units(5 * i64::from(crate::fixed::UNITS_PER_M), 0),
+            );
+            sim.step(&[stamped(
+                0,
+                0,
+                0,
+                Kind::Utterance(utterance(0, Subject::None)),
+            )]);
+            sim.view(1).heard
+        }
+
+        let first = heard_once();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first, heard_once());
+    }
+
+    /// The radio is the squad's channel: it reaches a squad-mate through
+    /// the walls and over any distance, and it reaches nobody else.
+    ///
+    /// This is the half of the hearing physics the squads coordinate on:
+    /// without it, phase 4 would play exactly like phase 1.
+    #[test]
+    fn the_radio_reaches_the_squad_through_the_walls() {
+        let h = Header::default_round(1, DEFAULT_REFLEX);
+        let mut sim = Sim::new(&h).expect("the round starts");
+        clear_row(&mut sim, 0, 0, 40);
+        // A wall between the speaker and the squad-mate, and 60 m of
+        // distance: the voice would never get there.
+        sim.world
+            .grid
+            .set(CellXY { x: 3, y: 0 }, crate::world::grid::CellKind::Wall);
+        place_agent(&mut sim, 0, Pos::from_units(0, 0));
+        place_agent(
+            &mut sim,
+            1,
+            Pos::from_units(60 * i64::from(crate::fixed::UNITS_PER_M), 0),
+        );
+        place_agent(
+            &mut sim,
+            4,
+            Pos::from_units(61 * i64::from(crate::fixed::UNITS_PER_M), 0),
+        );
+
+        let mut radio = utterance(0, Subject::None);
+        radio.channel = Channel::Radio;
+        sim.step(&[stamped(0, 0, 0, Kind::Utterance(radio))]);
+
+        // The squad-mate heard it, at full clarity, through the wall.
+        let view = sim.view(1);
+        assert_eq!(view.heard.len(), 1, "the radio must reach the squad");
+        assert_eq!(view.heard[0].clarity_q16, 65_536);
+        assert_eq!(view.heard[0].words.len(), 4);
+
+        // The enemy heard nothing: the radio is the squad's channel.
+        assert!(
+            sim.view(4).heard.is_empty(),
+            "the radio must not reach the other squad"
+        );
+    }
+
+    /// The lines an agent heard are in its view, and they leave the view
+    /// when the window closes.
+    ///
+    /// The view shows what the agent heard **since the last view update**:
+    /// a line that ended inside the window is still news, and one that
+    /// ended before it is gone.
+    #[test]
+    fn heard_appears_in_the_score_view() {
+        let h = Header::default_round(1, DEFAULT_REFLEX);
+        let mut sim = Sim::new(&h).expect("the round starts");
+        clear_row(&mut sim, 0, 0, 8);
+        place_agent(&mut sim, 0, Pos::from_units(0, 0));
+        place_agent(
+            &mut sim,
+            1,
+            Pos::from_units(2 * i64::from(crate::fixed::UNITS_PER_M), 0),
+        );
+
+        // Tick 0: nothing is said.
+        sim.step(&[]);
+        // Tick 1: the agent of squad 0 speaks for four ticks.
+        sim.step(&[stamped(
+            0,
+            1,
+            0,
+            Kind::Utterance(utterance(0, Subject::None)),
+        )]);
+
+        // The squad-mate heard it: the line is in the view, and it is
+        // still being spoken.
+        let view = sim.view(1);
+        assert_eq!(view.heard.len(), 1, "the line must be in the view");
+        assert_eq!(view.heard[0].started_tick, 1);
+        assert_eq!(view.heard[0].ended_tick, 41);
+        assert!(view.heard[0].ongoing, "the line is still being spoken");
+
+        // The line ends at tick 41; the view window closes at the next
+        // view update (every `view_update_ticks` ticks), and the line
+        // leaves the view with it.
+        for _ in 0..40 {
+            sim.step(&[]);
+        }
+        assert!(
+            !sim.view(1).heard.is_empty(),
+            "the line is still in the window"
+        );
+        for _ in 0..6 {
+            sim.step(&[]);
+        }
+        assert!(
+            sim.view(1).heard.is_empty(),
+            "the line must leave the window: {:?}",
+            sim.view(1).heard
+        );
     }
 
     /// The roster's starting formation is point-symmetric: squad 1's

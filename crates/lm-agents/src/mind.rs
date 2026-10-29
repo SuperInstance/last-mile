@@ -1204,6 +1204,7 @@ mod tests {
     /// A member's view standing at (x, y) on the tiny world.
     fn view_at(id: u16, x: u16, y: u16) -> ScoreView {
         ScoreView {
+            heard: Vec::new(),
             tick: 0,
             me: lm_core::view::AgentSnap {
                 id,

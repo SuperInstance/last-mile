@@ -18,6 +18,7 @@ use crate::decision::Tick;
 use crate::hash::{Fnv64, StateHash};
 use crate::header::Role;
 use crate::params::Params;
+use crate::utterance::Heard;
 use crate::world::los;
 use crate::world::{CellXY, Grid, World};
 use std::collections::BTreeMap;
@@ -56,7 +57,9 @@ impl StateHash for MenuOption {
 /// The knowledge is the squad's shared memory: [`SquadKnowledge::update`]
 /// grows it every view update, and nothing shrinks it — an explored cell
 /// stays explored, and a sighted enemy is remembered at the cell and tick
-/// of its last sighting.
+/// of its last sighting. What the squad was **told** is remembered the
+/// same way ([`SquadKnowledge::told`]): a squad knows what its squad can
+/// see or has been told.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SquadKnowledge {
     /// The explored cells as a bitset over the grid: bit `y * w + x`.
@@ -64,6 +67,12 @@ pub struct SquadKnowledge {
     /// For each enemy sighted: the cell it was last seen in, and the tick
     /// of that sighting.
     pub last_seen: BTreeMap<u16, (CellXY, Tick)>,
+    /// For each enemy the squad was **told** about: the cell it was told
+    /// of, and the tick of the telling.
+    ///
+    /// A fact heard over the radio is as good as a fact seen: it is keyed
+    /// by the enemy id, exactly like [`SquadKnowledge::last_seen`].
+    pub told: BTreeMap<u16, (CellXY, Tick)>,
     /// The grid width the bitset is laid out over.
     w: u16,
     /// The grid height the bitset is laid out over.
@@ -78,6 +87,7 @@ impl SquadKnowledge {
         SquadKnowledge {
             explored: vec![0; bits.div_ceil(BITS_PER_WORD)],
             last_seen: BTreeMap::new(),
+            told: BTreeMap::new(),
             w: grid.w,
             h: grid.h,
         }
@@ -138,6 +148,15 @@ impl SquadKnowledge {
             self.explored[i / BITS_PER_WORD] |= 1 << (i % BITS_PER_WORD);
         }
     }
+
+    /// Record a fact the squad was **told**: an enemy at a cell, heard at
+    /// a tick.
+    ///
+    /// A told fact is remembered like a seen one: it never expires, and a
+    /// later telling replaces an earlier one.
+    pub fn tell(&mut self, enemy: u16, cell: CellXY, now: Tick) {
+        self.told.insert(enemy, (cell, now));
+    }
 }
 
 impl StateHash for SquadKnowledge {
@@ -153,6 +172,19 @@ impl StateHash for SquadKnowledge {
             h.u16(*id);
             cell.hash_into(h);
             h.u64(*tick);
+        }
+        // The told facts are hashed **only when there are any**. A round
+        // that never talks has none, and hashes exactly as it did before
+        // the talk rules existed — the phase-1 goldens stay valid. The
+        // first fact that is told changes the round's state hash: a round
+        // that talks is a different game.
+        if !self.told.is_empty() {
+            h.u32(self.told.len() as u32);
+            for (id, (cell, tick)) in &self.told {
+                h.u16(*id);
+                cell.hash_into(h);
+                h.u64(*tick);
+            }
         }
     }
 }
@@ -237,6 +269,12 @@ pub struct ScoreView {
     /// squad's own spawn, and its pinned signature carries no `Params` to
     /// recompute it from the agent id.
     pub squad_id: u8,
+    /// Every line this agent has heard **since the last view update**,
+    /// ongoing ones included: a line that has only *started* is still
+    /// news, and the pre-draft needs it (D31).
+    ///
+    /// The copies are degraded: what the agent heard, not what was said.
+    pub heard: Vec<Heard>,
 }
 
 impl ScoreView {
@@ -247,7 +285,9 @@ impl ScoreView {
     /// as aged memories); `scores` is one entry per squad; and
     /// `beacon_holders` mirrors `world.beacons` with the holding squad of
     /// each beacon, if any — the ruleset computes holders, this module only
-    /// shows them.
+    /// shows them. `heard` is what the agent has heard since the last view
+    /// update, degraded the way it reached its ears.
+    #[allow(clippy::too_many_arguments)] // the view is built from the round's facts
     pub fn for_agent(
         me: &Agent,
         agents: &[Agent],
@@ -255,6 +295,7 @@ impl ScoreView {
         knowledge: &SquadKnowledge,
         scores: &[i64],
         beacon_holders: &[Option<u8>],
+        heard: Vec<Heard>,
         now: Tick,
     ) -> ScoreView {
         let snap = |a: &Agent| AgentSnap {
@@ -291,6 +332,7 @@ impl ScoreView {
                 .collect(),
             score: scores.to_vec(),
             squad_id: me.squad,
+            heard,
         }
     }
 }
@@ -421,7 +463,8 @@ mod tests {
         // the line: it is in neither the knowledge nor the view, and its
         // cell is not explored.
         k.update(&world, &agents, 0, 0, &p);
-        let view = ScoreView::for_agent(&agents[0], &agents, &world, &k, &[0, 0], &[], 0);
+        let view =
+            ScoreView::for_agent(&agents[0], &agents, &world, &k, &[0, 0], &[], Vec::new(), 0);
         assert!(view.enemies.is_empty());
         assert!(k.is_explored(CellXY { x: 2, y: 5 }));
         assert!(!k.is_explored(CellXY { x: 8, y: 5 }));
@@ -429,7 +472,8 @@ mod tests {
         // It steps around the wall into clear sight: present, at age 0.
         agents[1].pos = center(&world, CellXY { x: 4, y: 5 });
         k.update(&world, &agents, 0, 6, &p);
-        let view = ScoreView::for_agent(&agents[0], &agents, &world, &k, &[0, 0], &[], 6);
+        let view =
+            ScoreView::for_agent(&agents[0], &agents, &world, &k, &[0, 0], &[], Vec::new(), 6);
         assert_eq!(
             view.enemies,
             vec![EnemySeen {
@@ -459,7 +503,16 @@ mod tests {
         agents[1].pos = center(&world, CellXY { x: 8, y: 5 });
         k.update(&world, &agents, 0, 12, &p);
         k.update(&world, &agents, 0, 30, &p);
-        let view = ScoreView::for_agent(&agents[0], &agents, &world, &k, &[0, 0], &[], 30);
+        let view = ScoreView::for_agent(
+            &agents[0],
+            &agents,
+            &world,
+            &k,
+            &[0, 0],
+            &[],
+            Vec::new(),
+            30,
+        );
         assert_eq!(
             view.enemies,
             vec![EnemySeen {
@@ -540,6 +593,7 @@ mod tests {
                     .collect(),
                 score: vec![0, 0],
                 squad_id: 0,
+                heard: vec![],
             }
         }
 
@@ -568,7 +622,7 @@ mod tests {
         let mut retreating = Vec::new();
         for a in &roster {
             let k = SquadKnowledge::new(&world.grid);
-            let view = ScoreView::for_agent(a, &roster, &world, &k, &[0, 0], &[], 0);
+            let view = ScoreView::for_agent(a, &roster, &world, &k, &[0, 0], &[], Vec::new(), 0);
             assert_eq!(
                 option_cmd(&MenuOption::Retreat, &view, &world),
                 MotorCmd::GoTo(world.spawns[usize::from(view.squad_id)])
@@ -598,6 +652,7 @@ mod tests {
             ],
             score: vec![],
             squad_id: 0,
+            heard: vec![],
         };
         assert_eq!(
             menu(&view).options,
@@ -630,6 +685,7 @@ mod tests {
             ],
             score: vec![],
             squad_id: 1,
+            heard: vec![],
         };
         let world = generate(2, &Params::default());
         assert_eq!(option_cmd(&MenuOption::Hold, &view, &world), MotorCmd::Hold);
@@ -719,7 +775,16 @@ mod tests {
         agents[0].stunned_until = Some(9);
         let k = SquadKnowledge::new(&world.grid);
 
-        let view = ScoreView::for_agent(&agents[1], &agents, &world, &k, &[3, -7], &[Some(1)], 5);
+        let view = ScoreView::for_agent(
+            &agents[1],
+            &agents,
+            &world,
+            &k,
+            &[3, -7],
+            &[Some(1)],
+            Vec::new(),
+            5,
+        );
         assert_eq!(view.tick, 5);
         assert_eq!(view.me, snap(1, 3, 5, Role::Member));
         // The whole squad in id order, me included; the leader's stun (until

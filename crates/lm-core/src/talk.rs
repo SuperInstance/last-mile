@@ -16,6 +16,7 @@
 
 use crate::hash::{Fnv64, StateHash};
 use crate::params::ParamError;
+use crate::utterance::{Affect, Channel, Intent, SpeechAct, Subject};
 use serde::{Deserialize, Serialize};
 
 /// Q16: one whole.
@@ -188,6 +189,59 @@ impl TalkParams {
         }
         Ok(())
     }
+}
+
+/// What one listener got of one line.
+///
+/// The record is bookkeeping: it is *not* hashed, so collecting it does not
+/// change the round's state hash. What the line changed in the world — the
+/// knowledge it gave the squads — is hashed, because that is game state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListenerRecord {
+    /// The listener, by agent id.
+    pub listener: u16,
+    /// How clear the line reached them, in Q16.
+    pub clarity_q16: u32,
+    /// How many of the spoken words arrived.
+    pub words_heard: u16,
+    /// Whether the listener understood the gesture.
+    pub act_known: bool,
+    /// Whether the listener understood the point of the line.
+    pub intent_known: bool,
+}
+
+/// One line, as the round heard it.
+///
+/// The record is the bookkeeping of the talk: what was said, to whom, and
+/// how much of it arrived. Phase 5's metrics read these records (D49: no
+/// model, no guess), and the round's state hash does **not** cover them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TalkRecord {
+    /// The canonical id of the line: the hash of the score it was degraded
+    /// from.
+    pub id: u64,
+    /// The agent who spoke the line.
+    pub speaker: u16,
+    /// The tick the line started on.
+    pub at_tick: u64,
+    /// The tick the line ended on.
+    pub ended_tick: u64,
+    /// The channel the line was spoken on.
+    pub channel: Channel,
+    /// The gesture of the line.
+    pub act: SpeechAct,
+    /// The point of the line.
+    pub intent: Intent,
+    /// The affect bucket of the line.
+    pub affect: Affect,
+    /// What the line was about.
+    pub subject: Subject,
+    /// How many words were spoken.
+    pub words: u16,
+    /// How long the line took, in ticks (the trailing rests do not count).
+    pub duration_ticks: u32,
+    /// What each listener got of it.
+    pub listeners: Vec<ListenerRecord>,
 }
 
 impl StateHash for TalkParams {

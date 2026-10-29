@@ -6,7 +6,7 @@
 //! Walls and cover block; the two endpoints are exempt, so an agent
 //! standing in cover can still see and be seen through it.
 
-use super::grid::{CellXY, Grid};
+use super::grid::{CellKind, CellXY, Grid};
 
 /// Whether the straight line from `a` to `b` is unobstructed.
 pub fn clear(grid: &Grid, a: CellXY, b: CellXY) -> bool {
@@ -23,6 +23,28 @@ pub fn clear(grid: &Grid, a: CellXY, b: CellXY) -> bool {
         .skip(1)
         .take(line.len().saturating_sub(2))
         .all(|c| !grid.get(*c).blocks_sight())
+}
+
+/// The number of walls on the straight line between two cells.
+///
+/// Only a `Wall` attenuates a line: cover blocks the sight, not the sound.
+/// The two endpoints are exempt, so an agent standing in cover still talks
+/// through it. The answer is a function of the unordered pair of cells,
+/// like [`clear`].
+pub fn walls_between(grid: &Grid, a: CellXY, b: CellXY) -> u8 {
+    let (p, q) = if (a.x, a.y) <= (b.x, b.y) {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let line = line_cells(p, q);
+    let walls = line
+        .iter()
+        .skip(1)
+        .take(line.len().saturating_sub(2))
+        .filter(|c| grid.get(**c) == CellKind::Wall)
+        .count();
+    u8::try_from(walls).unwrap_or(u8::MAX)
 }
 
 /// The Bresenham cell walk from `p` to `q`, both endpoints included.
@@ -58,7 +80,7 @@ fn line_cells(p: CellXY, q: CellXY) -> Vec<CellXY> {
 
 #[cfg(test)]
 mod tests {
-    use super::clear;
+    use super::{clear, walls_between};
     use crate::params::Params;
     use crate::rng::{Domain, Rng};
     use crate::world::gen::generate;
@@ -79,6 +101,32 @@ mod tests {
         grid.set(CellXY { x: 2, y: 0 }, CellKind::Floor);
         grid.set(b, CellKind::Cover);
         assert!(clear(&grid, a, b));
+    }
+
+    #[test]
+    fn walls_between_counts_only_the_walls() {
+        let mut grid = Grid::new(5, 1);
+        let (a, b) = (CellXY { x: 0, y: 0 }, CellXY { x: 4, y: 0 });
+        assert_eq!(walls_between(&grid, a, b), 0);
+
+        // One wall on the line: one wall of attenuation.
+        grid.set(CellXY { x: 2, y: 0 }, CellKind::Wall);
+        assert_eq!(walls_between(&grid, a, b), 1);
+        assert_eq!(walls_between(&grid, b, a), 1);
+
+        // A second one, further along: two walls.
+        grid.set(CellXY { x: 3, y: 0 }, CellKind::Wall);
+        assert_eq!(walls_between(&grid, a, b), 2);
+
+        // Cover blocks the sight but not the sound.
+        grid.set(CellXY { x: 2, y: 0 }, CellKind::Cover);
+        assert_eq!(walls_between(&grid, a, b), 1);
+
+        // The endpoints are exempt: a wall where the speaker stands does
+        // not stand between the speaker and the listener.
+        grid.set(a, CellKind::Wall);
+        grid.set(b, CellKind::Wall);
+        assert_eq!(walls_between(&grid, a, b), 1);
     }
 
     #[test]

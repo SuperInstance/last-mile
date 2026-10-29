@@ -445,6 +445,7 @@ mod tests {
     /// stale memory of another, one ally in range and the leader far away.
     fn base_view() -> ScoreView {
         ScoreView {
+            heard: Vec::new(),
             tick: 100,
             me: snap(3, 2, 2, Role::Member),
             squad: vec![

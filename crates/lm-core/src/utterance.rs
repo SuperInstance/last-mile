@@ -350,6 +350,64 @@ impl Utterance {
     }
 }
 
+/// A line, as one listener heard it: the truth, degraded.
+///
+/// The score is the truth; this is the truth as it reached one ear. The
+/// words are the ones that survived the distance and the walls, with
+/// their lanes flattened; the tags are the ones the listener understood
+/// (`None` below the thresholds), because a line heard badly is still a
+/// line — it just no longer says what it meant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Heard {
+    /// The canonical id of the line: the hash of the score it was degraded
+    /// from, so the same line always carries the same id (and the radio's
+    /// dropouts, which hash it, always drop the same words).
+    pub id: u64,
+    /// The agent who spoke the line.
+    pub speaker: u16,
+    /// The channel the line was spoken on.
+    pub channel: Channel,
+    /// The gesture, if the listener understood it.
+    pub act: Option<SpeechAct>,
+    /// The point of the line, if the listener understood it.
+    pub intent: Option<Intent>,
+    /// The affect bucket: the tone of a line survives farther than its
+    /// gesture.
+    pub affect: Affect,
+    /// What the line is about.
+    pub subject: Subject,
+    /// How clear the line reached this listener, in Q16.
+    pub clarity_q16: u32,
+    /// The words that arrived, with their degraded lanes.
+    pub words: Vec<Word>,
+    /// How many words the speaker said, dropped ones included.
+    pub spoken_words: u16,
+    /// The tick the line started on.
+    pub started_tick: Tick,
+    /// The tick the line ended on.
+    pub ended_tick: Tick,
+    /// Whether the line is still being spoken.
+    pub ongoing: bool,
+}
+
+impl Heard {
+    /// Whether the listener understood the speech act.
+    pub fn act_known(&self) -> bool {
+        self.act.is_some()
+    }
+
+    /// Whether the listener understood the intent.
+    pub fn intent_known(&self) -> bool {
+        self.intent.is_some()
+    }
+
+    /// Whether the listener got anything at all: a word, a gesture or a
+    /// point.
+    pub fn heard_anything(&self) -> bool {
+        !self.words.is_empty() || self.act.is_some() || self.intent.is_some()
+    }
+}
+
 impl StateHash for Channel {
     fn hash_into(&self, h: &mut Fnv64) {
         h.write(&[self.tag()]);

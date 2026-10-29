@@ -381,6 +381,7 @@ mod tests {
                 .collect(),
             score: vec![0, 0],
             squad_id: 0,
+            heard: vec![],
         }
     }
 
