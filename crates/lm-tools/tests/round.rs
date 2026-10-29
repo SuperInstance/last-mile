@@ -44,10 +44,14 @@ fn two_squad_round_replays_bit_exact() {
 
     // Two squads of four agents: the round the phase-1 spec asks for.
     assert_eq!(log.header.roster.len(), 8);
-    assert_eq!(stats.ticks, 3_000);
+    // The round ends when a squad reaches the win score, so its length is
+    // the game's to decide — what has to hold is that every tick it
+    // played was hashed on the cadence and that the replay sees the same
+    // world, tick by tick.
+    assert!(stats.ticks > 0);
     // A state hash every 30 ticks.
-    assert_eq!(stats.hashes, 100);
-    assert_eq!(log.hashes().len(), 100);
+    assert_eq!(stats.hashes, stats.ticks / 30);
+    assert_eq!(log.hashes().len() as u64, stats.hashes);
 
     // The replay sees the same world, tick by tick.
     assert_eq!(replay(&log).unwrap(), log.hashes());
@@ -137,11 +141,19 @@ fn kill_and_resume() {
         if let Some(hash) = out.hash {
             hashes.push((tick, hash));
         }
+        if sim.outcome().is_some() {
+            break;
+        }
     }
     for tick in 1_500..3_000 {
         let out = sim.step(full.decisions_for(tick));
         if let Some(hash) = out.hash {
             hashes.push((tick, hash));
+        }
+        // The runner stops the round when a squad wins, so the resumed
+        // round has to stop there too.
+        if sim.outcome().is_some() {
+            break;
         }
     }
 
@@ -246,30 +258,33 @@ fn branch_prefix_is_identical() {
 
 #[test]
 fn branch_changes_behaviour_as_intended() {
-    // Seed 3, pinned like a golden hash: the parent's squad 0 plays the
-    // beacons and banks 1216 points; frozen on the spot from tick 1500 it
-    // banks nothing. (Freezing is not always worse -- on seed 2 a frozen
-    // agent happens to sit on a beacon and keeps scoring -- so the seed is
-    // part of the assertion.)
-    let parent = squad0_round(3, 3_000);
-    let (_, report) = branch(&parent, 1_500, &[hold_squad0()]).expect("the branch runs");
-
-    // Squad 0 stands still from the branch tick on: it cannot score what
-    // the parent's squad 0 scored by keeping after the beacons.
-    assert!(
-        report.branch_scores[0] <= report.parent_scores[0],
-        "branch {:?} scored more than parent {:?}",
-        report.branch_scores,
-        report.parent_scores
-    );
-    assert_eq!(report.parent_scores[0], 1_216);
-    assert_eq!(report.branch_scores[0], 0);
-    // The rounds are not the same round, and they part company after the
-    // branch tick, never before it.
-    match report.first_divergent_tick {
-        Some(t) => assert!(t > 1_500, "diverged at tick {t}, before the branch tick"),
-        None => panic!("the branch played exactly the parent's round"),
+    // Freezing squad 0 from tick 1500 must change the round, and only from
+    // the branch tick on, on every seed. Whether it changes the score up or
+    // down is the world's business: after the fairness fix, standing still
+    // on a beacon sometimes OUT-scores the default reflex (seed 3: 1611 vs
+    // 861), which is a reflex-quality finding (a learning target for phase
+    // 5), not a branch bug. So we pin the invariant that holds on every
+    // seed (divergence after the branch tick), plus that freezing is worse
+    // on at least one seed, so the test still proves the change bites.
+    let mut worse_somewhere = false;
+    for seed in 1..=8 {
+        let parent = squad0_round(seed, 3_000);
+        let (_, report) = branch(&parent, 1_500, &[hold_squad0()]).expect("the branch runs");
+        let t = report
+            .first_divergent_tick
+            .unwrap_or_else(|| panic!("seed {seed}: freezing squad 0 changed nothing"));
+        assert!(
+            t > 1_500,
+            "seed {seed}: diverged at {t}, before the branch tick"
+        );
+        if report.branch_scores[0] < report.parent_scores[0] {
+            worse_somewhere = true;
+        }
     }
+    assert!(
+        worse_somewhere,
+        "freezing squad 0 never cost it points on seeds 1..=8"
+    );
 }
 
 #[test]

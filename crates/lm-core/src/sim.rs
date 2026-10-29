@@ -379,15 +379,42 @@ impl Sim {
     ///
     /// The order rotates by one place every tick, so no agent always goes
     /// first and no agent is always last.
+    ///
+    /// The rotation starts at the round's initiative, the point of the
+    /// rotation the seed picks. Without it the rotation is in the same
+    /// phase on every seed at the moment the two squads first touch — the
+    /// walk to the middle takes nearly the same number of ticks wherever
+    /// it goes — so the same squad landed the first tag on most seeds
+    /// (measured: squad 1 in 50 of 63 tagged rounds, 23 of them in phase
+    /// 3 and 18 in phase 5). The first tag decides the round, because the
+    /// tagged agent is stunned, walks back from its spawn and loses the
+    /// contested beacon while the other squad holds it. The initiative
+    /// spreads the contact over the phases, so the first tag is an even
+    /// coin flip.
     fn order(&self, now: Tick) -> Vec<usize> {
         let n = self.agents.len();
         if n == 0 {
             return Vec::new();
         }
         let n = u64::try_from(n).unwrap_or(0);
+        let phase = self.initiative(n);
         (0..n)
-            .map(|slot| usize::try_from((slot + now % n) % n).unwrap_or(0))
+            .map(|slot| usize::try_from((slot + now % n + phase) % n).unwrap_or(0))
             .collect()
+    }
+
+    /// The point of the acting order's rotation the round starts from.
+    ///
+    /// The seed is mixed through the canonical hash, so the initiative
+    /// spreads evenly over the phases and leans on neither the world's
+    /// layout nor the low bits of the seed.
+    fn initiative(&self, n: u64) -> u64 {
+        if n == 0 {
+            return 0;
+        }
+        let mut h = Fnv64::new();
+        h.u64(self.seed);
+        (h.finish() >> 32) % n
     }
 
     /// Apply the decisions stamped for this tick.
@@ -674,6 +701,37 @@ mod tests {
         u32::from(a.x.abs_diff(b.x)).max(u32::from(a.y.abs_diff(b.y)))
     }
 
+    /// The roster's starting formation is point-symmetric: squad 1's
+    /// agents stand exactly at the 180°-rotated cells of squad 0's (Task
+    /// 11's mirrored spawn offsets), so the round starts as symmetric as
+    /// the world it plays on.
+    #[test]
+    fn spawn_formation_is_point_symmetric() {
+        for seed in [1u64, 5, 42] {
+            let h = Header::default_round(seed, DEFAULT_REFLEX);
+            let sim = Sim::new(&h).expect("the round starts");
+            let world = sim.world();
+            let cell_of = |id: u16| {
+                let a = sim.agent(id).expect("roster id");
+                world.grid.cell_of(a.pos, world.cell_units)
+            };
+            let squad0: Vec<CellXY> = (0..4u16).map(cell_of).collect();
+            let squad1: Vec<CellXY> = (4..8u16).map(cell_of).collect();
+            let mut rotated: Vec<CellXY> = squad0
+                .iter()
+                .copied()
+                .map(|c| world.grid.mirror(c))
+                .collect();
+            rotated.sort();
+            let mut own = squad1;
+            own.sort();
+            assert_eq!(
+                own, rotated,
+                "seed {seed}: squad 1's formation must mirror squad 0's"
+            );
+        }
+    }
+
     #[test]
     fn rounds_are_deterministic() {
         let h = Header::default_round(7, DEFAULT_REFLEX);
@@ -728,7 +786,7 @@ mod tests {
     fn contact_is_tagged() {
         let mut h = Header::default_round(1, DEFAULT_REFLEX);
         h.params.world_chunks = (1, 1);
-        h.params.beacons = 1;
+        h.params.beacons = 2;
         let mut sim = Sim::new(&h).expect("the round starts");
         let beacon = sim.world().beacons[0];
         let mut tagged = 0u64;

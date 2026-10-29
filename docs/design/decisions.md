@@ -72,6 +72,8 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 
 | D59 | 2026-10-29 | **Find hard, check cheap: certificate-carrying decisions.** Expensive minds search; every node verifies. Decisions may carry a short, code-checkable certificate (first ones: the safe branch's known-free cells and the facts key the decision was made on), checked before apply; a failed certificate is a refusal | The decision log is already the certificate of a round and replay its checker (like Lean for proofs); making it per-decision keeps verification cheap however costly the thought. Prompted by the ETH video and Casey's "we bypass the hard parts intuitively" | [fleet/09](../research/fleet/09-find-hard-check-cheap.md) |
 
+| D60 | 2026-10-29 | **First learning target, found by testing from the outside:** after the fairness fix, standing still on a beacon out-scores the default reflex on some seeds (seed 3: 1611 vs 861 when squad 0 freezes at tick 1500), and 67% of 200 rounds end in a draw at the 9000-tick limit. The default reflex leaves beacons it holds to chase or flee. Phase 5's first sealed prediction should target this (a "hold what you have" reflex or block), and phase 5 balancing should tune win_score and time_limit for decisiveness | `lm branch` turned a pinned test into a gameplay discovery; this is exactly the loop the game is about | fairness merge 5595db9 |
+
 ## Pending (under discussion)
 - Spikes S1/S2: decision-model latency on the Thor (16 agents × 8 gates, p99, other tenants loaded) and on the ProArt 4050
 - User review of the M1 spec (now with fleet refinements D23–D36)

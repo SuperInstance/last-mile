@@ -2,10 +2,20 @@
 #
 # One entry per seed: the last state hash of a round of `ticks` ticks started
 # with `Header::default_round(seed, DEFAULT_REFLEX)` -- the shipped reflex, the
-# default parameters and the `beacons` ruleset.
+# default parameters and the `beacons` ruleset. A round ends as soon as a
+# squad reaches the win score, so the last hash is the one of the tick the
+# round ended on.
 #
 # These numbers are the contract. A change to the simulation moves them, and
 # the commit that touches this file has to say why the world changed.
+#
+# Re-pinned for the fairness work: the beacons now come in 180-degree
+# rotated pairs (an even count, the old layout put the centre beacon one
+# cell closer to squad 1), the motor alternates its leading axis (the
+# pinned axis could freeze two mirrored squads into a 0-0 standoff) and the
+# acting order starts at the round's initiative, the point of the rotation
+# the seed picks (the old order handed the first tag of most rounds to the
+# same squad). The reflex is unchanged.
 #
 # Regenerate with:
 #     cargo run --release --bin lm -- golden --write
@@ -13,6 +23,6 @@
 ticks = 3000
 
 [golden]
-1 = "0xc76d749cd744be7b"
-2 = "0xbdcb9285c869c6d6"
-3 = "0x0f36d36270a06232"
+1 = "0xe534c5ecf5bb8131"
+2 = "0xcd8579867493dc41"
+3 = "0x000cc5997abac698"

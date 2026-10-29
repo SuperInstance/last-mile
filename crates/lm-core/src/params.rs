@@ -74,7 +74,9 @@ pub struct Params {
     pub chunk_m: u8,
     /// Navigation cell edge in metres; divides `chunk_m`.
     pub cell_m: u8,
-    /// Number of beacons to generate.
+    /// Number of beacons to generate; must be even, because beacons come
+    /// in 180°-paired cells (an unpaired beacon would sit closer to one
+    /// squad and bias the round).
     pub beacons: u8,
     // Beacons rules.
     /// Score needed to win the round.
@@ -113,6 +115,16 @@ pub struct Params {
     pub repath_ticks: u16,
     /// Exploration temperature for rolls in Q16 (0 = argmax, D43).
     pub explore_temp_q16: u32,
+    /// The motor's leading axis swaps every this many ticks: 1 alternates
+    /// x/y each tick, 0 pins x first forever (the legacy order).
+    ///
+    /// A pinned leading axis plus stale enemy memories can phase-lock two
+    /// mirrored squads into a standoff: each chases the other's jittering
+    /// column, the leading-axis correction eats the whole tick budget and
+    /// the cross-axis gap never closes (measured: seed 5 frozen 0-0 from
+    /// tick ~2100 to 9000). Alternating the axis guarantees progress on
+    /// both axes for every agent, so pursuit always closes.
+    pub axis_swap_ticks: u16,
     // Worldgen L0.
     /// Percentage of cells filled with wall blocks.
     pub wall_density_pct: u8,
@@ -133,7 +145,7 @@ impl Default for Params {
             world_chunks: (8, 8),
             chunk_m: 32,
             cell_m: 2,
-            beacons: 3,
+            beacons: 4,
             win_score: 1_800,
             time_limit_ticks: 9_000,
             squads: 2,
@@ -150,6 +162,7 @@ impl Default for Params {
             intent_ttl_ticks: 300,
             repath_ticks: 15,
             explore_temp_q16: 0,
+            axis_swap_ticks: 1,
             wall_density_pct: 18,
             cover_density_pct: 6,
         }
@@ -227,6 +240,12 @@ impl Params {
             return Err(ParamError::new(
                 "speed_upt",
                 "speed must be between 0 and one cell per tick",
+            ));
+        }
+        if !self.beacons.is_multiple_of(2) {
+            return Err(ParamError::new(
+                "beacons",
+                "beacons must be even: they are placed in point-symmetric pairs",
             ));
         }
         if self.squads == 0 {
@@ -340,6 +359,7 @@ impl StateHash for Params {
         h.u16(self.intent_ttl_ticks);
         h.u16(self.repath_ticks);
         h.u32(self.explore_temp_q16);
+        h.u16(self.axis_swap_ticks);
         h.write(&[self.wall_density_pct, self.cover_density_pct]);
     }
 }
@@ -380,7 +400,7 @@ mod tests {
     #[test]
     #[allow(clippy::type_complexity)] // the case table is copied verbatim from the plan
     fn validate_rejects_each_bad_field() {
-        let cases: [(&str, fn(&mut Params)); 6] = [
+        let cases: [(&str, fn(&mut Params)); 7] = [
             ("tick_hz", |p| p.tick_hz = 0),
             ("squads", |p| p.squads = 0),
             ("world_chunks", |p| p.world_chunks = (0, 8)),
@@ -389,7 +409,8 @@ mod tests {
                 p.max_lead_ticks = 9;
             }),
             ("lane_deadband_q16", |p| p.lane_deadband_q16 = 70_000),
-            ("cell_m", |p| p.cell_m = 3), /* must divide chunk_m */
+            ("cell_m", |p| p.cell_m = 3),   /* must divide chunk_m */
+            ("beacons", |p| p.beacons = 3), /* must pair up */
         ];
         for (field, f) in cases {
             let mut p = Params::default();
@@ -412,7 +433,7 @@ mod tests {
                 p.cell_m,
                 p.beacons
             ),
-            (9, 300, (8, 8), 32, 2, 3)
+            (9, 300, (8, 8), 32, 2, 4)
         );
         assert_eq!(
             (p.win_score, p.time_limit_ticks, p.squads, p.squad_size),
@@ -434,10 +455,11 @@ mod tests {
                 p.intent_ttl_ticks,
                 p.repath_ticks,
                 p.explore_temp_q16,
+                p.axis_swap_ticks,
                 p.wall_density_pct,
                 p.cover_density_pct
             ),
-            (300, 15, 0, 18, 6)
+            (300, 15, 0, 1, 18, 6)
         );
     }
 

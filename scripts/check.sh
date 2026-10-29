@@ -24,6 +24,12 @@ cargo test
 echo "==> cargo test (release)"
 cargo test --release
 
+echo "==> cargo test (release, ignored: the fairness guard)"
+# The fairness guard plays 200 full rounds, which is a minute of wall-clock
+# in release and far too slow for a debug run, so it is marked #[ignore]
+# and runs here.
+cargo test --workspace --release -- --ignored
+
 echo "==> lm golden"
 cargo run --release --bin lm -- golden
 

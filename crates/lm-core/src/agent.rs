@@ -169,16 +169,24 @@ impl Agent {
     ///
     /// `GoTo` follows a cached JPS route to the goal, recomputed when the
     /// goal changes, when the agent's cell has left the cached path, or
-    /// every `repath_ticks`. Each tick moves at most `speed_upt` units
-    /// toward the next cell centre, x first and the leftover budget along y,
-    /// and a step whose destination cell is not walkable is refused
-    /// outright — the agent never enters a wall, whatever it was told.
+    /// every `repath_ticks`. The goal is clamped into the grid first — a
+    /// route to a cell outside the world does not exist, and the fleeing
+    /// corner squads of a symmetric map must not freeze for asking for
+    /// one. Each tick moves at most `speed_upt` units toward the next
+    /// cell centre, the leading axis first and the leftover budget along
+    /// the other; the leading axis alternates every `axis_swap_ticks`
+    /// ticks, so a pursuit always makes progress on both axes. A step
+    /// whose destination cell is not walkable is refused outright — the
+    /// agent never enters a wall, whatever it was told.
     pub fn move_step(&mut self, cmd: MotorCmd, world: &World, p: &Params, now: Tick) {
         self.sync_intent(now);
         self.advance_intent(world.grid.cell_of(self.pos, world.cell_units));
 
         let goal = match cmd {
-            MotorCmd::GoTo(c) => c,
+            MotorCmd::GoTo(c) => CellXY {
+                x: c.x.min(world.grid.w.saturating_sub(1)),
+                y: c.y.min(world.grid.h.saturating_sub(1)),
+            },
             MotorCmd::Hold => return,
         };
         let grid = &world.grid;
@@ -213,15 +221,13 @@ impl Agent {
         let mut budget = i64::from(p.speed_upt.max(0));
         let (mut nx, mut ny) = (px, py);
         let dx = tx - nx;
-        if dx != 0 && budget > 0 {
-            let step = dx.abs().min(budget);
-            nx += if dx < 0 { -step } else { step };
-            budget -= step;
-        }
         let dy = ty - ny;
-        if dy != 0 && budget > 0 {
-            let step = dy.abs().min(budget);
-            ny += if dy < 0 { -step } else { step };
+        if leads_with_y(p, now) {
+            ny += axis_step(dy, &mut budget);
+            nx += axis_step(dx, &mut budget);
+        } else {
+            nx += axis_step(dx, &mut budget);
+            ny += axis_step(dy, &mut budget);
         }
         let next = Pos::from_units(nx, ny);
         let next_cell = grid.cell_of(next, world.cell_units);
@@ -257,6 +263,33 @@ impl Agent {
         while act.branch().get(act.idx).is_some_and(|c| *c == cell) {
             act.idx += 1;
         }
+    }
+}
+
+/// Whether the motor leads with y on this tick (⚙ `axis_swap_ticks`).
+///
+/// The leading axis alternates every `axis_swap_ticks` ticks — 1 swaps
+/// each tick, 0 pins x first. The swap is a function of the tick alone,
+/// so every agent of every squad faces the same axis order and no squad
+/// gains an edge; without it, two mirrored squads chasing each other's
+/// stale columns can spend every tick's whole budget correcting the
+/// leading axis and never close the gap (the seed-5 0-0 standoff).
+fn leads_with_y(p: &Params, now: Tick) -> bool {
+    p.axis_swap_ticks != 0 && (now / u64::from(p.axis_swap_ticks)) % 2 == 1
+}
+
+/// Spend up to `budget` units closing the axis distance `d`, returning
+/// the signed step.
+fn axis_step(d: i64, budget: &mut i64) -> i64 {
+    if d == 0 || *budget <= 0 {
+        return 0;
+    }
+    let step = d.abs().min(*budget);
+    *budget -= step;
+    if d < 0 {
+        -step
+    } else {
+        step
     }
 }
 
@@ -529,6 +562,65 @@ mod tests {
         let before = a.pos;
         a.move_step(MotorCmd::Hold, &world, &p, 0);
         assert_eq!(a.pos, before);
+    }
+
+    #[test]
+    fn the_leading_axis_alternates_every_tick() {
+        let world = open_world();
+        let p = Params {
+            axis_swap_ticks: 1,
+            ..Params::default()
+        };
+        let mut a = agent_at(&world, CellXY { x: 1, y: 1 });
+        let goal = CellXY { x: 9, y: 9 };
+        // Tick 0 leads with x, tick 1 with y: a diagonal walk alternates
+        // which axis advances, so both axes always make progress.
+        let (x0, y0) = a.pos.to_units();
+        a.move_step(MotorCmd::GoTo(goal), &world, &p, 0);
+        let (x1, y1) = a.pos.to_units();
+        assert_eq!((x1 - x0, y1 - y0), (i64::from(p.speed_upt), 0));
+        a.move_step(MotorCmd::GoTo(goal), &world, &p, 1);
+        let (x2, y2) = a.pos.to_units();
+        assert_eq!((x2 - x1, y2 - y1), (0, i64::from(p.speed_upt)));
+    }
+
+    #[test]
+    fn a_zero_axis_swap_pins_x_first() {
+        let world = open_world();
+        let p = Params {
+            axis_swap_ticks: 0,
+            ..Params::default()
+        };
+        let mut a = agent_at(&world, CellXY { x: 1, y: 1 });
+        let goal = CellXY { x: 9, y: 9 };
+        for t in 0..3u64 {
+            let (x, y) = a.pos.to_units();
+            a.move_step(MotorCmd::GoTo(goal), &world, &p, t);
+            let (nx, ny) = a.pos.to_units();
+            assert_eq!((nx - x, ny - y), (i64::from(p.speed_upt), 0), "tick {t}");
+        }
+    }
+
+    #[test]
+    fn an_out_of_bounds_goal_clamps_into_the_grid() {
+        let world = open_world();
+        let p = Params::default();
+        let mut a = agent_at(&world, CellXY { x: 5, y: 5 });
+        // A reflex fleeing past the edge asks for a cell that is not on
+        // the grid; the motor saturates it to the border cell (the same
+        // saturation `cell_of` applies to positions) and walks there
+        // instead of freezing on an unreachable goal.
+        let (before, _) = a.pos.to_units();
+        a.move_step(MotorCmd::GoTo(CellXY { x: 40, y: 9 }), &world, &p, 0);
+        let (x, _) = a.pos.to_units();
+        assert!(x > before, "the clamped goal must still be walked");
+        for t in 1..400u64 {
+            a.move_step(MotorCmd::GoTo(CellXY { x: 40, y: 9 }), &world, &p, t);
+        }
+        assert_eq!(
+            world.grid.cell_of(a.pos, world.cell_units),
+            CellXY { x: 9, y: 9 }
+        );
     }
 
     #[test]

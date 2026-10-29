@@ -118,30 +118,30 @@ pub fn generate(seed: u64, p: &Params) -> World {
         spawns.push(if s % 2 == 0 { base } else { grid.mirror(base) });
     }
 
-    // Beacons: 0 at the centre; the rest in left-right mirrored pairs on
-    // the centre row, the first pair at w/4. An even count leaves one
-    // unpaired, parked beside the centre on the same row.
+    // Beacons: every beacon comes with its 180°-rotated partner, so the
+    // beacon set is point-symmetric exactly like the grid. Pair 0
+    // straddles the centre — the rotation maps one of its cells onto the
+    // other — which keeps a contested middle; the remaining pairs divide
+    // the left half of the centre band, the first side pair at w/4. An
+    // odd count has no such layout (no cell is its own rotation on an
+    // even grid), so `Params::validate` refuses it: the old left-right
+    // pairs on the centre row sat one cell closer to squad 1 and biased
+    // the round 101:52 over 200 seeds.
     let mut beacons = Vec::with_capacity(usize::from(p.beacons));
     let (cx, cy) = (w / 2, h / 2);
-    if p.beacons >= 1 {
-        beacons.push(CellXY { x: cx, y: cy });
-    }
-    let pairs = u32::from(p.beacons.saturating_sub(1)) / 2;
+    let pairs = u32::from(p.beacons) / 2;
     for k in 0..pairs {
-        // The pairs divide the left half of the centre row evenly, which
-        // puts pair 0 exactly at w/4.
-        let x = (u32::from(w) / 2 * (k + 1) / (pairs + 1)) as u16;
-        beacons.push(CellXY { x, y: cy });
-        beacons.push(CellXY {
-            x: w - 1 - x,
-            y: cy,
-        });
-    }
-    if p.beacons >= 2 && p.beacons.is_multiple_of(2) {
-        beacons.push(CellXY {
-            x: w - 1 - cx,
-            y: cy,
-        });
+        let x = if k == 0 {
+            u32::from(cx)
+        } else {
+            u32::from(w) / 2 * k / pairs
+        };
+        let a = CellXY {
+            x: x as u16,
+            y: cy.saturating_sub(1),
+        };
+        beacons.push(a);
+        beacons.push(grid.mirror(a));
     }
 
     // No spawn or beacon may start walled or blinded: force it and its 3×3
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn counts() {
         let w = generate(1, &Params::default());
-        assert_eq!(w.beacons.len(), 3);
+        assert_eq!(w.beacons.len(), 4);
         assert_eq!(w.spawns.len(), 2);
     }
 
@@ -374,16 +374,72 @@ mod tests {
             w.spawns,
             vec![CellXY { x: 2, y: 2 }, CellXY { x: 125, y: 125 }]
         );
-        // Beacon 0 at the centre; beacons 1 and 2 paired at w/4 and its
-        // mirror, all on the centre row.
+        // Pair 0 straddles the centre (each cell is the other's 180°
+        // rotation); pair 1 sits at w/4 on the centre band, its partner at
+        // the rotated cell.
         assert_eq!(
             w.beacons,
             vec![
-                CellXY { x: 64, y: 64 },
-                CellXY { x: 32, y: 64 },
+                CellXY { x: 64, y: 63 },
+                CellXY { x: 63, y: 64 },
+                CellXY { x: 32, y: 63 },
                 CellXY { x: 95, y: 64 },
             ]
         );
+    }
+
+    /// The fairness invariant the brief names: the whole world — grid,
+    /// beacons and spawns — is invariant under the 180° rotation.
+    #[test]
+    fn world_is_point_symmetric_including_beacons_and_spawns() {
+        let p = Params::default();
+        for seed in 0..25u64 {
+            let w = generate(seed, &p);
+            let mirror = |c: CellXY| w.grid.mirror(c);
+            for y in 0..w.grid.h {
+                for x in 0..w.grid.w {
+                    let c = CellXY { x, y };
+                    assert_eq!(
+                        w.grid.get(c),
+                        w.grid.get(mirror(c)),
+                        "seed {seed}: cell ({x},{y}) must equal its rotation"
+                    );
+                }
+            }
+            // The beacon multiset maps onto itself under the rotation.
+            let mut rotated: Vec<CellXY> = w.beacons.iter().copied().map(mirror).collect();
+            rotated.sort();
+            let mut beacons = w.beacons.clone();
+            beacons.sort();
+            assert_eq!(
+                beacons, rotated,
+                "seed {seed}: the beacon set must be its own 180° rotation"
+            );
+            // Spawns pair up under the rotation: squad 2k+1's spawn is
+            // squad 2k's spawn rotated.
+            for s in (0..w.spawns.len()).step_by(2) {
+                assert_eq!(
+                    mirror(w.spawns[s]),
+                    w.spawns[s + 1],
+                    "seed {seed}: spawn pair {s} must be rotations"
+                );
+            }
+        }
+    }
+
+    /// Even beacon counts beyond the default also pair up exactly.
+    #[test]
+    fn larger_beacon_counts_stay_paired() {
+        let p = Params {
+            beacons: 8,
+            ..Params::default()
+        };
+        let w = generate(3, &p);
+        let mut rotated: Vec<CellXY> = w.beacons.iter().map(|&b| w.grid.mirror(b)).collect();
+        rotated.sort();
+        let mut beacons = w.beacons.clone();
+        beacons.sort();
+        assert_eq!(beacons, rotated);
     }
 
     #[test]
