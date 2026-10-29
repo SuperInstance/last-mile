@@ -1,0 +1,14 @@
+[package]
+name = "lm-host-model"
+description = "The host's model of a last-mile round: the host loop, the input mapping, the map and the piano roll."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The host model is pure logic and may be tested in WSL, so it depends on the
+# core and on the headless runner -- and on nothing else. No Bevy, no windowing
+# stack, no clock: `lm-host` is a thin shell on top of this crate.
+[dependencies]
+lm-core = { path = "../lm-core" }
+lm-tools = { path = "../lm-tools" }

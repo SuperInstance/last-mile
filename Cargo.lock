@@ -3941,6 +3941,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lm-host-model"
+version = "0.1.0"
+dependencies = [
+ "lm-core",
+ "lm-tools",
+]
+
+[[package]]
 name = "lm-proto"
 version = "0.1.0"
 dependencies = [
