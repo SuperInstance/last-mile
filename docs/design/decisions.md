@@ -68,6 +68,8 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 
 | D58 | 2026-10-28 | **The round's clock is a parameter:** a T-minus time countdown (`time_limit_ticks`), a **token-limit countdown** (the round ends when a squad's or the shared thinking budget is spent; `rules.end_on = time | tokens | both`), or both. The HUD shows whichever clock is running, and agents see their remaining clock in their facts, so strategy shifts with the clock (spend early vs hoard) | Casey: "sometimes it's on a time-minus countdown, other times a token-limit countdown, like my subscriptions" | D16, D55–D57 |
 
+| D59 | 2026-10-29 | **Find hard, check cheap: certificate-carrying decisions.** Expensive minds search; every node verifies. Decisions may carry a short, code-checkable certificate (first ones: the safe branch's known-free cells and the facts key the decision was made on), checked before apply; a failed certificate is a refusal | The decision log is already the certificate of a round and replay its checker (like Lean for proofs); making it per-decision keeps verification cheap however costly the thought. Prompted by the ETH video and Casey's "we bypass the hard parts intuitively" | [fleet/09](../research/fleet/09-find-hard-check-cheap.md) |
+
 ## Pending (under discussion)
 - Spikes S1/S2: decision-model latency on the Thor (16 agents × 8 gates, p99, other tenants loaded) and on the ProArt 4050
 - User review of the M1 spec (now with fleet refinements D23–D36)
