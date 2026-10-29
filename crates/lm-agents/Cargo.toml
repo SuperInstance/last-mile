@@ -8,3 +8,7 @@ description = "last-mile agent cognition: facts, gates, System One client, least
 lm-core = { path = "../lm-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Task 3: the System One client. ureq 3.x is a blocking HTTP client with a
+# per-agent connection pool, so one client per backend keeps its connections
+# alive (D50). rustls is the pure-Rust TLS stack (no OpenSSL on the Thor).
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
