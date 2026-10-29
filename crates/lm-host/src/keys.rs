@@ -128,6 +128,14 @@ pub const VIEW_FLIP: Binding = Binding {
     job: "flip the 2D map and the 3D view",
 };
 
+/// `E` flips the bottom panel between the piano roll and the conductor's
+/// score (E7). It spells the experiment it belongs to, and nothing else in
+/// the host asks for it.
+pub const SCORE_FLIP: Binding = Binding {
+    key: KeyCode::KeyE,
+    job: "flip the piano roll and the score",
+};
+
 /// Every key the host binds, and the one job it does. The two tests below
 /// read this table; a system reads its row.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -151,6 +159,7 @@ pub const BINDINGS: &[&Binding] = &[
     &PAN_RIGHT,
     &PUSH_TO_TALK,
     &VIEW_FLIP,
+    &SCORE_FLIP,
 ];
 
 #[cfg(test)]

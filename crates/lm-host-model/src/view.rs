@@ -107,6 +107,74 @@ impl ViewSwitch {
     }
 }
 
+/// The bottom panel's mode: the piano roll, or the conductor's score grown
+/// out of it (Vox Score §12, E7).
+///
+/// The score is a mode *beside* the roll, not a replacement: `E` walks
+/// between them while the round runs, and the panel keeps the replay
+/// scrubber either way, because both read the same clock. Like the view
+/// switch above, this is **data, not architecture**: a flip changes this
+/// resource and nothing else — the round, its tick and its recorder are
+/// never touched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BottomMode {
+    /// The piano roll: one lane per agent, the M1 debugger.
+    Roll,
+    /// The conductor's score: one system of staves per agent.
+    Score,
+}
+
+impl BottomMode {
+    /// The mode a command line spells out.
+    pub fn parse(text: &str) -> Result<BottomMode, String> {
+        match text {
+            "roll" => Ok(BottomMode::Roll),
+            "score" => Ok(BottomMode::Score),
+            other => Err(format!("`--bottom` wants roll or score, not `{other}`")),
+        }
+    }
+
+    /// The mode, as it is written on the command line.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BottomMode::Roll => "roll",
+            BottomMode::Score => "score",
+        }
+    }
+}
+
+/// Which of the bottom panel's modes is drawing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BottomSwitch {
+    /// The mode the panel is in.
+    pub mode: BottomMode,
+}
+
+impl Default for BottomSwitch {
+    /// The panel opens on the roll, the debugger it has always been.
+    fn default() -> BottomSwitch {
+        BottomSwitch {
+            mode: BottomMode::Roll,
+        }
+    }
+}
+
+impl BottomSwitch {
+    /// The state an app opens with.
+    pub fn new(mode: BottomMode) -> BottomSwitch {
+        BottomSwitch { mode }
+    }
+
+    /// Walk between the roll and the score, and say which is drawing.
+    pub fn toggle(&mut self) -> BottomMode {
+        self.mode = match self.mode {
+            BottomMode::Roll => BottomMode::Score,
+            BottomMode::Score => BottomMode::Roll,
+        };
+        self.mode
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,6 +257,45 @@ mod tests {
                 Ok(mode),
                 "every mode round-trips through its own spelling"
             );
+        }
+    }
+
+    /// The bottom switch walks between the roll and the score and touches
+    /// nothing but itself — the same property the view switch states, said
+    /// for the panel under the round.
+    #[test]
+    fn the_bottom_switch_flips_without_touching_the_round() {
+        let mut host = round_five_ticks_in();
+        let tick = host.sim().tick();
+        let hash = host.sim().state_hash();
+
+        let mut bottom = BottomSwitch::new(BottomMode::Roll);
+        assert_eq!(bottom.toggle(), BottomMode::Score);
+        assert_eq!(bottom.toggle(), BottomMode::Roll);
+        assert_eq!(bottom.mode, BottomMode::Roll);
+
+        // The switch touched nothing: the round is where it was, to the hash.
+        assert_eq!(host.sim().tick(), tick);
+        assert_eq!(host.sim().state_hash(), hash);
+
+        // And the round runs on through flips, from the tick it held.
+        bottom.toggle();
+        for _ in 0..5 {
+            host.tick();
+        }
+        assert_eq!(host.sim().tick(), tick + 5, "no flip cost a tick");
+    }
+
+    /// Both spellings of the bottom mode round-trip through the command
+    /// line's words, and nothing else is accepted.
+    #[test]
+    fn the_bottom_modes_round_trip() {
+        assert_eq!(BottomMode::parse("roll"), Ok(BottomMode::Roll));
+        assert_eq!(BottomMode::parse("score"), Ok(BottomMode::Score));
+        assert!(BottomMode::parse("lanes").is_err());
+        assert!(BottomMode::parse("").is_err());
+        for mode in [BottomMode::Roll, BottomMode::Score] {
+            assert_eq!(BottomMode::parse(mode.as_str()), Ok(mode));
         }
     }
 }

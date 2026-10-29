@@ -43,6 +43,7 @@ use lm_core::sim::Sim;
 use lm_host_model::host_loop::HostLoop;
 use lm_host_model::record;
 use lm_host_model::roll::RollModel;
+use lm_host_model::score::{hollows_of, note_attention, AttentionTrace, Hollow, ScoreModel};
 use lm_host_model::scrub::Scrubber;
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -204,6 +205,88 @@ pub struct CurrentRoll {
 /// How many ticks the piano roll shows while a round is being played.
 pub const ROLL_TICKS: u64 = 300;
 
+/// How many seconds of the round the conductor's score draws, unless the
+/// command line says otherwise (`--score-seconds`).
+pub const SCORE_SECONDS: u32 = 20;
+
+/// The score's zoom: how many seconds of the round it draws.
+///
+/// A score is read at a glance, so it is a window on the last moments of
+/// the round — the whole round is what the replay scrubber is for, and the
+/// two share one clock.
+#[derive(Resource)]
+pub struct ScoreZoom(pub u32);
+
+impl Default for ScoreZoom {
+    fn default() -> Self {
+        ScoreZoom(SCORE_SECONDS)
+    }
+}
+
+/// The conductor's score of the round so far (E7).
+///
+/// It is built exactly as the roll is built — from the log and, live, from
+/// what the host knows that the log does not carry — with one thing more:
+/// the agents' attention, sampled once per played tick. A replayed round
+/// carries the same samples, taken by the scrubber's opening replay, so
+/// both modes of the round draw the same score.
+#[derive(Resource, Default)]
+pub struct CurrentScore {
+    /// The score itself: one system of staves per agent.
+    pub model: ScoreModel,
+    /// The ticks it covers.
+    pub window: Range<Tick>,
+    /// The attention trace it is built from: per agent, the tick each run
+    /// of attention began on.
+    pub attention: AttentionTrace,
+    /// The hollow marks so far: the refusals and unsure gates of every
+    /// mind that is playing the round.
+    ///
+    /// A log carries no refusals (D26 records them with the mind), so a
+    /// round opened straight from a file has none; a round the app played
+    /// itself keeps the ones it collected while playing, through the
+    /// replay it is reopened as.
+    pub hollow: BTreeMap<u16, Vec<Hollow>>,
+    /// How many refusals of each mind have been taken already, so each
+    /// tick appends only the new ones.
+    taken: BTreeMap<u16, usize>,
+}
+
+impl CurrentScore {
+    /// Take the refusals that arrived since the last look.
+    ///
+    /// The minds keep their whole refusal history; the score keeps its own
+    /// copy as hollow marks, appending the delta each tick.
+    fn take_new_refusals(&mut self, host: &HostLoop) {
+        let Some(agents) = host.agents() else {
+            return;
+        };
+        for (&agent, mind) in agents.minds() {
+            let refusals = mind.refusals();
+            let taken = *self.taken.entry(agent).or_insert(0);
+            if taken >= refusals.len() {
+                continue;
+            }
+            let fresh = hollows_of(&refusals[taken..]);
+            self.hollow.entry(agent).or_default().extend(fresh);
+            self.taken.insert(agent, refusals.len());
+        }
+    }
+}
+
+/// The ticks the score is drawn over: the last `span` ticks up to `now`.
+///
+/// While the round is younger than the span the window stays anchored at
+/// the round's start (so an early tick still sees a full window instead of
+/// a sliver), and a round with an end never draws past it.
+fn score_window(start: Tick, span: u64, now: Tick, end: Option<Tick>) -> Range<Tick> {
+    let mut last = now.saturating_add(1).max(start.saturating_add(span));
+    if let Some(end) = end {
+        last = last.min(end.saturating_add(1));
+    }
+    last.saturating_sub(span)..last
+}
+
 /// The sim plugin: the round, and the schedule it runs on.
 pub struct SimPlugin {
     /// The rate the round ticks at: `Params::tick_hz`.
@@ -236,6 +319,8 @@ impl Plugin for SimPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(f64::from(self.tick_hz)))
             .init_resource::<LiveEvents>()
             .init_resource::<CurrentRoll>()
+            .init_resource::<CurrentScore>()
+            .init_resource::<ScoreZoom>()
             .init_resource::<Recording>()
             .init_resource::<Replay>()
             // The round ticks, and a replay plays itself back at the very
@@ -243,7 +328,15 @@ impl Plugin for SimPlugin {
             .add_systems(FixedUpdate, (step_round, step_replay).in_set(SimSet::Step))
             // The round is written down when it is over, and the replay is
             // kept in step with the tick the viewer is asking for.
-            .add_systems(Update, (write_when_over, apply_seek, update_replay_roll))
+            .add_systems(
+                Update,
+                (
+                    write_when_over,
+                    apply_seek,
+                    update_replay_roll,
+                    update_replay_score,
+                ),
+            )
             // And when the window closes, whatever was played is written down.
             .add_systems(
                 Last,
@@ -259,6 +352,8 @@ fn step_round(
     mut round: ResMut<Round>,
     mut events: ResMut<LiveEvents>,
     mut roll: ResMut<CurrentRoll>,
+    mut score: ResMut<CurrentScore>,
+    zoom: Res<ScoreZoom>,
 ) {
     let Some(host) = round.live.as_mut() else {
         return;
@@ -275,15 +370,36 @@ fn step_round(
         events.0.push((out.tick, event));
     }
 
+    // The agents' attention as their own state now holds it: the sample the
+    // score's gaze and tier staves read, and the refusal delta of its
+    // hollow marks. Both are read after the tick they belong to -- the one
+    // the sim has just moved past.
+    let played = host.sim().tick().saturating_sub(1);
+    note_attention(host.sim(), &mut score.attention, played);
+    score.take_new_refusals(host);
+    let log = host.log_so_far();
+
     // The piano roll is a picture of the last few hundred ticks. It is
     // redrawn when the round moves on -- once a tick -- not once a frame.
     let now = host.sim().tick();
     let window = now.saturating_sub(ROLL_TICKS)..now.saturating_add(1);
-    roll.model = RollModel::from_log(&host.log_so_far(), &events.0, window.clone());
+    roll.model = RollModel::from_log(&log, &events.0, window.clone());
     roll.window = window;
     // The thoughts of the agents: the questions they asked, and how long the
     // answers took.
     roll.thoughts = host.agent_thoughts_all();
+
+    // The score is a picture of the last few seconds, drawn over the same
+    // log on the same tick.
+    let span = score_span(&zoom, host.header().params.tick_hz);
+    let window = score_window(log.header.start_tick, span, now, None);
+    score.model = ScoreModel::from_log(&log, &score.attention, &score.hollow, window.clone());
+    score.window = window;
+}
+
+/// The score's span in ticks: its seconds on the round's own clock.
+fn score_span(zoom: &ScoreZoom, tick_hz: u16) -> u64 {
+    u64::from(zoom.0.max(1)) * u64::from(tick_hz.max(1))
 }
 
 /// Play the replay forward: one tick of the log per fixed update.
@@ -331,6 +447,41 @@ fn update_replay_roll(mut roll: ResMut<CurrentRoll>, round: Res<Round>) {
     }
     roll.model = RollModel::from_log(scrubber.log(), scrubber.events(), window.clone());
     roll.window = window;
+}
+
+/// Keep the score in step with the round being replayed.
+///
+/// The scrubber says which tick the round is on, and the score draws the
+/// last few seconds up to that tick -- so the scrubber's slider pans the
+/// score exactly as the round's own ticking scrolls it while it is played.
+/// The hollow marks are the ones the app collected while the round was
+/// being played; a log opened from a file carries none (the log holds no
+/// refusals), and the score says so with its empty staves rather than by
+/// inventing marks.
+fn update_replay_score(mut score: ResMut<CurrentScore>, round: Res<Round>, zoom: Res<ScoreZoom>) {
+    let Some(scrubber) = round.replay.as_ref() else {
+        return;
+    };
+    let now = scrubber
+        .tick()
+        .unwrap_or_else(|| scrubber.log().header.start_tick);
+    let span = score_span(&zoom, scrubber.log().header.params.tick_hz);
+    let window = score_window(
+        scrubber.log().header.start_tick,
+        span,
+        now,
+        Some(scrubber.last_tick()),
+    );
+    if score.window == window {
+        return;
+    }
+    score.model = ScoreModel::from_log(
+        scrubber.log(),
+        scrubber.attention(),
+        &score.hollow,
+        window.clone(),
+    );
+    score.window = window;
 }
 
 /// The ticks a replayed round is shown over: the whole round.

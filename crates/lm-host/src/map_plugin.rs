@@ -235,6 +235,13 @@ fn bottom_height(height: f32) -> f32 {
     (height * 0.25).clamp(70.0, 150.0)
 }
 
+/// The height of the conductor's score: more of the window, because it
+/// stacks four staves per agent where the roll draws one lane, and the
+/// words and marks on the voice staff have to stay readable.
+fn score_height(height: f32) -> f32 {
+    (height * 0.40).clamp(150.0, 300.0)
+}
+
 /// The camera: where it looks, and how closely.
 #[derive(Resource, Debug)]
 pub struct CameraRig {
@@ -278,6 +285,19 @@ pub enum MapSet {
 #[derive(Component)]
 pub struct MapCamera;
 
+/// The bottom panel's mode, as a resource the model's own switch rides in
+/// (the model crate knows no Bevy, so the host wraps it — the same shape
+/// as the view switch's wrapper).
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct Bottom(pub lm_host_model::view::BottomSwitch);
+
+impl Bottom {
+    /// The mode the panel is in.
+    pub fn mode(&self) -> lm_host_model::view::BottomMode {
+        self.0.mode
+    }
+}
+
 /// The map plugin: the world, the bodies on it, and the camera.
 pub struct MapPlugin;
 
@@ -287,6 +307,10 @@ impl Plugin for MapPlugin {
             .init_resource::<TileLayer>()
             .init_resource::<Layout>()
             .init_resource::<CameraRig>()
+            // The bottom panel's mode sizes it (the score is the taller of
+            // the two), so the map keeps its share of the window in step
+            // with whichever is drawing.
+            .init_resource::<Bottom>()
             .add_systems(Startup, spawn_world)
             .add_systems(
                 Update,
@@ -423,7 +447,11 @@ fn bevy_point(pos_m: (f32, f32)) -> Vec2 {
 }
 
 /// The layout of the window, as it is now.
-fn update_layout(mut layout: ResMut<Layout>, windows: Query<&Window, With<PrimaryWindow>>) {
+fn update_layout(
+    mut layout: ResMut<Layout>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    bottom: Res<Bottom>,
+) {
     let Ok(window) = windows.single() else {
         return;
     };
@@ -432,7 +460,14 @@ fn update_layout(mut layout: ResMut<Layout>, windows: Query<&Window, With<Primar
     layout.bar = top_height(size.x);
     layout.talk = talk_height(size.x);
     layout.top = layout.bar + layout.talk;
-    layout.bottom = bottom_height(size.y);
+    // The score stacks four staves per agent where the roll draws one lane,
+    // so it takes the larger share of the window while it is the one
+    // drawing. The map above shrinks by the same amount, and the click
+    // routing follows, because everything reads this one layout.
+    layout.bottom = match bottom.mode() {
+        lm_host_model::view::BottomMode::Roll => bottom_height(size.y),
+        lm_host_model::view::BottomMode::Score => score_height(size.y),
+    };
 }
 
 /// Build the map of this frame: the world as the viewer may see it, with

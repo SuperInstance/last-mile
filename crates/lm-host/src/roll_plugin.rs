@@ -10,6 +10,12 @@
 //! like the roll of a round that is being replayed; nothing here reaches
 //! back into the simulation.
 //!
+//! ## The score, one key away
+//!
+//! `E` flips the panel into its other mode, the conductor's score
+//! ([`crate::score_plugin`]): the same round, the same scrubber, drawn as
+//! one system of staves per agent instead of one lane.
+//!
 //! ## The replay controls
 //!
 //! When the app is showing a round that is being replayed, the panel grows a
@@ -18,15 +24,20 @@
 //! opened is not a crash either: the [`LogError`] it came back with is
 //! written across the panel.
 
+use crate::map_plugin::{channel_color, egui_color, squad_color, Bottom, Layout};
+use crate::score_plugin::draw_score;
+use crate::sim_plugin::{CurrentRoll, CurrentScore, Replay, Round, ScoreZoom};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lm_core::utterance::Channel;
 use lm_host_model::roll::{MarkKind, SpanKind};
 
-use crate::map_plugin::{channel_color, egui_color, squad_color, Layout};
-use crate::sim_plugin::{CurrentRoll, Replay, Round};
-
 /// The roll plugin: the panel at the bottom of the window.
+///
+/// The panel has two modes (Vox Score §12, E7): the piano roll, one lane
+/// per agent, and the conductor's score, one system of staves per agent.
+/// `E` walks between them; the replay scrubber above stays, because the
+/// two are readings of one round on one clock.
 pub struct RollPlugin;
 
 impl Plugin for RollPlugin {
@@ -36,11 +47,16 @@ impl Plugin for RollPlugin {
 }
 
 /// The panel itself.
+#[allow(clippy::too_many_arguments)]
 fn roll_panel(
     mut contexts: EguiContexts,
     roll: Res<CurrentRoll>,
+    score: Res<CurrentScore>,
+    zoom: Res<ScoreZoom>,
     round: Res<Round>,
     mut replay: ResMut<Replay>,
+    mut bottom: ResMut<Bottom>,
+    keys: Res<ButtonInput<KeyCode>>,
     layout: Res<Layout>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
@@ -51,12 +67,23 @@ fn roll_panel(
             .layer_id(egui::LayerId::background())
             .max_rect(ctx.viewport_rect()),
     );
+    // The one key that walks the panel between its two modes. The mode is
+    // data (`BottomSwitch`): nothing of the round is touched by a flip.
+    if keys.just_pressed(crate::keys::SCORE_FLIP.key) {
+        bottom.0.toggle();
+    }
+    let mode = bottom.mode();
     egui::Panel::bottom("roll_panel")
         .resizable(false)
         .exact_size(layout.bottom)
         .show(&mut root, |ui| {
             draw_replay(ui, &round, &mut replay);
-            draw_roll(ui, &roll);
+            match mode {
+                lm_host_model::view::BottomMode::Roll => draw_roll(ui, &roll),
+                lm_host_model::view::BottomMode::Score => {
+                    draw_score(ui, &score, &round, &zoom, mode)
+                }
+            }
         });
     Ok(())
 }
@@ -207,7 +234,7 @@ fn draw_roll(ui: &mut egui::Ui, roll: &CurrentRoll) {
 }
 
 /// The colour of a mark: where the decision on it came from.
-fn mark_color(kind: MarkKind) -> egui::Color32 {
+pub(crate) fn mark_color(kind: MarkKind) -> egui::Color32 {
     match kind {
         MarkKind::Human => egui::Color32::from_rgb(150, 240, 90),
         MarkKind::System1 => egui::Color32::from_rgb(90, 160, 240),
@@ -236,7 +263,7 @@ fn span_color(what: SpanKind) -> egui::Color32 {
 /// The span is the whole length of the line, so a bright colour would
 /// swallow the lane and the marks on it: the channel is still told apart,
 /// but the marks stay readable.
-fn speaking_color(channel: Channel) -> egui::Color32 {
+pub(crate) fn speaking_color(channel: Channel) -> egui::Color32 {
     let srgba = channel_color(channel).to_srgba();
     egui::Color32::from_rgba_unmultiplied(
         (srgba.red * 255.0).round() as u8,

@@ -38,13 +38,17 @@ pub mod input;
 pub mod map;
 pub mod record;
 pub mod roll;
+// The conductor's score: the roll grown into one system of staves per
+// agent (Vox Score §12, E7).
+pub mod score;
 pub mod scrub;
 // The human's talk: the voice backend, the bark cache and the human's ear.
 pub mod talk;
 // The human's voice: the commands, the tutor ladder and the score.
 pub mod voice;
 // Which view of the round the host draws, and the runtime switch between
-// them (phase 6 Task 8).
+// them (phase 6 Task 8); and the bottom panel's own switch between the
+// piano roll and the conductor's score (Vox Score §12, E7).
 pub mod view;
 
 // Re-exported at the end of the file, so the parallel phase-2 tasks (4: map,
@@ -53,6 +57,7 @@ pub use input::{InputError, InputEvent, InputState, Viewer};
 pub use map::{AgentDraw, BeaconDraw, FogState, MapModel, SpeechTick};
 pub use talk::{Listener, TalkClip, TalkConfig, TalkCounters};
 pub use turn::{TurnDetector, TurnRules, MAX_TALK_MS, TURN_END_MS, VOICE_STOP_MS};
+pub use view::{BottomMode, BottomSwitch};
 pub use voice::{
     CommandOutcome, CommandParser, CommandRefusal, HumanVoice, TutorLadder, TutorMode, VoiceRefusal,
 };

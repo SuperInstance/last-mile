@@ -64,6 +64,7 @@ mod input_plugin;
 mod keys;
 mod map_plugin;
 mod roll_plugin;
+mod score_plugin;
 mod sim_plugin;
 mod view3d;
 
@@ -93,7 +94,7 @@ use lm_host_model::input::{InputEvent, InputState};
 use lm_host_model::record;
 use lm_host_model::scrub::Scrubber;
 use lm_host_model::talk::TalkConfig;
-use lm_host_model::view::{ViewMode, ViewSwitch};
+use lm_host_model::view::{BottomMode, BottomSwitch, ViewMode, ViewSwitch};
 use lm_voice::{RivaTts, StubTts, Tts};
 use std::{num::NonZeroU8, path::PathBuf};
 
@@ -153,6 +154,12 @@ struct Options {
     learn_ticks: u64,
     /// How long the round is, in ticks, when the command line says.
     ticks: Option<u32>,
+    /// Which mode the bottom panel opens in: the roll or the score.
+    bottom: BottomMode,
+    /// How many seconds of the round the score draws.
+    score_seconds: u32,
+    /// The tick a replay opens on, when the command line names one.
+    scrub: Option<u64>,
 }
 
 /// The host's view switch, as a resource: which view draws, and the `B`
@@ -260,7 +267,8 @@ fn main() -> AppExit {
                  [--possess AGENT] [--replay FILE] [--screenshot PATH [--frames N]] \
                  [--agents off|stub|thor] [--talk off|stub|riva] [--harness DIR] \
                  [--agents-config FILE] [--reviewer stub|router] [--harness-root DIR] \
-                 [--runs DIR] [--learn-ticks N] [--ticks N]"
+                 [--runs DIR] [--learn-ticks N] [--ticks N] \
+                 [--bottom roll|score] [--score-seconds N] [--scrub N]"
             );
             return AppExit::Error(NonZeroU8::MIN);
         }
@@ -302,6 +310,9 @@ fn main() -> AppExit {
         None => {
             // The round: the standard one, with the shipped reflex. The host
             // plays the same round the headless tools do.
+            if options.scrub.is_some() {
+                eprintln!("lm-host: a live round cannot open on a tick: `--scrub` is ignored");
+            }
             let mut header = Header::default_round(options.seed, lm_tools::runner::DEFAULT_REFLEX);
             if let Some(ticks) = options.ticks {
                 header.params.time_limit_ticks = ticks;
@@ -431,7 +442,18 @@ fn main() -> AppExit {
         .insert_resource(recording)
         .insert_resource(input_plugin::Input(input))
         .init_resource::<FrameCount>()
+        // The bottom panel opens in the mode the command line names (`E`
+        // walks between them at runtime), the score draws as many seconds
+        // as it asks for, and a replay can open on a named tick.
+        .insert_resource(map_plugin::Bottom(BottomSwitch::new(options.bottom)))
+        .insert_resource(sim_plugin::ScoreZoom(options.score_seconds))
         .add_plugins(sim_plugin::SimPlugin::new(tick_hz));
+    if let Some(tick) = options.scrub {
+        app.insert_resource(sim_plugin::Replay {
+            playing: false,
+            tick,
+        });
+    }
 
     match options.view {
         ViewMode::Map2d => {
@@ -716,6 +738,9 @@ fn parse_args() -> Result<Options, String> {
     let mut runs = PathBuf::from(DEFAULT_RUNS);
     let mut learn_ticks = lm_learn::flow::DEFAULT_TICKS;
     let mut ticks = None;
+    let mut bottom = BottomMode::Roll;
+    let mut score_seconds = sim_plugin::SCORE_SECONDS;
+    let mut scrub = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -822,6 +847,30 @@ fn parse_args() -> Result<Options, String> {
                         .map_err(|_| String::from("`--ticks` needs a whole number"))?,
                 );
             }
+            "--bottom" => {
+                let text = args
+                    .next()
+                    .ok_or_else(|| String::from("`--bottom` needs roll or score"))?;
+                bottom = BottomMode::parse(&text)?;
+            }
+            "--score-seconds" => {
+                score_seconds = args
+                    .next()
+                    .ok_or_else(|| String::from("`--score-seconds` needs a number"))?
+                    .parse()
+                    .map_err(|_| String::from("`--score-seconds` needs a whole number"))?;
+                if score_seconds == 0 {
+                    return Err(String::from("`--score-seconds` must be at least 1"));
+                }
+            }
+            "--scrub" => {
+                scrub = Some(
+                    args.next()
+                        .ok_or_else(|| String::from("`--scrub` needs a tick"))?
+                        .parse()
+                        .map_err(|_| String::from("`--scrub` needs a whole number"))?,
+                );
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -848,6 +897,9 @@ fn parse_args() -> Result<Options, String> {
         runs,
         learn_ticks,
         ticks,
+        bottom,
+        score_seconds,
+        scrub,
     })
 }
 

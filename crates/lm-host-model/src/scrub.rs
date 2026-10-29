@@ -38,6 +38,8 @@ use lm_core::rules::Event;
 use lm_core::sim::Sim;
 use lm_tools::runner::{self, ReplayError};
 
+use crate::score::{note_attention, AttentionTrace};
+
 /// A round log you can scrub through.
 pub struct Scrubber {
     /// The round, as it was recorded.
@@ -50,6 +52,10 @@ pub struct Scrubber {
     hash: Option<u64>,
     /// The events of the round, with their ticks.
     events: Vec<(Tick, Event)>,
+    /// The attention of every agent over the round, sampled by the opening
+    /// replay: what the conductor's score reads its gaze and tier staves
+    /// from, exactly as a played round samples them as it goes.
+    attention: AttentionTrace,
 }
 
 impl Scrubber {
@@ -81,8 +87,9 @@ impl Scrubber {
         // with the same verdict, that the headless tools give it.
         runner::replay(&log).map_err(|err| log_error(&log, err))?;
 
-        // The events of the round, for the piano roll.
-        let events = events_of(&log);
+        // The events of the round, for the piano roll — and the attention
+        // of every agent, for the score, sampled by the same replay.
+        let (events, attention) = scan_of(&log);
 
         Ok(Scrubber {
             log,
@@ -90,6 +97,7 @@ impl Scrubber {
             shown: None,
             hash: None,
             events,
+            attention,
         })
     }
 
@@ -188,6 +196,15 @@ impl Scrubber {
         &self.events
     }
 
+    /// The attention of every agent over the round, with the tick each run
+    /// began on.
+    ///
+    /// The conductor's score is drawn from this, exactly as it is drawn
+    /// from the samples a played round takes as it goes.
+    pub fn attention(&self) -> &AttentionTrace {
+        &self.attention
+    }
+
     /// A world at the start of the round.
     ///
     /// The header was played when the log was opened, so this cannot fail.
@@ -207,24 +224,29 @@ impl fmt::Debug for Scrubber {
     }
 }
 
-/// The events of a round, with their ticks.
+/// The events of a round with their ticks, and the attention of every
+/// agent, found by one replay of the log.
 ///
 /// The round is replayed to find them, because the log holds the decisions
-/// and the hashes, but not the events the rules reported.
-fn events_of(log: &RoundLog) -> Vec<(Tick, Event)> {
+/// and the hashes, but neither the events the rules reported nor the
+/// agents' own state as it stood. The replay is the same one the headless
+/// tools judge a log by, so what it samples is what the round played.
+fn scan_of(log: &RoundLog) -> (Vec<(Tick, Event)>, AttentionTrace) {
     let mut events = Vec::new();
+    let mut attention = AttentionTrace::new();
     let Ok(mut sim) = Sim::new(&log.header) else {
-        return events;
+        return (events, attention);
     };
     for segment in &log.segments {
         for tick in segment.first_tick..=segment.last_tick {
             let out = sim.step(log.decisions_for(tick));
+            note_attention(&sim, &mut attention, tick);
             for event in out.events {
                 events.push((tick, event));
             }
         }
     }
-    events
+    (events, attention)
 }
 
 /// The log error a read error stands for.
