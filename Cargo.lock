@@ -3985,6 +3985,8 @@ name = "lm-agents"
 version = "0.1.0"
 dependencies = [
  "lm-core",
+ "lm-host-model",
+ "lm-learn",
  "serde",
  "serde_json",
  "toml",

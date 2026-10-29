@@ -16,3 +16,14 @@ toml = "1"
 # alive (D50). rustls is the pure-Rust TLS stack (no OpenSSL on the Thor).
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
 # Task 1: agents.toml configuration.
+
+[dev-dependencies]
+# The think-budget sweep plays whole rounds through the host's own path: the
+# host loop, the agents, the sequencer and the recorder. The host model
+# depends on this crate, so this is a dev-dependency cycle: Cargo allows one,
+# and only the tests here ever see it.
+lm-host-model = { path = "../lm-host-model" }
+# The model-vs-code dial (D25/D40) is measured by the learning flow: it
+# replays a round's log and counts the ticks a decision drove against the
+# ticks the reflex answered for.
+lm-learn = { path = "../lm-learn" }

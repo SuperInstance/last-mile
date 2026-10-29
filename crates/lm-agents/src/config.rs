@@ -52,7 +52,10 @@ pub struct AgentsConfig {
     /// a refusal, never a decision (D26/D49 — each model its own threshold,
     /// never averaged).
     pub min_confidence: BTreeMap<String, f32>,
-    /// Member think rate in Hz.
+    /// Member think rate in Hz. 1 by default (D68): the Thor serves ~9
+    /// requests/s for the whole match, so 8 agents asking at 4 Hz only queue
+    /// up and go stale; at 1 Hz they get ~93% of the decisions with headroom
+    /// (crates/lm-agents/tests/think_budget.md).
     pub think_hz_member: u16,
     /// Leader think rate in Hz.
     pub think_hz_leader: u16,
@@ -138,7 +141,7 @@ impl Default for AgentsConfig {
                 ("thor-d1-3b".to_owned(), 0.55),
                 ("jev".to_owned(), 0.5),
             ]),
-            think_hz_member: 4,
+            think_hz_member: 1,
             think_hz_leader: 1,
             mode: "auto".to_owned(),
             presence_hz: 10,
@@ -207,7 +210,7 @@ mod tests {
                 c.mode.as_str(),
                 c.presence_hz
             ),
-            (4, 1, "auto", 10)
+            (1, 1, "auto", 10)
         );
         assert_eq!(
             (

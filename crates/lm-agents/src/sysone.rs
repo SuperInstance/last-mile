@@ -31,8 +31,8 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
@@ -493,6 +493,238 @@ impl SysOne for StubBackend {
 
     fn name(&self) -> &str {
         "stub"
+    }
+}
+
+/// The service time of the throttled server, in milliseconds.
+///
+/// One request at a time and 110 ms for each, so the server answers about
+/// nine requests a second: the Thor's d1-2B under load (decision-daw x5).
+pub const THROTTLED_SERVICE_MS: u64 = 110;
+
+/// How long the server waits for the client to register a request before it
+/// calls the request unpaired.
+///
+/// The client registers a request as the mind makes it and the worker may
+/// reach the server first, so the server waits for the registration. A
+/// request that is never registered is a bug in the caller, not a slow
+/// model, so the server says so instead of guessing a time.
+const ARRIVAL_WAIT: Duration = Duration::from_secs(5);
+
+/// A model server with a capacity: one request at a time.
+///
+/// The server serves one request at a time and takes [`THROTTLED_SERVICE_MS`]
+/// for each, so it answers about nine requests a second — the Thor's d1-2B
+/// under load (decision-daw x5). The requests wait in the server's queue in
+/// the order they arrived, and the wait counts toward the latency the answer
+/// reports: an answer that waited three slots reports three slots of
+/// latency, not one.
+///
+/// The client hands the server each request as the mind makes it
+/// ([`ThrottledStub::arrive`]). The thinker takes the requests one at a
+/// time, so the server's queue is the queue the agents really waited in.
+///
+/// This is test support: it puts a round against a server with a capacity,
+/// and it changes no shipped behaviour.
+#[derive(Clone)]
+pub struct ThrottledStub {
+    inner: Arc<Inner>,
+}
+
+/// The state one throttled server shares between its handles.
+struct Inner {
+    /// The server: its queue and the instant it is next free.
+    server: Mutex<Server>,
+    /// How long one request takes to serve.
+    service: Duration,
+    /// How long an answer is worth after the request was made.
+    timeout: Duration,
+    /// How many requests the server has been asked.
+    calls: AtomicU64,
+    /// How many requests the server refused as too late.
+    timeouts: AtomicU64,
+    /// How many requests the server served without an arrival.
+    unpaired: AtomicU64,
+    /// The confidence a menu answer reports, as the bits of an `f32`.
+    confidence: AtomicU32,
+}
+
+/// The server's queue and its clock.
+struct Server {
+    /// The instant the server is next free.
+    free_at: Instant,
+    /// The requests that have arrived and are waiting, in order.
+    arrivals: VecDeque<Instant>,
+}
+
+impl Inner {
+    /// The confidence a menu answer reports.
+    fn confidence(&self) -> f32 {
+        f32::from_bits(self.confidence.load(Ordering::SeqCst))
+    }
+}
+
+impl ThrottledStub {
+    /// A server with the shipped service time (110 ms) and the default
+    /// request timeout (400 ms).
+    pub fn new() -> Self {
+        Self::with_times(
+            Duration::from_millis(THROTTLED_SERVICE_MS),
+            Duration::from_millis(DEFAULT_REQUEST_TIMEOUT_MS),
+        )
+    }
+
+    /// A server with a service time and a request timeout.
+    ///
+    /// The service time is how long one request takes once the server is
+    /// free; the timeout is how long an answer is worth after the request
+    /// was made. A request that would be served after its timeout is a
+    /// timeout, not a wait: the client gives up and the reflex plays the
+    /// moment (D26).
+    pub fn with_times(service: Duration, timeout: Duration) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                server: Mutex::new(Server {
+                    free_at: Instant::now(),
+                    arrivals: VecDeque::new(),
+                }),
+                service,
+                timeout,
+                calls: AtomicU64::new(0),
+                timeouts: AtomicU64::new(0),
+                unpaired: AtomicU64::new(0),
+                confidence: AtomicU32::new(0.9f32.to_bits()),
+            }),
+        }
+    }
+
+    /// Set the confidence a menu answer reports.
+    pub fn with_confidence(self, confidence: f32) -> Self {
+        self.inner
+            .confidence
+            .store(confidence.to_bits(), Ordering::SeqCst);
+        self
+    }
+
+    /// The client hands the server a request: it is in the server's queue
+    /// now, and the clock that counts its wait starts now.
+    ///
+    /// One call per request, in the order the requests were made: the
+    /// server serves them in that order too.
+    pub fn arrive(&self) {
+        let mut server = self
+            .inner
+            .server
+            .lock()
+            .expect("the server's queue is not poisoned");
+        server.arrivals.push_back(Instant::now());
+    }
+
+    /// How many requests the server has been asked.
+    pub fn calls(&self) -> u64 {
+        self.inner.calls.load(Ordering::SeqCst)
+    }
+
+    /// How many requests the server refused as too late.
+    pub fn timeouts(&self) -> u64 {
+        self.inner.timeouts.load(Ordering::SeqCst)
+    }
+
+    /// How many requests the server served without an arrival.
+    ///
+    /// This is zero when the caller registers every request; a non-zero
+    /// count means the queue the server serves is not the queue the caller
+    /// meant.
+    pub fn unpaired(&self) -> u64 {
+        self.inner.unpaired.load(Ordering::SeqCst)
+    }
+
+    /// The arrival of the request the server is serving now.
+    ///
+    /// The worker may reach the server before the client has registered the
+    /// request, so the server waits for the registration rather than
+    /// guessing when the request joined the queue.
+    fn take_arrival(&self) -> Instant {
+        let give_up = Instant::now() + ARRIVAL_WAIT;
+        loop {
+            {
+                let mut server = self
+                    .inner
+                    .server
+                    .lock()
+                    .expect("the server's queue is not poisoned");
+                if let Some(arrival) = server.arrivals.pop_front() {
+                    return arrival;
+                }
+            }
+            if Instant::now() >= give_up {
+                self.inner.unpaired.fetch_add(1, Ordering::SeqCst);
+                return Instant::now();
+            }
+            std::thread::sleep(Duration::from_micros(100));
+        }
+    }
+}
+
+impl Default for ThrottledStub {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for ThrottledStub {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThrottledStub")
+            .field("calls", &self.calls())
+            .field("timeouts", &self.timeouts())
+            .finish()
+    }
+}
+
+impl SysOne for ThrottledStub {
+    fn ask(&self, _state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        self.inner.calls.fetch_add(1, Ordering::SeqCst);
+
+        // The request joins the server's queue when the mind made it, and the
+        // wait it suffers is counted from there.
+        let arrival = self.take_arrival();
+
+        // The server serves one request at a time: this one starts when the
+        // server is free and the requests before it are done.
+        let finish = {
+            let mut server = self
+                .inner
+                .server
+                .lock()
+                .expect("the server's queue is not poisoned");
+            let start = server.free_at.max(arrival);
+            let finish = start + self.inner.service;
+            server.free_at = finish;
+            finish
+        };
+
+        // An answer is worth something to the agent only if it arrives inside
+        // the request's timeout — counted from the ask — and inside the
+        // caller's own deadline. A request that misses it is a timeout, not
+        // a wait: the client gives up and the reflex plays the moment.
+        let worth = finish.min(deadline).min(arrival + self.inner.timeout);
+        if finish > worth {
+            self.inner.timeouts.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(worth.saturating_duration_since(Instant::now()));
+            return Err(Refusal::Timeout);
+        }
+        std::thread::sleep(finish.saturating_duration_since(Instant::now()));
+
+        // The answer is the stub's menu answer, and the latency it reports
+        // is the whole wait: the queue and the service.
+        let mut answers = menu_answer(questions, self.inner.confidence())?;
+        answers.model = self.name().to_owned();
+        answers.latency_ms = ms(finish.saturating_duration_since(arrival));
+        Ok(answers)
+    }
+
+    fn name(&self) -> &str {
+        "thor-d1-2b"
     }
 }
 
