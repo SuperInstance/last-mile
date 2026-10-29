@@ -25,6 +25,7 @@
 //! WSL, and `lm-host` only wires it to a screen.
 
 pub mod host_loop;
+pub mod turn;
 
 pub use host_loop::{catch_up, HostLoop, TickBudget, TickOut};
 
