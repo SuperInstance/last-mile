@@ -6,6 +6,7 @@ pub mod greedy;
 pub mod hash;
 pub mod mesh;
 pub mod palette;
+pub mod scene;
 
 #[cfg(test)]
 mod tests {

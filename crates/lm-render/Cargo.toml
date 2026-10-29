@@ -8,3 +8,6 @@ license = { workspace = true }
 [dependencies]
 lm-core = { path = "../lm-core" }
 serde = { version = "1.0", features = ["derive"] }
+# `render.toml` is parsed with the `toml` crate, like every other config
+# file in the workspace (no hand-rolled parser).
+toml = "1"

@@ -18,6 +18,9 @@ bevy_egui = "=0.43.1"
 lm-agents = { path = "../lm-agents" }
 lm-core = { path = "../lm-core" }
 lm-host-model = { path = "../lm-host-model" }
+# The 3D view's pure half: the palette, the chunk meshes, the figures -- all
+# of it plain data, all of it tested in WSL with no GPU.
+lm-render = { path = "../lm-render" }
 # The shipped reflex, so the host plays the same round the headless tools do.
 lm-tools = { path = "../lm-tools" }
 # The voice service: the microphone path, the ASR and the prosody port.

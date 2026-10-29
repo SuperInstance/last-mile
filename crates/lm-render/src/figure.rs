@@ -124,94 +124,63 @@ impl Figure {
         // Create body triangles (2 triangles per face, 6 faces = 12 triangles)
         triangles.extend_from_slice(&[
             // Bottom face
-            Triangle { a: 0, b: 1, c: 2 },
-            Triangle { a: 0, b: 2, c: 3 },
+            Triangle { a: 0, b: 2, c: 1 },
+            Triangle { a: 0, b: 3, c: 2 },
             // Top face
-            Triangle { a: 4, b: 7, c: 6 },
-            Triangle { a: 4, b: 6, c: 5 },
+            Triangle { a: 4, b: 6, c: 7 },
+            Triangle { a: 4, b: 5, c: 6 },
             // Front face
-            Triangle { a: 0, b: 4, c: 5 },
-            Triangle { a: 0, b: 5, c: 1 },
+            Triangle { a: 0, b: 5, c: 4 },
+            Triangle { a: 0, b: 1, c: 5 },
             // Back face
-            Triangle { a: 3, b: 2, c: 6 },
-            Triangle { a: 3, b: 6, c: 7 },
+            Triangle { a: 3, b: 6, c: 2 },
+            Triangle { a: 3, b: 7, c: 6 },
             // Left face
-            Triangle { a: 0, b: 3, c: 7 },
-            Triangle { a: 0, b: 7, c: 4 },
+            Triangle { a: 0, b: 7, c: 3 },
+            Triangle { a: 0, b: 4, c: 7 },
             // Right face
-            Triangle { a: 1, b: 5, c: 6 },
-            Triangle { a: 1, b: 6, c: 2 },
+            Triangle { a: 1, b: 6, c: 5 },
+            Triangle { a: 1, b: 2, c: 6 },
         ]);
 
-        // Create head triangles (2 triangles per face, 6 faces = 12 triangles)
-        let head_offset = body_vertices.len();
+        // Create head triangles (2 triangles per face, 6 faces = 12 triangles).
+        // The indices are absolute: the head's vertices sit at 8..15, right
+        // after the body's eight.
         triangles.extend_from_slice(&[
             // Bottom face
-            Triangle {
-                a: 8 + head_offset,
-                b: 9 + head_offset,
-                c: 10 + head_offset,
-            },
-            Triangle {
-                a: 8 + head_offset,
-                b: 10 + head_offset,
-                c: 11 + head_offset,
-            },
+            Triangle { a: 8, b: 10, c: 9 },
+            Triangle { a: 8, b: 11, c: 10 },
             // Top face
             Triangle {
-                a: 12 + head_offset,
-                b: 15 + head_offset,
-                c: 14 + head_offset,
+                a: 12,
+                b: 14,
+                c: 15,
             },
             Triangle {
-                a: 12 + head_offset,
-                b: 14 + head_offset,
-                c: 13 + head_offset,
+                a: 12,
+                b: 13,
+                c: 14,
             },
             // Front face
-            Triangle {
-                a: 8 + head_offset,
-                b: 12 + head_offset,
-                c: 13 + head_offset,
-            },
-            Triangle {
-                a: 8 + head_offset,
-                b: 13 + head_offset,
-                c: 9 + head_offset,
-            },
+            Triangle { a: 8, b: 13, c: 12 },
+            Triangle { a: 8, b: 9, c: 13 },
             // Back face
             Triangle {
-                a: 11 + head_offset,
-                b: 10 + head_offset,
-                c: 14 + head_offset,
+                a: 11,
+                b: 14,
+                c: 10,
             },
             Triangle {
-                a: 11 + head_offset,
-                b: 14 + head_offset,
-                c: 15 + head_offset,
+                a: 11,
+                b: 15,
+                c: 14,
             },
             // Left face
-            Triangle {
-                a: 8 + head_offset,
-                b: 11 + head_offset,
-                c: 15 + head_offset,
-            },
-            Triangle {
-                a: 8 + head_offset,
-                b: 15 + head_offset,
-                c: 12 + head_offset,
-            },
+            Triangle { a: 8, b: 15, c: 11 },
+            Triangle { a: 8, b: 12, c: 15 },
             // Right face
-            Triangle {
-                a: 9 + head_offset,
-                b: 13 + head_offset,
-                c: 14 + head_offset,
-            },
-            Triangle {
-                a: 9 + head_offset,
-                b: 14 + head_offset,
-                c: 10 + head_offset,
-            },
+            Triangle { a: 9, b: 14, c: 13 },
+            Triangle { a: 9, b: 10, c: 14 },
         ]);
 
         let mesh = Mesh {
@@ -289,9 +258,70 @@ mod tests {
     }
 
     #[test]
+    fn every_triangle_index_is_a_vertex() {
+        // The mesh is consumed by indexing it vertex by vertex; a triangle
+        // that points past the vertices is a panic at draw time. (The head's
+        // indices once double-counted the body's offset and did exactly
+        // that.)
+        let figure = Figure::new();
+        let len = figure.mesh.vertices.len();
+        assert!(len > 0, "the figure has vertices");
+        for triangle in &figure.mesh.triangles {
+            assert!(
+                triangle.a < len && triangle.b < len && triangle.c < len,
+                "triangle ({}, {}, {}) but only {len} vertices",
+                triangle.a,
+                triangle.b,
+                triangle.c
+            );
+        }
+    }
+
+    #[test]
     fn figure_has_a_head() {
         let figure = Figure::new();
         assert!(figure.has_a_head());
+    }
+
+    #[test]
+    fn every_face_points_outward() {
+        // The renderer keeps front faces and culls back ones, so a face
+        // wound to look into its own box is a face nobody ever sees: a
+        // figure wound that way is invisible from every side. (The boxes
+        // were once wound exactly that way.)
+        let figure = Figure::new();
+        let at = |i: usize| &figure.mesh.vertices[i];
+        let sub = |a: &Vertex, b: &Vertex| Vertex {
+            x: a.x - b.x,
+            y: a.y - b.y,
+            z: a.z - b.z,
+        };
+        let centres = [(0.0f32, 0.5, 0.0), (0.0, 1.25, 0.0)];
+        for triangle in &figure.mesh.triangles {
+            let (a, b, c) = (at(triangle.a), at(triangle.b), at(triangle.c));
+            // The face's normal, by the winding the renderer sees.
+            let u = sub(b, a);
+            let v = sub(c, a);
+            let normal = (
+                u.y * v.z - u.z * v.y,
+                u.z * v.x - u.x * v.z,
+                u.x * v.y - u.y * v.x,
+            );
+            let centre = centres[usize::from(triangle.a >= 8)];
+            let outward = (
+                (a.x + b.x + c.x) / 3.0 - centre.0,
+                (a.y + b.y + c.y) / 3.0 - centre.1,
+                (a.z + b.z + c.z) / 3.0 - centre.2,
+            );
+            let dot = normal.0 * outward.0 + normal.1 * outward.1 + normal.2 * outward.2;
+            assert!(
+                dot > 0.0,
+                "the face ({}, {}, {}) looks into its own box",
+                triangle.a,
+                triangle.b,
+                triangle.c
+            );
+        }
     }
 
     #[test]

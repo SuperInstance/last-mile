@@ -22,7 +22,7 @@ use crate::palette::{Color, MaterialClass, Palette};
 pub use crate::palette::RenderConfig;
 
 /// Coordinate for a chunk in the world
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ChunkCoord {
     pub cx: u8,
     pub cy: u8,

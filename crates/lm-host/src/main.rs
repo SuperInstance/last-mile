@@ -14,6 +14,9 @@
 //!   round down when it is over or when the window closes;
 //! * [`map_plugin`] draws the cells, the fog, the agents and the beacons,
 //!   and moves the camera;
+//! * [`view3d`] is the other view of the same round: the low-poly,
+//!   vertex-coloured 3D world of `lm-render`, with its pipelines warmed
+//!   before the round starts (`--view 3d`);
 //! * [`input_plugin`] turns the keyboard and the mouse into decisions;
 //! * [`hud_plugin`] is the bar at the top, [`roll_plugin`] the piano roll at
 //!   the bottom.
@@ -38,6 +41,7 @@ mod input_plugin;
 mod map_plugin;
 mod roll_plugin;
 mod sim_plugin;
+mod view3d;
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -72,6 +76,8 @@ const DEFAULT_SEED: u64 = 1;
 const DEFAULT_TICK_HZ: u16 = 30;
 /// The harness the agents think with: the shipped one.
 const DEFAULT_HARNESS: &str = "assets/harness/default";
+/// The render configuration of the 3D view, when there is one.
+const RENDER_TOML: &str = "render.toml";
 
 /// `--screenshot PATH --frames N`: after N frames, capture the window to
 /// PATH (a PNG) and exit. `spawned` guards against requesting twice.
@@ -88,6 +94,8 @@ struct Options {
     seed: u64,
     /// The size of the window, in pixels.
     window: (u32, u32),
+    /// Which view of the round to draw.
+    view: ViewMode,
     /// The agent to play as from the first frame, if any.
     possess: Option<u16>,
     /// The round log to replay, if any.
@@ -100,6 +108,33 @@ struct Options {
     harness: PathBuf,
     /// The agents' configuration, when the command line names one.
     config: Option<PathBuf>,
+}
+
+/// Which view of the round the host draws.
+///
+/// `2d` is the map — the default until phase 6's done-when is met. `3d` is
+/// the low-poly, vertex-coloured world of [`view3d`]: the same round, the
+/// same world, the same agents, drawn in depth instead of from above.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewMode {
+    /// The 2D map.
+    Map2d,
+    /// The 3D view.
+    View3d,
+}
+
+impl ViewMode {
+    /// The view a command line spells out.
+    fn parse(text: &str) -> Result<ViewMode, String> {
+        match text {
+            "2d" => Ok(ViewMode::Map2d),
+            "3d" => Ok(ViewMode::View3d),
+            "both" => Err(String::from(
+                "`--view both` comes with phase 6 Task 8; for now it is `--view 2d` or `--view 3d`",
+            )),
+            other => Err(format!("`--view` wants 2d or 3d, not `{other}`")),
+        }
+    }
 }
 
 /// Who is thinking.
@@ -144,8 +179,8 @@ fn main() -> AppExit {
         Err(err) => {
             eprintln!("lm-host: {err}");
             eprintln!(
-                "usage: lm-host [--seed N] [--window WxH] [--possess AGENT] \
-                 [--replay FILE] [--screenshot PATH [--frames N]] \
+                "usage: lm-host [--seed N] [--window WxH] [--view 2d|3d] \
+                 [--possess AGENT] [--replay FILE] [--screenshot PATH [--frames N]] \
                  [--agents off|stub|thor] [--harness DIR] [--agents-config FILE]"
             );
             return AppExit::Error(NonZeroU8::MIN);
@@ -235,7 +270,7 @@ fn main() -> AppExit {
     };
 
     let mut app = App::new();
-    app.add_plugins((
+    app.add_plugins(
         DefaultPlugins
             .set(WindowPlugin {
                 primary_window: Some(Window {
@@ -248,34 +283,63 @@ fn main() -> AppExit {
             // Ask for the RTX 4050, not the iGPU (spec §6). WgpuSettings
             // already defaults to HighPerformance, but only unless the
             // WGPU_POWER_PREF env var says otherwise — this pins it.
+            //
+            // The 3D view also compiles its pipelines synchronously: the
+            // frame that first draws the warmup card blocks until they
+            // exist, so shader compilation is a loading screen, never a
+            // mid-round stall (the `night-street` lesson; see
+            // `view3d::warmup`).
             .set(RenderPlugin {
                 render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
                     power_preference: PowerPreference::HighPerformance,
                     ..default()
                 })),
+                synchronous_pipeline_compilation: options.view == ViewMode::View3d,
                 ..default()
             }),
-        EguiPlugin::default(),
-    ))
-    .insert_resource(round)
-    .insert_resource(recording)
-    .insert_resource(input_plugin::Input(input))
-    .init_resource::<FrameCount>()
-    .add_plugins((
-        sim_plugin::SimPlugin::new(tick_hz),
-        map_plugin::MapPlugin,
-        input_plugin::InputPlugin,
-        audio_plugin::VoicePlugin,
-        hud_plugin::HudPlugin,
-        roll_plugin::RollPlugin,
-    ))
-    // What the person did is read before the map is drawn, so the frame
-    // shows the order that was just given.
-    .configure_sets(
-        Update,
-        (input_plugin::InputSet::Read, map_plugin::MapSet::Map).chain(),
-    )
-    .add_systems(Update, count_frames);
+    );
+    // The panels are the 2D view's; the 3D view has nothing for egui yet.
+    if options.view == ViewMode::Map2d {
+        app.add_plugins(EguiPlugin::default());
+    }
+    app.insert_resource(round)
+        .insert_resource(recording)
+        .insert_resource(input_plugin::Input(input))
+        .init_resource::<FrameCount>()
+        .add_plugins(sim_plugin::SimPlugin::new(tick_hz));
+
+    match options.view {
+        ViewMode::Map2d => {
+            app.add_plugins((
+                map_plugin::MapPlugin,
+                input_plugin::InputPlugin,
+                audio_plugin::VoicePlugin,
+                hud_plugin::HudPlugin,
+                roll_plugin::RollPlugin,
+            ))
+            // What the person did is read before the map is drawn, so the
+            // frame shows the order that was just given.
+            .configure_sets(
+                Update,
+                (input_plugin::InputSet::Read, map_plugin::MapSet::Map).chain(),
+            );
+        }
+        ViewMode::View3d => {
+            // The 3D view's settings: `render.toml`, or the defaults the
+            // plan pins. A file that cannot be read is a start-up error, not
+            // a silent default.
+            let settings = match view3d::View3dSettings::load(std::path::Path::new(RENDER_TOML)) {
+                Ok(settings) => settings,
+                Err(err) => {
+                    eprintln!("lm-host: {err}");
+                    return AppExit::Error(NonZeroU8::MIN);
+                }
+            };
+            app.add_plugins(view3d::View3dPlugin { settings });
+        }
+    }
+
+    app.add_systems(Update, count_frames);
 
     if let Some(request) = options.shot {
         app.insert_resource(request).add_systems(
@@ -377,6 +441,7 @@ fn backends(
 fn parse_args() -> Result<Options, String> {
     let mut seed = DEFAULT_SEED;
     let mut window = DEFAULT_WINDOW;
+    let mut view = ViewMode::Map2d;
     let mut possess = None;
     let mut replay = None;
     let mut path = None;
@@ -399,6 +464,12 @@ fn parse_args() -> Result<Options, String> {
                     .next()
                     .ok_or_else(|| String::from("`--window` needs a size, e.g. 640x360"))?;
                 window = parse_window(&text)?;
+            }
+            "--view" => {
+                let text = args
+                    .next()
+                    .ok_or_else(|| String::from("`--view` needs 2d or 3d"))?;
+                view = ViewMode::parse(&text)?;
             }
             "--possess" => {
                 possess = Some(
@@ -454,6 +525,7 @@ fn parse_args() -> Result<Options, String> {
     Ok(Options {
         seed,
         window,
+        view,
         possess,
         replay,
         shot: path.map(|path| ShotRequest {

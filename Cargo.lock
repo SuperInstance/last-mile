@@ -4015,6 +4015,7 @@ dependencies = [
  "lm-agents",
  "lm-core",
  "lm-host-model",
+ "lm-render",
  "lm-tools",
  "lm-voice",
 ]
@@ -4058,6 +4059,7 @@ version = "0.1.0"
 dependencies = [
  "lm-core",
  "serde",
+ "toml",
 ]
 
 [[package]]
