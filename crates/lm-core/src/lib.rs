@@ -38,4 +38,7 @@ pub use params::{ParamError, Params};
 pub use rng::{Domain, Rng};
 pub use sched::{lead_ticks, Reject, SchedStats, Sequencer};
 pub use trig_table::{SIN_Q14, TRIG_TABLE_HASH};
+pub use view::{
+    menu, option_cmd, AgentSnap, BeaconSnap, EnemySeen, Menu, MenuOption, ScoreView, SquadKnowledge,
+};
 pub use world::CellXY;
