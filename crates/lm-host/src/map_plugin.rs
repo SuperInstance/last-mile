@@ -21,10 +21,11 @@ use bevy::window::PrimaryWindow;
 use bevy::{asset::RenderAssetUsages, image::ImageSampler};
 use lm_core::fixed::UNITS_PER_M;
 use lm_core::world::{CellKind, CellXY};
+use lm_host_model::input::Viewer;
 use lm_host_model::map::{FogState, MapModel};
 
 use crate::input_plugin::Input;
-use crate::sim_plugin::Host;
+use crate::sim_plugin::Round;
 
 // The colours of the world.
 const FLOOR_COLOR: Color = Color::srgb(0.13, 0.15, 0.19);
@@ -242,15 +243,19 @@ impl Plugin for MapPlugin {
 fn spawn_world(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    host: Res<Host>,
+    round: Res<Round>,
     mut layer: ResMut<TileLayer>,
     mut rig: ResMut<CameraRig>,
 ) {
     // The camera: bevy_egui hangs its context on the first camera, so it has
-    // to exist before the panels are drawn.
+    // to exist before the panels are drawn -- even when the file that was
+    // asked for could not be opened and there is no world to draw.
     commands.spawn(Camera2d);
 
-    let world = host.0.sim().world();
+    let Some(sim) = round.sim() else {
+        return;
+    };
+    let world = sim.world();
     let grid = &world.grid;
     let cell_m = world.cell_units as f32 / UNITS_PER_M as f32;
 
@@ -277,7 +282,7 @@ fn spawn_world(
     }
 
     // The agents: a disc each.
-    for id in host.0.sim().agent_ids() {
+    for id in sim.agent_ids() {
         commands.spawn((
             Sprite {
                 image: disc.clone(),
@@ -374,14 +379,26 @@ fn update_layout(mut layout: ResMut<Layout>, windows: Query<&Window, With<Primar
 /// every agent lerped between the last two ticks.
 fn build_map(
     mut map: ResMut<CurrentMap>,
-    host: Res<Host>,
+    round: Res<Round>,
     input: Res<Input>,
     fixed: Res<Time<Fixed>>,
 ) {
+    let Some(sim) = round.sim() else {
+        return;
+    };
+
+    // A round being replayed is watched, not played: the viewer sees the
+    // whole round, the way the authority's own view sees it.
+    let viewer = if round.is_replay() {
+        Viewer::Spectator { follow: None }
+    } else {
+        input.0.viewer
+    };
+
     let model = MapModel::build(
-        host.0.sim(),
-        host.0.prev_positions(),
-        &input.0.viewer,
+        sim,
+        round.prev_positions(),
+        &viewer,
         fixed.overstep_fraction(),
     );
     map.0 = Some(model);

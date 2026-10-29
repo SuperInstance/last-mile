@@ -11,7 +11,7 @@ use lm_host_model::input::{InputState, Viewer};
 
 use crate::input_plugin::{Input, Status};
 use crate::map_plugin::{egui_color, squad_color, Layout};
-use crate::sim_plugin::Host;
+use crate::sim_plugin::Round;
 
 /// The HUD plugin: the bar at the top of the window.
 pub struct HudPlugin;
@@ -25,7 +25,7 @@ impl Plugin for HudPlugin {
 /// The bar itself.
 fn hud_bar(
     mut contexts: EguiContexts,
-    host: Res<Host>,
+    round: Res<Round>,
     input: Res<Input>,
     status: Res<Status>,
     layout: Res<Layout>,
@@ -44,19 +44,33 @@ fn hud_bar(
         .resizable(false)
         .exact_size(layout.top)
         .show(&mut root, |ui| {
-            draw_hud(ui, &host, &input.0, &status);
+            draw_hud(ui, &round, &input.0, &status);
         });
     Ok(())
 }
 
 /// The numbers of the round.
-fn draw_hud(ui: &mut egui::Ui, host: &Host, input: &InputState, status: &Status) {
-    let sim = host.0.sim();
-    let tick = sim.tick();
-    let params = &host.0.header().params;
+fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Status) {
+    // A file that could not be opened: the error is the whole bar, because
+    // there is no round to count.
+    if let Some(err) = &round.error {
+        ui.colored_label(
+            egui::Color32::from_rgb(255, 120, 110),
+            format!("the file cannot be replayed: {err}"),
+        );
+        return;
+    }
+
+    let Some(header) = round.header() else {
+        return;
+    };
+    let Some(sim) = round.sim() else {
+        return;
+    };
+    let tick = round.tick();
+    let params = &header.params;
     let left = u64::from(params.time_limit_ticks).saturating_sub(tick);
     let seconds = left as f32 / f32::from(params.tick_hz);
-    let sched = host.0.sched_stats();
     let stats = sim.stats();
 
     ui.horizontal_wrapped(|ui| {
@@ -64,7 +78,7 @@ fn draw_hud(ui: &mut egui::Ui, host: &Host, input: &InputState, status: &Status)
         ui.label(format!("time {seconds:.0}s"));
 
         // The score of every squad, in the colour of the squad.
-        for (squad, score) in sim.scores().iter().enumerate() {
+        for (squad, score) in round.scores().iter().enumerate() {
             ui.colored_label(
                 egui_color(squad_color(squad as u8)),
                 format!("s{squad} {score}"),
@@ -72,10 +86,18 @@ fn draw_hud(ui: &mut egui::Ui, host: &Host, input: &InputState, status: &Status)
         }
 
         ui.separator();
-        ui.label(format!(
-            "sched on-time {} late {} stale {}",
-            sched.on_time, sched.late, sched.stale
-        ));
+
+        // The counters of the sequencer are the counters of a round being
+        // played: a replay has no sequencer, it has a log.
+        if let Some(host) = &round.live {
+            let sched = host.sched_stats();
+            ui.label(format!(
+                "sched on-time {} late {} stale {}",
+                sched.on_time, sched.late, sched.stale
+            ));
+        } else {
+            ui.label("replay");
+        }
 
         ui.separator();
         ui.label(format!(
@@ -87,7 +109,7 @@ fn draw_hud(ui: &mut egui::Ui, host: &Host, input: &InputState, status: &Status)
         ui.label(viewer_label(input));
 
         // How the round ended, when it has.
-        if let Some(outcome) = sim.outcome() {
+        if let Some(outcome) = round.outcome() {
             match outcome.winner {
                 Some(squad) => {
                     ui.colored_label(egui_color(squad_color(squad)), "round over");

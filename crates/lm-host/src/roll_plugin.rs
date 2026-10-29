@@ -9,13 +9,21 @@
 //! The roll is drawn from the round log and the events of the round, exactly
 //! like the roll of a round that is being replayed; nothing here reaches
 //! back into the simulation.
+//!
+//! ## The replay controls
+//!
+//! When the app is showing a round that is being replayed, the panel grows a
+//! row of controls above the lanes: a slider that seeks the round, and a
+//! button that plays it at the round's own rate. A file that could not be
+//! opened is not a crash either: the [`LogError`] it came back with is
+//! written across the panel.
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lm_host_model::roll::{MarkKind, SpanKind};
 
 use crate::map_plugin::{egui_color, squad_color, Layout};
-use crate::sim_plugin::CurrentRoll;
+use crate::sim_plugin::{CurrentRoll, Replay, Round};
 
 /// The roll plugin: the panel at the bottom of the window.
 pub struct RollPlugin;
@@ -27,7 +35,13 @@ impl Plugin for RollPlugin {
 }
 
 /// The panel itself.
-fn roll_panel(mut contexts: EguiContexts, roll: Res<CurrentRoll>, layout: Res<Layout>) -> Result {
+fn roll_panel(
+    mut contexts: EguiContexts,
+    roll: Res<CurrentRoll>,
+    round: Res<Round>,
+    mut replay: ResMut<Replay>,
+    layout: Res<Layout>,
+) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
     let mut root = egui::Ui::new(
         ctx.clone(),
@@ -40,9 +54,58 @@ fn roll_panel(mut contexts: EguiContexts, roll: Res<CurrentRoll>, layout: Res<La
         .resizable(false)
         .exact_size(layout.bottom)
         .show(&mut root, |ui| {
+            draw_replay(ui, &round, &mut replay);
             draw_roll(ui, &roll);
         });
     Ok(())
+}
+
+/// The replay controls: a slider that seeks, and a button that plays.
+///
+/// The slider covers the whole round, like the roll below it, so the two
+/// are on the same scale: the slider says where in the round the viewer is,
+/// and the lanes show what happened there.
+fn draw_replay(ui: &mut egui::Ui, round: &Round, replay: &mut Replay) {
+    let Some(scrubber) = round.replay.as_ref() else {
+        // A file that could not be opened: the error is the whole panel.
+        if let Some(err) = &round.error {
+            ui.colored_label(
+                egui::Color32::from_rgb(255, 120, 110),
+                format!("the file cannot be replayed: {err}"),
+            );
+        }
+        return;
+    };
+
+    let start = scrubber.log().header.start_tick;
+    let last = scrubber.last_tick();
+
+    ui.horizontal(|ui| {
+        if let Some(source) = &round.source {
+            ui.label(format!("replay — {}", source.display()));
+        } else {
+            ui.label(format!("replay — {} ticks", scrubber.len()));
+        }
+
+        // The slider: it asks for a tick, and the tick is what the round
+        // shows. It is wide, because a slider you cannot read is no slider.
+        let width = (ui.available_width() * 0.5).clamp(120.0, 320.0);
+        ui.spacing_mut().slider_width = width;
+        let mut tick = replay.tick as f64;
+        let response =
+            ui.add(egui::Slider::new(&mut tick, start as f64..=last as f64).show_value(true));
+        if response.changed() {
+            replay.tick = tick as u64;
+        }
+
+        // The button: the round plays itself at its own rate.
+        if ui
+            .button(if replay.playing { "pause" } else { "play" })
+            .clicked()
+        {
+            replay.playing = !replay.playing;
+        }
+    });
 }
 
 /// The lanes: one per agent, over the window of ticks.

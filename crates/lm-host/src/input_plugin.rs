@@ -24,10 +24,10 @@ use bevy::ecs::schedule::IntoScheduleConfigs;
 use bevy::input::mouse::{MouseButton, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use lm_host_model::input::{InputEvent, InputState};
+use lm_host_model::input::{InputEvent, InputState, Viewer};
 
 use crate::map_plugin::{cursor_cell, hovered_agent, CameraRig, CurrentMap, Layout, TileLayer};
-use crate::sim_plugin::Host;
+use crate::sim_plugin::Round;
 
 /// The systems of the input, as one set.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -91,7 +91,7 @@ impl Plugin for InputPlugin {
 #[allow(clippy::too_many_arguments)]
 fn read_input(
     mut input: ResMut<Input>,
-    mut host: ResMut<Host>,
+    mut round: ResMut<Round>,
     mut status: ResMut<Status>,
     mut last: ResMut<LastPossessed>,
     mut pointer: ResMut<Pointer>,
@@ -125,7 +125,7 @@ fn read_input(
             last.0 = Some(agent);
             apply(
                 &mut input,
-                &mut host,
+                &mut round,
                 InputEvent::Possess(agent),
                 &mut status,
             );
@@ -134,24 +134,33 @@ fn read_input(
 
     // Letting go of the agent being played.
     if keys.just_pressed(KeyCode::Digit0) || keys.just_pressed(KeyCode::Escape) {
-        apply(&mut input, &mut host, InputEvent::Release, &mut status);
+        apply(&mut input, &mut round, InputEvent::Release, &mut status);
     }
 
     // Standing still.
     if keys.just_pressed(KeyCode::KeyH) {
-        apply(&mut input, &mut host, InputEvent::Hold, &mut status);
+        apply(&mut input, &mut round, InputEvent::Hold, &mut status);
     }
 
     // Watching the agent under the pointer.
     if keys.just_pressed(KeyCode::KeyF) {
         if let Some(cursor) = cursor {
             if let Some(agent) = hovered_agent(&rig, &layout, &map, cursor) {
-                apply(
-                    &mut input,
-                    &mut host,
-                    InputEvent::FollowAgent(agent),
-                    &mut status,
-                );
+                if round.live.is_some() {
+                    apply(
+                        &mut input,
+                        &mut round,
+                        InputEvent::FollowAgent(agent),
+                        &mut status,
+                    );
+                } else {
+                    // A replay is watched, not played: the camera may follow
+                    // an agent, but nobody is playing one.
+                    input.0.viewer = Viewer::Spectator {
+                        follow: Some(agent),
+                    };
+                    status.0 = None;
+                }
             }
         }
     }
@@ -161,13 +170,13 @@ fn read_input(
         match input.0.possessing() {
             Some(agent) => {
                 last.0 = Some(agent);
-                apply(&mut input, &mut host, InputEvent::Spectate, &mut status);
+                apply(&mut input, &mut round, InputEvent::Spectate, &mut status);
             }
             None => {
                 if let Some(agent) = last.0 {
                     apply(
                         &mut input,
-                        &mut host,
+                        &mut round,
                         InputEvent::Possess(agent),
                         &mut status,
                     );
@@ -201,7 +210,7 @@ fn read_input(
                     if let Some(cell) = cursor_cell(&rig, &layout, &layer, cursor) {
                         apply(
                             &mut input,
-                            &mut host,
+                            &mut round,
                             InputEvent::ClickCell(cell),
                             &mut status,
                         );
@@ -252,8 +261,16 @@ fn read_input(
 }
 
 /// Apply what the person did, and say what the host said about it.
-fn apply(input: &mut Input, host: &mut Host, event: InputEvent, status: &mut Status) {
-    match input.0.apply(event, &mut host.0) {
+fn apply(input: &mut Input, round: &mut Round, event: InputEvent, status: &mut Status) {
+    // A round being replayed is watched, not played: there is no sequencer
+    // to take a decision, so the host says so instead of pretending.
+    let Some(host) = round.live.as_mut() else {
+        status.0 = Some(String::from(
+            "a replay is watched, not played: scrub it instead",
+        ));
+        return;
+    };
+    match input.0.apply(event, host) {
         Ok(()) => status.0 = None,
         Err(err) => status.0 = Some(err.to_string()),
     }

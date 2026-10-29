@@ -157,6 +157,36 @@ entity_commands.observe(observe_it);
 observers take ordinary system params alongside it — the crate's own tests
 use `ResMut` in observers (`bevy_ecs/src/observer/mod.rs:539`).
 
+## Knowing the app is closing — **[compiled]** (Task 7)
+
+```rust
+use bevy::app::OnAppExitSystems;
+
+app.add_systems(
+    Last,
+    write_the_round
+        .in_set(OnAppExitSystems)
+        .run_if(|messages: Res<Messages<AppExit>>| !messages.is_empty()),
+);
+```
+
+- **`OnAppExitSystems` is a `SystemSet` in `bevy_app`**
+  (`bevy_app/src/app.rs:1532`), reached as `bevy::app::OnAppExitSystems`; it
+  is *not* in the prelude. The window plugin configures it in `Last`, after
+  its own `ExitSystems` set (`bevy_window/src/lib.rs:154`).
+- **The exit is a message, not an event**: `bevy_window`'s
+  `exit_on_all_closed` writes `AppExit::Success` with a `MessageWriter`
+  (`bevy_window/src/system.rs:18`), and the runner ends the app when it sees
+  it. `Messages<AppExit>` is in the prelude.
+- The run condition above is the idiom Bevy itself uses
+  (`bevy_time/src/lib.rs:92`): the messages are still there when `Last`
+  runs, because they are cleared by the next message-update cycle.
+- `Last` runs inside the `Main` schedule, so a system there sees the frame
+  the exit was asked for — and the app ends after that frame.
+- An **exclusive system** (`fn sys(world: &mut World)`) is the way to take a
+  resource *out* of the world: `world.remove_resource::<T>()`,
+  `world.resource_mut::<T>()`, `world.resource::<T>()`.
+
 ## bevy_egui 0.43.1 panels — **[compiled]**
 
 ```rust
@@ -190,6 +220,14 @@ fn hello_panel(mut contexts: EguiContexts) -> Result {
   by bevy_egui): the plugin reruns that schedule for egui's extra passes
   (multi-pass immediate mode). Putting them in `Update` draws one stale
   pass.
+- **`EguiPrimaryContextPass` runs in `PostUpdate`**, in the
+  `EguiPostUpdateSet::EndPass` set (`bevy_egui/src/lib.rs:1147`): the panels
+  are drawn after the frame's `Update` systems, so a slider that moves the
+  world is seen on the *next* frame, not this one.
+- **`egui::Slider` ignores the size it is given**: it allocates
+  `ui.spacing().slider_width` (100 px by default,
+  `egui/src/widgets/slider.rs:652`), so `add_sized` does not widen it — set
+  `ui.spacing_mut().slider_width` before adding it.
 - `EguiContexts::ctx_mut()` returns `Result<&mut egui::Context,
   QuerySingleError>`; the intended system return type is
   `bevy::prelude::Result` (= `Result<(), BevyError>`) and `ctx_mut()?`

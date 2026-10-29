@@ -10,12 +10,16 @@
 //! The pieces:
 //!
 //! * [`sim_plugin`] steps the round in `FixedUpdate` at `Params::tick_hz`,
-//!   so the sim keeps its rate whatever the frame rate does;
+//!   so the sim keeps its rate whatever the frame rate does, and writes the
+//!   round down when it is over or when the window closes;
 //! * [`map_plugin`] draws the cells, the fog, the agents and the beacons,
 //!   and moves the camera;
 //! * [`input_plugin`] turns the keyboard and the mouse into decisions;
 //! * [`hud_plugin`] is the bar at the top, [`roll_plugin`] the piano roll at
 //!   the bottom.
+//!
+//! The app plays a round, or it opens one: `--replay FILE` opens a recorded
+//! round log and scrubs it instead of playing a new one.
 //!
 //! Build and run it with Windows cargo via `scripts/win-build.sh`; this WSL
 //! toolchain has none of Bevy's Linux system libraries.
@@ -39,12 +43,16 @@ use bevy_egui::EguiPlugin;
 use lm_core::header::Header;
 use lm_host_model::host_loop::HostLoop;
 use lm_host_model::input::{InputEvent, InputState};
+use lm_host_model::record;
+use lm_host_model::scrub::Scrubber;
 use std::{num::NonZeroU8, path::PathBuf};
 
 /// The window the app opens with.
 const DEFAULT_WINDOW: (u32, u32) = (1280, 720);
 /// The seed the round starts from when nobody says otherwise.
 const DEFAULT_SEED: u64 = 1;
+/// The rate a round ticks at when the round itself cannot say.
+const DEFAULT_TICK_HZ: u16 = 30;
 
 /// `--screenshot PATH --frames N`: after N frames, capture the window to
 /// PATH (a PNG) and exit. `spawned` guards against requesting twice.
@@ -57,12 +65,14 @@ struct ShotRequest {
 
 /// What the command line asks for.
 struct Options {
-    /// The seed of the round.
+    /// The seed the round starts from.
     seed: u64,
     /// The size of the window, in pixels.
     window: (u32, u32),
     /// The agent to play as from the first frame, if any.
     possess: Option<u16>,
+    /// The round log to replay, if any.
+    replay: Option<PathBuf>,
     /// The screenshot to take, if any.
     shot: Option<ShotRequest>,
 }
@@ -74,32 +84,76 @@ fn main() -> AppExit {
             eprintln!("lm-host: {err}");
             eprintln!(
                 "usage: lm-host [--seed N] [--window WxH] [--possess AGENT] \
-                 [--screenshot PATH [--frames N]]"
+                 [--replay FILE] [--screenshot PATH [--frames N]]"
             );
-            return AppExit::Error(NonZeroU8::MIN);
-        }
-    };
-
-    // The round: the standard one, with the shipped reflex. The host plays
-    // the same round the headless tools do.
-    let header = Header::default_round(options.seed, lm_tools::runner::DEFAULT_REFLEX);
-    let tick_hz = header.params.tick_hz;
-    let mut host = match HostLoop::new(header) {
-        Ok(host) => host,
-        Err(err) => {
-            eprintln!("lm-host: the round does not start: {err}");
             return AppExit::Error(NonZeroU8::MIN);
         }
     };
 
     // The viewer: watching, unless the command line says to play.
     let mut input = InputState::new();
-    if let Some(agent) = options.possess {
-        if let Err(err) = input.apply(InputEvent::Possess(agent), &mut host) {
-            eprintln!("lm-host: {err}");
-            return AppExit::Error(NonZeroU8::MIN);
+
+    // The round: either one being played, or one being replayed out of a
+    // log. The two are different animals, so the app is told which one it
+    // has before it starts.
+    let (round, tick_hz, recording) = match &options.replay {
+        Some(path) => {
+            if options.possess.is_some() {
+                eprintln!("lm-host: a replay cannot be played: `--possess` is ignored");
+            }
+            match Scrubber::open(path) {
+                Ok(scrubber) => {
+                    // The replay plays at the rate the round was played at.
+                    let tick_hz = scrubber.log().header.params.tick_hz;
+                    (
+                        sim_plugin::Round::replay(scrubber, path.clone()),
+                        tick_hz,
+                        sim_plugin::Recording::default(),
+                    )
+                }
+                Err(err) => {
+                    // A file that cannot be played is not a crash: the app
+                    // opens and says what is wrong with it.
+                    eprintln!("lm-host: {} cannot be replayed: {err}", path.display());
+                    (
+                        sim_plugin::Round::broken(err, path.clone()),
+                        DEFAULT_TICK_HZ,
+                        sim_plugin::Recording::default(),
+                    )
+                }
+            }
         }
-    }
+        None => {
+            // The round: the standard one, with the shipped reflex. The host
+            // plays the same round the headless tools do.
+            let header = Header::default_round(options.seed, lm_tools::runner::DEFAULT_REFLEX);
+            let tick_hz = header.params.tick_hz;
+            let mut host = match HostLoop::new(header) {
+                Ok(host) => host,
+                Err(err) => {
+                    eprintln!("lm-host: the round does not start: {err}");
+                    return AppExit::Error(NonZeroU8::MIN);
+                }
+            };
+
+            if let Some(agent) = options.possess {
+                if let Err(err) = input.apply(InputEvent::Possess(agent), &mut host) {
+                    eprintln!("lm-host: {err}");
+                    return AppExit::Error(NonZeroU8::MIN);
+                }
+            }
+
+            // The round is written down when it is over, or when the window
+            // closes: one file per round, named after the seed it was played
+            // from and the second it was played in.
+            let recording = sim_plugin::Recording {
+                path: Some(record::path_for(options.seed, unix_secs())),
+                written: false,
+            };
+
+            (sim_plugin::Round::live(host), tick_hz, recording)
+        }
+    };
 
     let mut app = App::new();
     app.add_plugins((
@@ -124,7 +178,8 @@ fn main() -> AppExit {
             }),
         EguiPlugin::default(),
     ))
-    .insert_resource(sim_plugin::Host(host))
+    .insert_resource(round)
+    .insert_resource(recording)
     .insert_resource(input_plugin::Input(input))
     .init_resource::<FrameCount>()
     .add_plugins((
@@ -152,11 +207,23 @@ fn main() -> AppExit {
     app.run()
 }
 
+/// The wall clock, in seconds since the epoch.
+///
+/// It names the file a round is recorded in, so two rounds of the same seed
+/// never fight over one name.
+fn unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or(0)
+}
+
 /// Read the command line.
 fn parse_args() -> Result<Options, String> {
     let mut seed = DEFAULT_SEED;
     let mut window = DEFAULT_WINDOW;
     let mut possess = None;
+    let mut replay = None;
     let mut path = None;
     let mut frames = 30u32;
     let mut args = std::env::args().skip(1);
@@ -183,6 +250,11 @@ fn parse_args() -> Result<Options, String> {
                         .map_err(|_| String::from("`--possess` needs an agent number"))?,
                 );
             }
+            "--replay" => {
+                replay = Some(PathBuf::from(args.next().ok_or_else(|| {
+                    String::from("`--replay` needs a file, e.g. runs\\1-1764000000.lml")
+                })?));
+            }
             "--screenshot" => {
                 path = Some(args.next().ok_or_else(|| {
                     String::from(
@@ -207,6 +279,7 @@ fn parse_args() -> Result<Options, String> {
         seed,
         window,
         possess,
+        replay,
         shot: path.map(|path| ShotRequest {
             path: PathBuf::from(path),
             frames,
