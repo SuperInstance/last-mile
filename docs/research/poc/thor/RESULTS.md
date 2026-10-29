@@ -45,3 +45,12 @@ Details are in [THOR-HANDOFF.md](THOR-HANDOFF.md), written by the Thor's agent. 
 - The p99 spikes are TCP connection-setup losses waiting out the 1 s retransmit timer.
 - Persistent connections (the planned QUIC link) remove the 1 s spikes, and Ethernet removes most of the jitter.
 - Per-question model time (~10 ms on the 600M, ~50 ms on d1-3B) dominates once connections persist.
+
+## Concurrency (`par.py`)
+
+| endpoint | 8 sequential | 8 concurrent (wall) | per-call range |
+|---|---|---|---|
+| d1-3B :8093 | 773 ms (97/call) | 638 ms | 167–635 ms |
+| d1-omni-600M :8095 | 271 ms (34/call) | 161 ms | 55–160 ms |
+
+d1-3B effectively serializes requests, so with 16 agents squad-wide thinking runs at about 1 Hz. The request for parallel slots is in REQUESTS-TO-THOR.md.
