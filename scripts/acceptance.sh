@@ -87,6 +87,29 @@ expect "golden matches the pinned hashes" \
   0 "^OK 3/3$" \
   -- "$LM" golden
 
+# A harness for the learning round: one agent's harness, with the shipped
+# reflex in it.
+mkdir -p "$WORK/harness/a0/reflexes"
+cp assets/reflexes/default.rhai "$WORK/harness/a0/reflexes/default.rhai"
+
+expect "learn runs a learning round and says what it decided" \
+  0 "decision:       reject" \
+  -- "$LM" learn --seed 1 --harness "$WORK/harness" --runs "$WORK/runs" --ticks 900
+
+if [ -s "$WORK/runs/flow/r1.json" ]; then
+  printf 'PASS: the flow record is on disk\n'
+else
+  printf 'FAIL: the flow record is on disk\n'
+  fails=$((fails + 1))
+fi
+
+if [ -s "$WORK/runs/ledger.jsonl" ]; then
+  printf 'PASS: the prediction ledger is on disk\n'
+else
+  printf 'FAIL: the prediction ledger is on disk\n'
+  fails=$((fails + 1))
+fi
+
 if [ "$fails" -gt 0 ]; then
   printf '\n==> %d step(s) FAILED\n' "$fails"
   exit 1

@@ -40,6 +40,22 @@ cargo build --release -p lm-tools                                  # builds ./ta
 ./target/release/lm diff /tmp/a.lml /tmp/b.lml                   # the first tick that moves
 ./target/release/lm golden                                       # OK 3/3, against tests/golden.toml
 ./target/release/lm golden --write                               # re-pin tests/golden.toml
+./target/release/lm learn --seed 1 --harness ./harness           # one learning round
+```
+
+`lm learn` runs one learning round end to end: it plays the round, measures
+it, asks a reviewer for a change, **seals what the change is expected to do
+before testing it**, evaluates the change on held-out seeds, and adopts it
+only if the evidence backs it. The harness is a directory of harnesses, one
+per agent (`a0`, `a1`, …); a change lands in that agent's harness repo, in a
+commit tagged `round-<id>`, and the next round's header pins that commit.
+Everything the round did is on disk: the log, the ledger (`runs/ledger.jsonl`),
+the deposit (`runs/deposits/`), the flow record (`runs/flow/<round-id>.json`)
+and the harness's git history.
+
+```bash
+./target/release/lm learn --seed 1 --harness ./harness --runs ./runs
+./target/release/lm learn --seed 1 --harness ./harness --reviewer router   # a cloud pool reviews
 ```
 
 `cargo run --release --bin lm -- <subcommand>` does the same thing without the
@@ -62,6 +78,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 | [`lm-core`](crates/lm-core/src/lib.rs) | The deterministic simulation: fixed-point math, worldgen, LOS, JPS, decisions and sequencer, lane conditioner, agents with safe branches, fog-of-war views and menus, Beacons rules (native and scripted), sandboxed Rhai reflexes, the hash-chained round log | No floats, no unordered containers, no clock, no network. Overflow checks on in release |
 | [`lm-proto`](crates/lm-proto/src/lib.rs) | Wire messages, a strict postcard codec, the version handshake | No transport yet (QUIC comes in phase 3) |
 | [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI (the crate is `lm-tools`, the binary it builds is `lm`): `run`, `replay`, `diff`, `golden` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
+| [`lm-learn`](crates/lm-learn/src/lib.rs) | The between-round learning loop: the metrics of a round, the sealed-prediction ledger, the reviewer's proposal and its strict parsing, the held-out evaluation, the deposits, and the [`flow`](crates/lm-learn/src/flow.rs) that chains them into one auditable round | No floats, no clock, no network of its own: the keys stay in `lm-router` |
 | [`lm-archive`](crates/lm-archive/src/lib.rs) | The Orin archive: the `lm-archive` command and the crate behind it — the flat store (rounds, reports, state, every file written atomically), the framed `lm_proto::Msg` ingest, the headless verifier that replays a round and checks every state hash, the service (accept loop, a thread per connection, a verification worker with a bounded queue), the yielding to the desktop (`nice`/`ionice`, applied by re-executing the process) and the cross-architecture golden check | No floats, no clock in the round, std-only networking. A round is never rewritten |
 
 ## Repository map

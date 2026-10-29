@@ -17,6 +17,10 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
 lm-core = { path = "../lm-core" }
+# The learning flow: the `learn` subcommand runs one learning round. The
+# flow's crate does not depend on this one (that would be a cycle), so the
+# flow plays its rounds with lm-core alone.
+lm-learn = { path = "../lm-learn" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 toml = "1.1.8"

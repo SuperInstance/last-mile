@@ -23,6 +23,9 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
+use lm_learn::flow::{
+    run_learning_round, FlowConfig, Reviewer, RouterReviewer, StubReviewer, HARMLESS_REVIEW,
+};
 use lm_tools::branch::Change;
 use lm_tools::runner::{self, Golden, ReplayError, DEFAULT_REFLEX, GOLDEN_TICKS};
 
@@ -120,6 +123,37 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Run one learning round: play it, review it, test the proposal against
+    /// held-out seeds, and adopt or reject it.
+    Learn {
+        /// The seed of the round.
+        #[arg(long)]
+        seed: u64,
+        /// The harness root: one directory per agent, `a0`, `a1`, ...
+        #[arg(long)]
+        harness: PathBuf,
+        /// Who reviews the round: `stub` (no network) or `router` (a cloud
+        /// pool, with the keys the router holds).
+        #[arg(long, default_value = "stub")]
+        reviewer: String,
+        /// Where the round's files go: the log, the ledger, the deposit and
+        /// the record.
+        #[arg(long, default_value = "runs")]
+        runs: PathBuf,
+        /// How many ticks the round may run.
+        #[arg(long, default_value_t = lm_learn::flow::DEFAULT_TICKS)]
+        ticks: u64,
+        /// How many held-out seeds the evaluation runs on.
+        #[arg(long, default_value_t = lm_learn::flow::DEFAULT_EVAL_SEEDS)]
+        eval_seeds: usize,
+        /// The round's id. `r<seed>` when it is not given.
+        #[arg(long)]
+        round_id: Option<String>,
+        /// The answer the stub reviewer gives: a file holding the reviewer's
+        /// own words.
+        #[arg(long)]
+        review_text: Option<PathBuf>,
+    },
     /// Print the Q14 sine table that `lm-core` commits.
     GenTrig,
 }
@@ -143,6 +177,25 @@ fn main() -> ExitCode {
             params,
             out,
         } => cmd_branch(parent, at, reflexes, params, out),
+        Command::Learn {
+            seed,
+            harness,
+            reviewer,
+            runs,
+            ticks,
+            eval_seeds,
+            round_id,
+            review_text,
+        } => cmd_learn(
+            seed,
+            harness,
+            reviewer,
+            runs,
+            ticks,
+            eval_seeds,
+            round_id,
+            review_text,
+        ),
         Command::GenTrig => {
             print!("{}", gen_trig());
             ExitCode::SUCCESS
@@ -235,6 +288,65 @@ fn split_arg(arg: &str) -> Option<(&str, &str)> {
 }
 
 /// Play a round, write its log and say what happened.
+/// Run one learning round and say what it decided.
+#[allow(clippy::too_many_arguments)]
+fn cmd_learn(
+    seed: u64,
+    harness: PathBuf,
+    reviewer: String,
+    runs: PathBuf,
+    ticks: u64,
+    eval_seeds: usize,
+    round_id: Option<String>,
+    review_text: Option<PathBuf>,
+) -> ExitCode {
+    let mut cfg = FlowConfig::new(seed, harness)
+        .with_runs_root(runs)
+        .with_ticks(ticks)
+        .with_eval_seeds(eval_seeds);
+    if let Some(id) = round_id {
+        cfg = cfg.with_round_id(id);
+    }
+
+    let mut reviewer: Box<dyn Reviewer> = match reviewer.as_str() {
+        "stub" => {
+            let text = match review_text {
+                Some(path) => match std::fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(err) => {
+                        eprintln!("lm: cannot read {}: {err}", path.display());
+                        return ExitCode::FAILURE;
+                    }
+                },
+                None => HARMLESS_REVIEW.to_string(),
+            };
+            Box::new(StubReviewer::new(text))
+        }
+        "router" => match RouterReviewer::discover() {
+            Ok(reviewer) => Box::new(reviewer),
+            Err(err) => {
+                eprintln!("lm: the reviewer: {err}");
+                return ExitCode::FAILURE;
+            }
+        },
+        other => {
+            eprintln!("lm: --reviewer {other}: expected `stub` or `router`");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match run_learning_round(&cfg, reviewer.as_mut()) {
+        Ok(record) => {
+            print!("{}", record.summary());
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("lm: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> ExitCode {
     let mut injections = Vec::new();
     if let Some(path) = &inject {

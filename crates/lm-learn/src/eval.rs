@@ -9,8 +9,8 @@
 
 use crate::ledger::{Direction, Prediction, Verdict};
 use crate::metrics::RoundMetrics;
+use crate::round::play;
 use lm_core::Header;
-use lm_tools::runner::run;
 
 /// Generate n seeds from a range disjoint from train.
 /// Seeds are: 1_000_000 + salt*1000 + i, skipping any that appear in train.
@@ -60,12 +60,7 @@ pub fn evaluate(
 ) -> Result<Verdict, String> {
     // Get the metric value or return error if unknown
     let metric_name = &pred.metric;
-    if metric_value(
-        &RoundMetrics::from_log(&run(baseline(0), 0, &[]).0),
-        metric_name,
-    )
-    .is_none()
-    {
+    if metric_value(&RoundMetrics::from_log(&play(baseline(0), 0)), metric_name).is_none() {
         return Err(format!("Unknown metric: {}", metric_name));
     }
 
@@ -77,8 +72,8 @@ pub fn evaluate(
         let baseline_header = baseline(*seed);
         let candidate_header = candidate(*seed);
 
-        let (baseline_log, _) = run(baseline_header, ticks, &[]);
-        let (candidate_log, _) = run(candidate_header, ticks, &[]);
+        let baseline_log = play(baseline_header, ticks);
+        let candidate_log = play(candidate_header, ticks);
 
         let baseline_metrics = RoundMetrics::from_log(&baseline_log);
         let candidate_metrics = RoundMetrics::from_log(&candidate_log);

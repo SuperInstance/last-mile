@@ -6,7 +6,12 @@ description = "last-mile between-round learning: metrics, sealed-prediction ledg
 
 [dependencies]
 lm-core = { path = "../lm-core" }
-lm-tools = { path = "../lm-tools" }
+# The harness: what an agent may change, and the commit it is pinned by
+# (D21/D27). The flow reads the harnesses and pins them into the round.
+lm-agents = { path = "../lm-agents" }
+# The cloud purse: the reviewer that asks a model for a proposal (System 2).
+# Keys stay in the router and never reach this crate.
+lm-router = { path = "../lm-router" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"

@@ -4032,8 +4032,9 @@ dependencies = [
 name = "lm-learn"
 version = "0.1.0"
 dependencies = [
+ "lm-agents",
  "lm-core",
- "lm-tools",
+ "lm-router",
  "regex",
  "serde",
  "serde_json",
@@ -4074,6 +4075,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "lm-core",
+ "lm-learn",
  "serde",
  "serde_json",
  "toml",

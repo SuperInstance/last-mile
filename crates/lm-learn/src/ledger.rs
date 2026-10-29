@@ -74,6 +74,16 @@ pub enum Entry {
     Seal(Prediction),
     /// The verdict on an earlier seal.
     Verdict(Verdict),
+    /// A human's override of a verdict: they decided against the evidence,
+    /// and said why (Review Focus 2: allowed, but logged).
+    Override {
+        /// The seal the override answers.
+        seal: u64,
+        /// Whether the human adopted the proposal anyway.
+        adopted: bool,
+        /// The human's reason.
+        reason: String,
+    },
 }
 
 /// One line on disk.
@@ -100,6 +110,29 @@ pub enum LedgerError {
     /// A seal already has its verdict; a second one would rewrite history.
     AlreadyJudged(u64),
 }
+
+impl std::fmt::Display for LedgerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LedgerError::Io(err) => write!(f, "the ledger file: {err}"),
+            LedgerError::Decode { line, why } => {
+                write!(f, "line {line} is not a ledger line: {why}")
+            }
+            LedgerError::ChainBroken { line } => {
+                write!(
+                    f,
+                    "line {line} does not follow the one before it: the file was edited"
+                )
+            }
+            LedgerError::NoSuchSeal(seal) => write!(f, "there is no seal {seal} in this ledger"),
+            LedgerError::AlreadyJudged(seal) => {
+                write!(f, "seal {seal} already has its verdict")
+            }
+        }
+    }
+}
+
+impl std::error::Error for LedgerError {}
 
 impl From<io::Error> for LedgerError {
     fn from(e: io::Error) -> Self {
@@ -219,6 +252,29 @@ impl Ledger {
             Some(Entry::Seal(p)) => Some(p),
             _ => None,
         }
+    }
+
+    /// Record a human's override of a verdict.
+    ///
+    /// The verdict stays what the measurement said; the override is a line of
+    /// its own, so a reader of the chain sees both the evidence and the
+    /// decision that went against it. A seal can be overridden as often as a
+    /// human wants to say so out loud.
+    pub fn override_verdict(
+        &mut self,
+        seal: u64,
+        adopted: bool,
+        reason: &str,
+    ) -> Result<u64, LedgerError> {
+        match self.lines.get(seal as usize).map(|l| &l.entry) {
+            Some(Entry::Seal(_)) => {}
+            _ => return Err(LedgerError::NoSuchSeal(seal)),
+        }
+        self.append(Entry::Override {
+            seal,
+            adopted,
+            reason: reason.to_string(),
+        })
     }
 
     /// Every entry, in order.
