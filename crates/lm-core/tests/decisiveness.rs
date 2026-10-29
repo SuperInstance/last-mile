@@ -56,7 +56,10 @@ fn play(seed: u64, params: &Params) -> Round {
             break;
         }
     }
-    assert!(sim.outcome().is_some(), "seed {seed}: no outcome after the time limit");
+    assert!(
+        sim.outcome().is_some(),
+        "seed {seed}: no outcome after the time limit"
+    );
     let outcome = sim.outcome().cloned();
     Round {
         seed,
@@ -168,7 +171,14 @@ fn decisiveness_sweep() {
             let draw_percent = (draws as f64 / SEEDS as f64) * 100.0;
             println!(
                 "{}, {}, {}, {}, {}, {:.1}%, {}, early draws {}",
-                win_score, time_limit_ticks, wins0, wins1, draws, draw_percent, median_tick, early_draws
+                win_score,
+                time_limit_ticks,
+                wins0,
+                wins1,
+                draws,
+                draw_percent,
+                median_tick,
+                early_draws
             );
         }
     }
