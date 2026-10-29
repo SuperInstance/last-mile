@@ -24,6 +24,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use lm_agents::harness::{self, Harness};
 use lm_core::header::Header;
@@ -967,9 +968,16 @@ fn review_apply(proposal: &Proposal, root: &Path) -> Result<PathBuf, FlowError> 
 }
 
 /// A scratch directory for the candidate harness.
+///
+/// Every flow gets one of its own: the directory is wiped and copied into,
+/// so two flows that shared one would wipe each other's candidate -- and
+/// the round id alone cannot keep them apart, because two rounds may well
+/// carry the same one.
 fn scratch_dir(round_id: &str) -> PathBuf {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "lm-learn-candidate-{round_id}-{}",
+        "lm-learn-candidate-{round_id}-{}-{n}",
         std::process::id()
     ))
 }
