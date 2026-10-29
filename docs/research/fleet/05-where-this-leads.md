@@ -98,7 +98,24 @@ For last-mile (D45):
 |---|---|---|---|
 | A | Presence vs point mode: accuracy, lag, jitter, cost | MiniMax Code | **Conditioning beats call rate.** Presence 5 Hz + lane (α=½, deadband 0.2): 88.2% acc, 3.0 spurious flips/agent-min, 300 calls. Point argmax: 83.2%, 33.8 flips, needs 5× more server batches (per-agent requests don't batch). Raw presence: ~84%, up to 221 flips. **Rolling raw p[]: 56%, a dead end** → D43. Ladder: 10 Hz/600 calls ≈ 90–92%, 15 Hz ≈ 93%, 30 Hz ≈ 95% (but 30 Hz skips 8.6% of periods). Caveat: stub errors were independent per call; real models' errors correlate, which weakens EMA, so S1 re-measures |
 | B | Fixed vs adaptive scheduling lead on our measured Wi-Fi | MiniMax Code | **Adaptive (host-level estimator, N=32, +10 ms): 99.77% on time at 102 ms mean lead vs fixed-3 at 98.28% / 100 ms; storms bump the lead to 4 ticks only while live. Verified by re-run** |
-| E1 | Tile change rate and cache hit, static vs follow camera vs world-anchored | ZCode | *pending* |
-| E2 | Student vs teacher: raw input vs authored gates vs code; outside-space boundary | MiniMax Code | *pending* |
-| E3 | Generation as typed decisions; taste learning from thumbs; delta regen | ZCode | *pending* |
+| E1 | Tile change rate and cache hit, static vs follow camera vs world-anchored | ZCode | **Only what changed holds, if tiles are world-anchored.** Static camera: 2.6% of tiles change per frame. Follow camera with screen-anchored tiles: **68%** (p95 100%), cache ≤61%. Same view, **world-anchored**: **4.8%**, 95.6% hits with a 256-entry LRU, changed-only bytes 4.8% of full. Storms barely move it. → D46 |
+| E2 | Student vs teacher: raw input vs authored gates vs code; outside-space boundary | MiniMax Code | **The questions are the learning.** 5 authored gates: 91% at 50 samples, 100% at 1000, 15 mul-adds. Raw board: 32% → 46% (≈ majority baseline), 2,318 mul-adds. Forgetting the one key gate (LOS) caps it at 96.7% forever. A rule outside the gate space: the gated student is **structurally blind** (50% on matched pairs whose gate vectors are identical); raw input learns it given data (88%). Gated student = code on 100% → replace with code. → D47 |
+| E3 | Generation as typed decisions; taste learning from thumbs; delta regen | ZCode | **One mechanism recognizes, generates and repairs.** WFC with decision dice: thumbs-up rate 60% → 99% over 30 batches from one bit per map; it recovered the hidden likes (cover near beacons +, water near spawns −); seeded replay byte-identical. **Delta regen of a disliked 6×6: 100% success, touches 9.4% of the map, taste −5.4 → +0.4.** Caveat: crude credit assignment (one thumb per ~380 decisions). → D48 |
 | E4 | Jev on lattice-text rasters of the score, with blind/shuffled controls (the curriculum's method) | Claude, once the key is stored | *waiting for key* |
+
+## 7. What the experiments settle
+
+1. **World anchoring is the precondition for "only what changed"** (E1). last-mile already has it, because chunks and cells live in world space. Every cache (skins, recognition answers, prerendered tiles) is keyed by **world tile + structure hash**, never by screen tiles. The 3D view's neural layer only ever works on the ~5% of tiles whose key is new.
+2. **Questions beat data, and blindness can be detected** (E2). Authored gates beat raw input by 59 points at 50 samples, at a sliver of the cost. A missing gate is a permanent ceiling, not a data problem. The matched-pair probe is a **tool for the trainer**: build pairs that differ only in a candidate factor. If the gate vectors are identical but the outcomes differ, the student is blind to that factor, and a new gate is needed. System-2 proposes factors, and the probe tells it which ones are missing. That's "setting gates across an array of the right questions" made mechanical.
+3. **The dial moves when model and code agree** (E2). When a gated student matches a code rule on 100% of held-out cases, the rule takes over. The expensive part was always the *gates* (LOS, BFS: code). The model on top is tiny. A calculator wrapped in a thin judgement layer, with a storyteller only where the questions run out.
+4. **Generation, taste and repair are one mechanism** (E3). Procgen posed as typed decisions with seeded dice learns taste from 👍/👎 alone, replays exactly, and repairs a disliked region without touching the rest. That's the Thor's prerender-ahead design (D14) in miniature, and the same shape scales to archetype parameters and 3D chunks.
+
+**Where this leads.** One substrate, the world-anchored lattice of typed cells, carries everything:
+- agents perceive it (the score);
+- fast decision models live on it (presence lanes);
+- slow models improve it by adding **questions and blocks**, not by re-deciding;
+- generation rolls on it (grammars);
+- rendering skins it only where it changed;
+- every step is a logged, replayable, receipted decision.
+
+The model-vs-code dial settles per job, and the operators get smaller as the machinery gets better.
