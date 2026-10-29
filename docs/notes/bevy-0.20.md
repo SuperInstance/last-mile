@@ -408,6 +408,105 @@ bash scripts/win-build.sh run -p lm-host --release -- \
 Toolchain note: both sides are cargo 1.99.x (Windows 1.99.1), matching
 `rust-toolchain.toml`.
 
+## Rendering to a texture, and the integer upscale — **[compiled]** (Tasks 7-8)
+
+```rust
+use bevy::camera::RenderTarget;
+use bevy::image::ImageSampler;
+use bevy::render::render_resource::TextureFormat;
+
+// The offscreen picture: sRGB-viewed, zero-filled, sampled NEAREST.
+let mut image = Image::new_target_texture(w, h, TextureFormat::Rgba8Unorm,
+                                          Some(TextureFormat::Rgba8UnormSrgb));
+image.sampler = ImageSampler::nearest();
+let handle = images.add(image);
+
+// The world camera: the target is its own COMPONENT, not a Camera field.
+commands.spawn((
+    Camera3d::default(),
+    Camera { order: -1, ..default() },
+    RenderTarget::Image(handle.into()),   // From<Handle<Image>> sets scale_factor 1.0
+    DistanceFog {                          // bevy_pbr's fog, in the prelude
+        color: Color::srgb(0.30, 0.24, 0.38),
+        falloff: FogFalloff::Linear { start: 40.0, end: 120.0 },
+        ..default()
+    },
+));
+```
+
+- **`Camera` has no `target` field in 0.20** (`bevy_camera-0.20.1/src/camera.rs`):
+  `RenderTarget` is a `Component`, inserted alongside `Camera`; its default
+  is `RenderTarget::Window(WindowRef::default())`. `Camera`'s real fields
+  are `viewport`, `order`, `is_active`, `output_mode`, `msaa_writeback`,
+  `clear_color`, …
+- `Image::new_target_texture` (`bevy_image-0.20.1/src/image.rs:1253`) sets
+  `TEXTURE_BINDING | COPY_DST | RENDER_ATTACHMENT` itself; the sRGB *view*
+  format comes from the `Some(..)` argument. MSAA 4× into such a target is
+  fine (the official `render_to_texture.rs` does it).
+- **The blit is a sprite, not `FullscreenMaterial`.** 0.20's
+  `FullscreenMaterialPlugin` is a *per-camera post-process*: its render
+  system binds `ViewTarget::post_process_write()` — the camera's own
+  accumulated texture — and cannot sample another camera's render target
+  (`bevy_core_pipeline-0.20.1/src/fullscreen_material.rs`,
+  `fullscreen_material_system`). A `Camera2d` (order above the world
+  camera) drawing one `Sprite { image: handle }` sized `scale × internal`
+  does the specified nearest integer blit through public API. Its
+  `OrthographicProjection.scale = window.scale_factor()` keeps one world
+  unit one **physical** pixel, so the integer scale stays integer on a
+  HiDPI desktop. (The scale is the factor itself, **not** its inverse:
+  `CameraProjection::update` receives the viewport in **logical** pixels
+  and makes the visible world `scale × logical`
+  (`bevy_camera-0.20.1/src/projection.rs`; the caller is `camera_system`
+  in `bevy_render-0.20.1/src/camera.rs`, which passes
+  `camera.logical_viewport_size()`), and `physical = scale_factor ×
+  logical` — so `scale = scale_factor` is what cancels the logical units
+  out. The Task 8 review caught an inverse scale here drawing the blit 5×
+  the window on a 225% desktop.)
+- **`DistanceFog` works on unlit materials**: it is applied in
+  `main_pass_post_lighting_processing` (`bevy_pbr-0.20.1/src/render/
+  pbr_functions.wesl:987`), gated by the material's `fog_enabled` flag,
+  which defaults on. `DistanceFog`/`FogFalloff` are in `bevy::prelude`.
+
+## Cameras over cameras, cursor picking — **[compiled]** (Task 8)
+
+```rust
+// An overlay camera that clears nothing and draws only its layer:
+commands.spawn((Camera2d, Camera {
+    order: 10,                       // above the blit camera (order 0)
+    clear_color: ClearColorConfig::None,
+    ..default()
+}, RenderLayers::layer(2)));
+
+// Switching views without touching the round: is_active flips cameras.
+camera.is_active = !showing_3d;
+
+// A cursor through the offscreen picture: window px → blit px → the world
+// camera's own (internal-resolution) viewport → a ray → the ground.
+let ray = camera.viewport_to_world(&global_transform, viewport_px)?;   // top-left origin
+let hit = ray.plane_intersection_point(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y))?;
+```
+
+- `bevy_egui` attaches its context to the **first camera the app creates**
+  (`setup_primary_egui_context_system`, `Added<Camera>`). In a layout with
+  several cameras, attach the context by hand and turn the auto-attach
+  **off** — `EguiGlobalSettings { auto_create_primary_context: false, .. }`
+  plus `EguiContext::default(), PrimaryEguiContext` on the panel carrier:
+  the auto system runs in PreStartup *and* PreUpdate, each instance with its
+  own "already have one" flag, so cameras spawning across both schedules
+  can end up with a *second* `PrimaryEguiContext` (whichever the query
+  yields first), and every panel system asking for "the" context finds two
+  (`QuerySingleError::MultipleEntities`). The carrier still comes first —
+  `app.world_mut().spawn(...)` before `app.run()` beats racing `Startup`
+  systems — and on its own `RenderLayers`, so it draws the egui pass and
+  nothing else.
+- `Camera::viewport_to_world(&GlobalTransform, Vec2)` takes the cursor in
+  the viewport's logical pixels, **top-left origin** (same as
+  `Window::cursor_position()`; the official `3d_viewport_to_world.rs`
+  passes one straight into the other). For a camera rendering offscreen,
+  the viewport is the *image*, so map window px through the blit first.
+- `Ray3d::plane_intersection_point(origin, InfinitePlane3d)` replaces the
+  hand-rolled `t = -o.y/d.y`.
+
 ## Version pins
 
 - `bevy = "=0.20.1"`, `bevy_egui = "=0.43.1"` (exact pins; bevy_egui 0.43.1

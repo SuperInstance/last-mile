@@ -48,7 +48,10 @@ impl Color {
 /// plan's (phase 6 Task 1), so a plain `RenderConfig::default()` is the
 /// retro-modern look the spec describes — 960×540 inside, an integer
 /// upscale out, and three chunks of view distance.
+/// A `render.toml` may name any subset of the knobs: whatever it leaves
+/// out keeps its default, the way the plan's table reads.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RenderConfig {
     /// Internal rendering resolution width
     pub internal_width: u32,
@@ -79,7 +82,12 @@ pub struct RenderConfig {
 }
 
 /// Upscaling mode for the renderer
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// The TOML spellings are the plan's own lowercase ones (`upscale =
+/// "integer" | "dlss" | "off"`), so a `render.toml` reads the way the
+/// documentation does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum UpscaleMode {
     #[default]
     Integer,
@@ -88,7 +96,8 @@ pub enum UpscaleMode {
 }
 
 /// Palette mode for the renderer
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum PaletteMode {
     #[default]
     Default,
@@ -99,10 +108,12 @@ impl PaletteMode {
     ///
     /// A palette is part of every mesh, so a changed palette is a changed
     /// mesh: the version joins the chunk's structure hash, and it has to be
-    /// bumped whenever the colours of a variant change.
+    /// bumped whenever the colours of a variant change. (Version 2 added
+    /// the flat face-direction shade the meshes carry, Task 8's reviewer
+    /// finding 2.)
     pub const fn version(&self) -> u32 {
         match self {
-            PaletteMode::Default => 1,
+            PaletteMode::Default => 2,
         }
     }
 }
@@ -145,7 +156,8 @@ impl RenderConfig {
 }
 
 /// DLSS quality settings
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum DlssQuality {
     #[default]
     Quality,
@@ -160,6 +172,7 @@ pub enum DlssQuality {
 /// are the 2D map's own — the sRGB numbers the host's map plugin spells — so
 /// the two views of the same world agree without either asking the other.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Palette {
     /// Squad colors indexed by squad ID (0-3)
     pub squad_colors: [Color; 4],
@@ -242,4 +255,37 @@ pub struct MaterialColors {
     pub cover: Color,
     pub beacon_held: Color,
     pub beacon_free: Color,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `render.toml` that names one knob: everything else keeps its
+    /// default. (Found the hard way: the visual acceptance of Task 7 runs
+    /// exactly this file, and a missing field used to refuse it.)
+    #[test]
+    fn a_partial_render_toml_keeps_the_defaults() {
+        let dir = std::env::temp_dir().join("lm-render-render-toml");
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let path = dir.join("partial.toml");
+        std::fs::write(&path, "internal_width = 640\ninternal_height = 360\n")
+            .expect("the file is written");
+
+        let cfg = RenderConfig::load(&path).expect("a partial file loads");
+        assert_eq!((cfg.internal_width, cfg.internal_height), (640, 360));
+        assert_eq!(
+            cfg.upscale,
+            UpscaleMode::Integer,
+            "the unnamed keep defaults"
+        );
+        assert_eq!(cfg.view_distance_chunks, 3);
+        assert_eq!(cfg.fog_far_m, 120.0);
+
+        // The plan's own lowercase spellings parse.
+        std::fs::write(&path, "upscale = \"dlss\"\ndlss_project_id = \"x\"\n")
+            .expect("the file is written");
+        let cfg = RenderConfig::load(&path).expect("the dlss spelling loads");
+        assert_eq!(cfg.upscale, UpscaleMode::Dlss);
+    }
 }

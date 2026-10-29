@@ -268,6 +268,16 @@ pub enum MapSet {
     Map,
 }
 
+/// The map's own camera — the one this plugin moves.
+///
+/// The marker matters the moment a second view shares the app (`--view
+/// both`): the 3D view's world camera and its blit camera are cameras too,
+/// and this plugin's controller must never touch them. The first `both`
+/// layout dragged the 3D camera to the ground plane every frame — its
+/// queries said `With<Camera>` and every camera answered.
+#[derive(Component)]
+pub struct MapCamera;
+
 /// The map plugin: the world, the bodies on it, and the camera.
 pub struct MapPlugin;
 
@@ -298,7 +308,7 @@ fn spawn_world(
     // The camera: bevy_egui hangs its context on the first camera, so it has
     // to exist before the panels are drawn -- even when the file that was
     // asked for could not be opened and there is no world to draw.
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, MapCamera));
 
     let Some(sim) = round.sim() else {
         return;
@@ -459,9 +469,13 @@ fn build_map(
 /// It looks at the agent being played, or at the one being watched; when
 /// nobody is being watched it stays where it was left, and the person drives
 /// it with WASD, the drag and the wheel.
+///
+/// Only the map's own camera ([`MapCamera`]) — never any other view's: in
+/// the `both` layout the 3D view's cameras live in the same app, and a
+/// controller that reached for every `Camera` would drag them along.
 fn update_camera(
-    mut cameras: Query<&mut Transform, With<Camera>>,
-    mut projections: Query<&mut Projection, With<Camera>>,
+    mut cameras: Query<&mut Transform, With<MapCamera>>,
+    mut projections: Query<&mut Projection, With<MapCamera>>,
     mut rig: ResMut<CameraRig>,
     map: Res<CurrentMap>,
     input: Res<Input>,

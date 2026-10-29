@@ -72,6 +72,7 @@ use std::time::Duration;
 
 use bevy::{
     app::AppExit,
+    camera::visibility::RenderLayers,
     prelude::*,
     render::{
         settings::{PowerPreference, RenderCreation, WgpuSettings},
@@ -79,7 +80,7 @@ use bevy::{
         RenderPlugin,
     },
 };
-use bevy_egui::EguiPlugin;
+use bevy_egui::{EguiContext, EguiGlobalSettings, EguiPlugin, PrimaryEguiContext};
 use lm_agents::config::AgentsConfig;
 use lm_agents::harness::Harness;
 use lm_agents::mind::Policy;
@@ -91,6 +92,7 @@ use lm_host_model::input::{InputEvent, InputState};
 use lm_host_model::record;
 use lm_host_model::scrub::Scrubber;
 use lm_host_model::talk::TalkConfig;
+use lm_host_model::view::{ViewMode, ViewSwitch};
 use lm_voice::{RivaTts, StubTts, Tts};
 use std::{num::NonZeroU8, path::PathBuf};
 
@@ -152,32 +154,26 @@ struct Options {
     ticks: Option<u32>,
 }
 
-/// Which view of the round the host draws.
+/// The host's view switch, as a resource: which view draws, and the `V`
+/// that flips it (phase 6 Task 8).
 ///
-/// `2d` is the map — the default until phase 6's done-when is met. `3d` is
-/// the low-poly, vertex-coloured world of [`view3d`]: the same round, the
-/// same world, the same agents, drawn in depth instead of from above.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ViewMode {
-    /// The 2D map.
-    Map2d,
-    /// The 3D view.
-    View3d,
-}
+/// The switch is data — the round, its tick and its recorder are never
+/// touched by a flip, which is `view_mode_switches_without_a_restart`'s
+/// whole property, held by the model's type and stated by its test.
+#[derive(Resource)]
+struct Views(ViewSwitch);
 
-impl ViewMode {
-    /// The view a command line spells out.
-    fn parse(text: &str) -> Result<ViewMode, String> {
-        match text {
-            "2d" => Ok(ViewMode::Map2d),
-            "3d" => Ok(ViewMode::View3d),
-            "both" => Err(String::from(
-                "`--view both` comes with phase 6 Task 8; for now it is `--view 2d` or `--view 3d`",
-            )),
-            other => Err(format!("`--view` wants 2d or 3d, not `{other}`")),
-        }
-    }
-}
+/// The camera the egui panels ride (the `both` layout): the app's first
+/// camera, above every view, drawing nothing of its own — the HUD and the
+/// piano roll pass through it whatever view is underneath.
+///
+/// bevy_egui hangs its context on the first camera it sees, so this one is
+/// spawned into the world before the app runs, before any view's camera.
+#[derive(Component)]
+struct PanelCarrier;
+
+/// The render layer the panels ride on, apart from every view's own.
+const PANEL_LAYER: usize = 2;
 
 /// Who is thinking.
 ///
@@ -259,7 +255,7 @@ fn main() -> AppExit {
         Err(err) => {
             eprintln!("lm-host: {err}");
             eprintln!(
-                "usage: lm-host [--seed N] [--window WxH] [--view 2d|3d] \
+                "usage: lm-host [--seed N] [--window WxH] [--view 2d|3d|both] \
                  [--possess AGENT] [--replay FILE] [--screenshot PATH [--frames N]] \
                  [--agents off|stub|thor] [--talk off|stub|riva] [--harness DIR] \
                  [--agents-config FILE] [--reviewer stub|router] [--harness-root DIR] \
@@ -411,22 +407,23 @@ fn main() -> AppExit {
             // already defaults to HighPerformance, but only unless the
             // WGPU_POWER_PREF env var says otherwise — this pins it.
             //
-            // The 3D view also compiles its pipelines synchronously: the
-            // frame that first draws the warmup card blocks until they
-            // exist, so shader compilation is a loading screen, never a
-            // mid-round stall (the `night-street` lesson; see
-            // `view3d::warmup`).
+            // Every layout with a 3D view in it also compiles its
+            // pipelines synchronously: the frame that first draws the
+            // warmup card blocks until they exist, so shader compilation
+            // is a loading screen, never a mid-round stall (the
+            // `night-street` lesson; see `view3d::warmup`).
             .set(RenderPlugin {
                 render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
                     power_preference: PowerPreference::HighPerformance,
                     ..default()
                 })),
-                synchronous_pipeline_compilation: options.view == ViewMode::View3d,
+                synchronous_pipeline_compilation: options.view != ViewMode::Map2d,
                 ..default()
             }),
     );
-    // The panels are the 2D view's; the 3D view has nothing for egui yet.
-    if options.view == ViewMode::Map2d {
+    // The panels are egui's: the 2D view's own companions, and the `both`
+    // layout's overlay over the 3D view.
+    if options.view != ViewMode::View3d {
         app.add_plugins(EguiPlugin::default());
     }
     app.insert_resource(round)
@@ -443,8 +440,9 @@ fn main() -> AppExit {
                 audio_plugin::VoicePlugin,
                 hud_plugin::HudPlugin,
                 roll_plugin::RollPlugin,
-                // The between-round screen is egui, so it lives in the 2D
-                // branch: it is the one view with an egui context today.
+                // The between-round screen is egui, and it rides whatever
+                // egui context the layout has: this branch's own, or the
+                // `both` layout's panel carrier.
                 between_plugin::BetweenPlugin::new(flow_settings, next_round),
             ))
             // What the person did is read before the map is drawn, so the
@@ -466,6 +464,67 @@ fn main() -> AppExit {
                 }
             };
             app.add_plugins(view3d::View3dPlugin { settings });
+        }
+        ViewMode::Both => {
+            // The debugger's layout: the 3D view, with the egui HUD and
+            // the piano roll over it (the piano roll is the M1 debugger
+            // and keeps working in 3D), and the 2D map one `V` away. Both
+            // views are installed; the switch says which draws.
+            let settings = match view3d::View3dSettings::load(std::path::Path::new(RENDER_TOML)) {
+                Ok(settings) => settings,
+                Err(err) => {
+                    eprintln!("lm-host: {err}");
+                    return AppExit::Error(NonZeroU8::MIN);
+                }
+            };
+            app.insert_resource(Views(ViewSwitch::new(ViewMode::Both)))
+                .add_plugins((
+                    view3d::View3dPlugin { settings },
+                    map_plugin::MapPlugin,
+                    input_plugin::InputPlugin,
+                    audio_plugin::VoicePlugin,
+                    hud_plugin::HudPlugin,
+                    roll_plugin::RollPlugin,
+                    // The between-round screen rides the panel carrier's
+                    // egui context, the same one the HUD and the piano roll
+                    // use, so it works in this layout too.
+                    between_plugin::BetweenPlugin::new(flow_settings, next_round),
+                ))
+                .configure_sets(
+                    Update,
+                    (input_plugin::InputSet::Read, map_plugin::MapSet::Map).chain(),
+                )
+                // The panel carrier is the app's first camera, before any
+                // view's own: bevy_egui hangs its context on the first
+                // camera it sees, and the panels must ride above whatever
+                // view is drawing, not inside one of them.
+                //
+                // The context is attached here, by hand, and the plugin's
+                // own auto-attach is off: `setup_primary_egui_context_system`
+                // runs in PreStartup *and* PreUpdate, each instance with its
+                // own "already have one" flag, so with four cameras spawning
+                // across both schedules it could pin a *second* primary
+                // context onto one of the views' cameras — whichever the
+                // query happened to yield first — and every panel system
+                // that asks for "the" context would find two. One carrier,
+                // one context, attached where it is meant to live.
+                .add_systems(Update, enforce_view);
+            app.insert_resource(EguiGlobalSettings {
+                auto_create_primary_context: false,
+                ..Default::default()
+            });
+            app.world_mut().spawn((
+                Camera2d,
+                Camera {
+                    order: 10,
+                    clear_color: ClearColorConfig::None,
+                    ..default()
+                },
+                RenderLayers::layer(PANEL_LAYER),
+                EguiContext::default(),
+                PrimaryEguiContext,
+                PanelCarrier,
+            ));
         }
     }
 
@@ -646,7 +705,7 @@ fn parse_args() -> Result<Options, String> {
             "--view" => {
                 let text = args
                     .next()
-                    .ok_or_else(|| String::from("`--view` needs 2d or 3d"))?;
+                    .ok_or_else(|| String::from("`--view` needs 2d, 3d or both"))?;
                 view = ViewMode::parse(&text)?;
             }
             "--possess" => {
@@ -781,6 +840,60 @@ fn parse_window(text: &str) -> Result<(u32, u32), String> {
         ));
     }
     Ok((width, height))
+}
+
+/// Keep the cameras with the switch: `V` flips between the 2D map and the
+/// 3D view, and the cameras follow — the map's camera or the 3D view's two,
+/// one set on at a time, the panel carrier always. The round never knows.
+#[allow(clippy::type_complexity)]
+fn enforce_view(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut views: ResMut<Views>,
+    // The three camera queries are made provably disjoint (`Without` on the
+    // other two's markers), or Bevy refuses the system (B0001). The map's
+    // own marker names its camera outright.
+    mut map_cameras: Query<
+        &mut Camera,
+        (
+            With<map_plugin::MapCamera>,
+            Without<view3d::upscale::BlitCamera>,
+            Without<view3d::warmup::ViewCamera>,
+        ),
+    >,
+    mut world_cameras: Query<
+        &mut Camera,
+        (
+            With<view3d::warmup::ViewCamera>,
+            Without<view3d::upscale::BlitCamera>,
+            Without<Camera2d>,
+        ),
+    >,
+    mut blit_cameras: Query<
+        &mut Camera,
+        (
+            With<view3d::upscale::BlitCamera>,
+            Without<view3d::warmup::ViewCamera>,
+            Without<Camera2d>,
+        ),
+    >,
+) {
+    if keys.just_pressed(KeyCode::KeyV) {
+        views.0.toggle();
+        println!(
+            "lm-host: the {} view draws (V flips it)",
+            if views.0.showing_3d() { "3D" } else { "2D map" }
+        );
+    }
+    let show3d = views.0.showing_3d();
+    for mut camera in &mut map_cameras {
+        camera.is_active = !show3d;
+    }
+    for mut camera in &mut world_cameras {
+        camera.is_active = show3d;
+    }
+    for mut camera in &mut blit_cameras {
+        camera.is_active = show3d;
+    }
 }
 
 /// When the requested frame count is reached, capture the window and exit.

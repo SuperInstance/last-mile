@@ -225,6 +225,129 @@ pub fn agent_figures(
         .collect()
 }
 
+/// One beacon as the 3D view draws it (Task 8's reviewer finding 4).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BeaconDraw {
+    /// The centre of the beacon's cell, in metres. A beacon never moves, so
+    /// it does not interpolate.
+    pub pos_m: (f32, f32),
+    /// The squad holding it, if any.
+    pub holder: Option<u8>,
+}
+
+/// The round's beacons, in world order, with their holders (Task 8's
+/// reviewer finding 4).
+///
+/// The beacons are pinned in the header — symmetric for both squads — so
+/// they are the round's common knowledge: every viewer draws every beacon,
+/// exactly as the 2D map does. The holders come from a view like the map's
+/// own (any view; they are squad-level facts), and a round with no agents
+/// has no view to ask and draws no beacons.
+pub fn beacons(sim: &Sim) -> Vec<BeaconDraw> {
+    let world = sim.world();
+    let Some(&asker) = sim.agent_ids().first() else {
+        return Vec::new();
+    };
+    sim.view(asker)
+        .beacons
+        .iter()
+        .map(|b| BeaconDraw {
+            pos_m: cell_centre_m(world, b.cell),
+            holder: b.holder,
+        })
+        .collect()
+}
+
+/// The centre of a cell, in metres — the same arithmetic the 2D map's
+/// `BeaconDraw` uses.
+fn cell_centre_m(world: &World, cell: lm_core::world::CellXY) -> (f32, f32) {
+    let cell_m = world.cell_units as f32 / UNITS_PER_M as f32;
+    (
+        (f32::from(cell.x) + 0.5) * cell_m,
+        (f32::from(cell.y) + 0.5) * cell_m,
+    )
+}
+
+/// How far the opening camera sits from the squad it frames (Task 8's
+/// reviewer finding 3): far enough back that every agent of the squad is in
+/// frame with room to spare, and never so far that the figures stop reading
+/// as figures.
+///
+/// The first Task 8 opening sat 100 m back, which pushed a corner-spawned
+/// squad's four figures to a handful of pixels, put the beacons — the
+/// round's middle-distance towers — above the top of the frame, and left
+/// the camera so far beyond the world's edge that a third of the frame was
+/// the void outside it. A close overview frames the squad *and* what it
+/// plays toward: the figures read at a glance, the beacons stand over the
+/// horizon behind them, and the world fills the frame from its near edge.
+pub fn overview_distance(squad_radius_m: f32) -> f32 {
+    const MIN_DISTANCE_M: f32 = 20.0;
+    // At the overview pitch (about 43°) and a 45° vertical field of view,
+    // the frame's ground extent is roughly the distance itself; twice the
+    // squad's radius plus a margin puts the whole squad comfortably inside.
+    (MIN_DISTANCE_M).max(squad_radius_m * 2.4 + 12.0)
+}
+
+/// The yaw of the opening camera: which side of the squad it sits on.
+///
+/// The camera goes on the far side of the squad from the thing the round is
+/// about — the **nearest beacon**, so the opening frame is the squad in the
+/// foreground and the beacon it plays toward behind it — or, in a round with
+/// no beacons, the far side from the world's centre, so the camera looks
+/// into the world rather than across a corner into the void.
+///
+/// The yaw is the rig's own convention (see the host's `rig_transform`):
+/// the camera's scene position is `focus + (sin yaw, -cos yaw) · ground`,
+/// so `yaw 0` sits north of the focus and `atan2(dx, -dy)` sits it in the
+/// scene direction `(dx, dy)`.
+pub fn opening_yaw(focus_m: (f32, f32), beacons: &[BeaconDraw], world_m: (f32, f32)) -> f32 {
+    let away = match beacons.iter().min_by(|a, b| {
+        let da = (a.pos_m.0 - focus_m.0).mul_add(a.pos_m.0 - focus_m.0, 0.0)
+            + (a.pos_m.1 - focus_m.1) * (a.pos_m.1 - focus_m.1);
+        let db = (b.pos_m.0 - focus_m.0).mul_add(b.pos_m.0 - focus_m.0, 0.0)
+            + (b.pos_m.1 - focus_m.1) * (b.pos_m.1 - focus_m.1);
+        da.total_cmp(&db)
+    }) {
+        Some(nearest) => (focus_m.0 - nearest.pos_m.0, focus_m.1 - nearest.pos_m.1),
+        // No beacons: away from the world's centre. A focus at the centre
+        // itself has no away, and the yaw stays 0 (north) — any side is as
+        // good as any other there.
+        None => (focus_m.0 - world_m.0 * 0.5, focus_m.1 - world_m.1 * 0.5),
+    };
+    if away == (0.0, 0.0) {
+        return 0.0;
+    }
+    f32::atan2(away.0, -away.1)
+}
+
+/// The radius of a squad: how far its furthest agent stands from the
+/// squad's middle, in metres. An empty squad has no radius.
+pub fn squad_radius_m(sim: &Sim, squad: u8) -> Option<f32> {
+    let positions: Vec<(i64, i64)> = sim
+        .agent_ids()
+        .iter()
+        .filter_map(|id| sim.agent(*id))
+        .filter(|agent| agent.squad == squad)
+        .map(|agent| agent.pos.to_units())
+        .collect();
+    let count = positions.len();
+    if count == 0 {
+        return None;
+    }
+    let sum = positions
+        .iter()
+        .fold((0i64, 0i64), |acc, p| (acc.0 + p.0, acc.1 + p.1));
+    let middle = (sum.0 / count as i64, sum.1 / count as i64);
+    let radius = positions
+        .iter()
+        .map(|p| {
+            let (dx, dy) = (p.0 - middle.0, p.1 - middle.1);
+            (((dx * dx + dy * dy) as f64).sqrt() / f64::from(UNITS_PER_M)) as f32
+        })
+        .fold(0.0f32, f32::max);
+    Some(radius)
+}
+
 /// A material the 3D view warms before the round starts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WarmupMaterial {
@@ -546,5 +669,79 @@ mod tests {
         warmup.mark_compiled(WarmupMaterial::Class(MaterialClass::BeaconFree));
         assert!(warmup.ready(), "every class compiled, the round may start");
         assert!(warmup.missing().is_empty());
+    }
+
+    #[test]
+    fn opening_yaw_faces_the_nearest_beacon() {
+        let sim = round();
+        let beacons = beacons(&sim);
+        assert!(!beacons.is_empty(), "the round has beacons to face");
+
+        // The home squad spawns at a corner; the nearest beacon is deep in
+        // the world. The opening camera sits on the far side of the squad
+        // from that beacon, so the frame is the squad with the beacon it
+        // plays toward behind it.
+        let focus = (7.0, 7.0);
+        let nearest = beacons
+            .iter()
+            .min_by(|a, b| {
+                let da = (a.pos_m.0 - focus.0).powi(2) + (a.pos_m.1 - focus.1).powi(2);
+                let db = (b.pos_m.0 - focus.0).powi(2) + (b.pos_m.1 - focus.1).powi(2);
+                da.total_cmp(&db)
+            })
+            .expect("a nearest beacon");
+        let yaw = opening_yaw(focus, &beacons, (256.0, 256.0));
+        let ground = 30.0;
+        let camera = (focus.0 + ground * yaw.sin(), focus.1 - ground * yaw.cos());
+        let away = (camera.0 - focus.0, camera.1 - focus.1);
+        let toward = (nearest.pos_m.0 - focus.0, nearest.pos_m.1 - focus.1);
+        let dot = away.0 * toward.0 + away.1 * toward.1;
+        assert!(
+            dot < 0.0,
+            "the camera sits behind the squad, away from the beacon (dot {dot})"
+        );
+
+        // The look direction reaches the beacon's half of the world: the
+        // beacon is inside the frame's forward hemisphere, not behind the
+        // camera's back.
+        let forward = (-away.0, -away.1);
+        let facing = forward.0 * toward.0 + forward.1 * toward.1;
+        assert!(facing > 0.0, "the camera looks toward the beacon");
+    }
+
+    #[test]
+    fn opening_yaw_without_beacons_looks_into_the_world() {
+        // No beacons: the camera takes the far side of the focus from the
+        // world's centre, so it looks into the world — never across a
+        // corner into the void (the first seed-1 screenshot did).
+        let focus = (20.0, 20.0);
+        let world = (256.0, 256.0);
+        let yaw = opening_yaw(focus, &[], world);
+        let ground = 30.0;
+        let camera = (focus.0 + ground * yaw.sin(), focus.1 - ground * yaw.cos());
+        let centre = (world.0 * 0.5, world.1 * 0.5);
+        let away = (camera.0 - focus.0, camera.1 - focus.1);
+        let toward = (centre.0 - focus.0, centre.1 - focus.1);
+        assert!(
+            away.0 * toward.0 + away.1 * toward.1 < 0.0,
+            "the camera sits beyond the focus from the centre"
+        );
+
+        // A focus at the world's centre has no away side; the yaw is the
+        // convention's own zero (north), finite and sane.
+        let mid = opening_yaw((128.0, 128.0), &[], world);
+        assert_eq!(mid, 0.0);
+        let _ = focus;
+    }
+
+    #[test]
+    fn overview_distance_frames_the_squad_closely() {
+        // A tight squad (the seed-1 home squad's radius is about 2.8 m) gets
+        // the close overview, not a 100 m one: the figures have to read as
+        // figures, and the beacons behind them have to stay under the top of
+        // the frame. A spread-out squad still gets the distance it needs.
+        assert_eq!(overview_distance(0.0), 20.0);
+        assert_eq!(overview_distance(2.8), 20.0);
+        assert!((overview_distance(30.0) - (30.0 * 2.4 + 12.0)).abs() < 1e-4);
     }
 }

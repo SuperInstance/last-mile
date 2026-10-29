@@ -39,6 +39,82 @@ pub struct FigureMesh(pub Handle<Mesh>);
 #[derive(Resource, Default)]
 pub struct FigureEntities(pub BTreeMap<u16, Entity>);
 
+/// The one marker mesh every beacon shares (Task 8's reviewer finding 4).
+#[derive(Resource)]
+pub struct BeaconMesh(pub Handle<Mesh>);
+
+/// A beacon's marker: a slim pylon in the beacon class's colour — the
+/// palette's own `beacon_free` or `beacon_held`, the same colours the 2D
+/// map's diamonds wear.
+#[derive(Component)]
+pub struct BeaconMarker;
+
+/// The Bevy entities behind the round's beacons, in world order.
+#[derive(Resource, Default)]
+pub struct BeaconEntities(pub Vec<Entity>);
+
+/// Draw the round's beacons: one marker each, in the class colour of its
+/// holder, at its cell (Task 8's reviewer finding 4: 3D shows the same
+/// game as 2D, beacons included).
+///
+/// The beacons are the round's common knowledge — pinned in the header,
+/// symmetric for both squads — so every viewer sees every one of them,
+/// exactly as the 2D map does; only the *colour* follows the holder, and a
+/// change of hands swaps a material, never a mesh, so nothing compiles
+/// mid-round.
+pub fn update_beacons(
+    mut commands: Commands,
+    round: Res<Round>,
+    materials: Res<View3dMaterials>,
+    mesh: Res<BeaconMesh>,
+    mut entities: ResMut<BeaconEntities>,
+    mut markers: Query<(&mut Transform, &mut MeshMaterial3d<StandardMaterial>), With<BeaconMarker>>,
+) {
+    let Some(sim) = round.sim() else {
+        return;
+    };
+    let beacons = lm_render::scene::beacons(sim);
+
+    // The roster never changes; the markers are made once and only move or
+    // change colour after that.
+    while entities.0.len() < beacons.len() {
+        let entity = commands
+            .spawn((
+                Mesh3d(mesh.0.clone()),
+                MeshMaterial3d(materials.beacon_free.clone()),
+                BeaconMarker,
+            ))
+            .id();
+        entities.0.push(entity);
+    }
+    for &extra in entities.0.iter().skip(beacons.len()) {
+        commands.entity(extra).despawn();
+    }
+    entities.0.truncate(beacons.len());
+
+    for (index, beacon) in beacons.iter().enumerate() {
+        let Some(&entity) = entities.0.get(index) else {
+            continue;
+        };
+        let Ok((mut transform, mut material)) = markers.get_mut(entity) else {
+            continue;
+        };
+        // A marker stands at the centre of its cell, on the ground: a slim
+        // tower, taller than the walls, half of it either side of its own
+        // middle.
+        transform.translation = Vec3::new(beacon.pos_m.0, 3.6, -beacon.pos_m.1);
+        // The colour follows the holder: the held class for a squad, the
+        // free class for nobody.
+        let wanted = match beacon.holder {
+            Some(_) => materials.beacon_held.clone(),
+            None => materials.beacon_free.clone(),
+        };
+        if material.0 != wanted {
+            *material = MeshMaterial3d(wanted);
+        }
+    }
+}
+
 /// The figure as a Bevy `Mesh`.
 ///
 /// The figure's own coordinates are already the renderer's — metres, origin

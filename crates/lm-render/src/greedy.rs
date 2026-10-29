@@ -157,22 +157,35 @@ pub fn chunk_origin(chunk: ChunkCoord, cells: u32) -> (i32, i32) {
 
 /// The quads of a chunk, in integer cell space, before any merging.
 ///
+/// The quads are **chunk-local**: a chunk's own `(0, 0)` corner is the
+/// origin of every face it emits, so the mesh of a structure is the same
+/// mesh wherever the chunk sits in the world — which is what the
+/// content-addressed cache (D46) builds on: two chunks of the same
+/// structure share one mesh asset, placed by the host at each chunk's own
+/// world tile. (A mesh baked with absolute world coordinates would draw
+/// every identical chunk at the first one's position, and the floor would
+/// be patches in a void.)
+///
 /// A `Floor` cell is one quad on the ground. A `Wall` cell is a box: a top
 /// quad and a side quad for every neighbour that does not hide it. A
 /// `Cover` cell is the same box at cover height, and a cover's side is
-/// hidden by a wall as well as by another cover.
+/// hidden by a wall as well as by another cover. The neighbours are read
+/// at the cell's **world** place — a chunk's edge faces the world outside
+/// it — while the faces themselves are emitted in the chunk's own frame.
 pub fn chunk_quads(world: &World, chunk: ChunkCoord, cfg: &RenderConfig) -> Vec<RawQuad> {
     let cells = cells_per_chunk(world);
     let (x0, y0) = chunk_origin(chunk, cells);
     let wall = height_mm(cfg.wall_height_m);
     let cover = height_mm(cfg.cover_height_m);
     let mut quads = Vec::new();
-    for y in y0..y0 + i32::try_from(cells).unwrap_or(0) {
-        for x in x0..x0 + i32::try_from(cells).unwrap_or(0) {
+    let side = i32::try_from(cells).unwrap_or(0);
+    for y in y0..y0 + side {
+        for x in x0..x0 + side {
+            let local = (x - x0, y - y0);
             match world.grid.get(cell_of(x, y)) {
-                CellKind::Floor => quads.push(floor_quad(x, y)),
-                CellKind::Wall => box_quads(&mut quads, world, x, y, wall, MATERIAL_WALL),
-                CellKind::Cover => box_quads(&mut quads, world, x, y, cover, MATERIAL_COVER),
+                CellKind::Floor => quads.push(floor_quad(local.0, local.1)),
+                CellKind::Wall => box_quads(&mut quads, world, x, y, local, wall, MATERIAL_WALL),
+                CellKind::Cover => box_quads(&mut quads, world, x, y, local, cover, MATERIAL_COVER),
             }
         }
     }
@@ -434,14 +447,24 @@ fn floor_quad(x: i32, y: i32) -> RawQuad {
 }
 
 /// The quads of the box standing on a cell: its top and the sides that no
-/// neighbour hides.
-fn box_quads(quads: &mut Vec<RawQuad>, world: &World, x: i32, y: i32, height: i32, material: u8) {
+/// neighbour hides. The neighbours are read at the cell's world place
+/// `(x, y)`; the faces are emitted at the cell's chunk-local `local`.
+fn box_quads(
+    quads: &mut Vec<RawQuad>,
+    world: &World,
+    x: i32,
+    y: i32,
+    local: (i32, i32),
+    height: i32,
+    material: u8,
+) {
     if height <= 0 {
         // A box with no height is not drawn at all.
         return;
     }
+    let (lx, ly) = local;
     quads.push(RawQuad {
-        origin: [x, y, height],
+        origin: [lx, ly, height],
         u_axis: [1, 0, 0],
         v_axis: [0, 1, 0],
         u_len: 1,
@@ -451,7 +474,7 @@ fn box_quads(quads: &mut Vec<RawQuad>, world: &World, x: i32, y: i32, height: i3
     // The +x side, at the cell's east edge.
     if side_visible(world, x + 1, y, material) {
         quads.push(RawQuad {
-            origin: [x + 1, y, 0],
+            origin: [lx + 1, ly, 0],
             u_axis: [0, 1, 0],
             v_axis: [0, 0, 1],
             u_len: 1,
@@ -462,7 +485,7 @@ fn box_quads(quads: &mut Vec<RawQuad>, world: &World, x: i32, y: i32, height: i3
     // The -x side, at the cell's west edge.
     if side_visible(world, x - 1, y, material) {
         quads.push(RawQuad {
-            origin: [x, y, 0],
+            origin: [lx, ly, 0],
             u_axis: [0, 0, 1],
             v_axis: [0, 1, 0],
             u_len: height,
@@ -473,7 +496,7 @@ fn box_quads(quads: &mut Vec<RawQuad>, world: &World, x: i32, y: i32, height: i3
     // The +y side, at the cell's south edge.
     if side_visible(world, x, y + 1, material) {
         quads.push(RawQuad {
-            origin: [x, y + 1, 0],
+            origin: [lx, ly + 1, 0],
             u_axis: [0, 0, 1],
             v_axis: [1, 0, 0],
             u_len: height,
@@ -484,7 +507,7 @@ fn box_quads(quads: &mut Vec<RawQuad>, world: &World, x: i32, y: i32, height: i3
     // The -y side, at the cell's north edge.
     if side_visible(world, x, y - 1, material) {
         quads.push(RawQuad {
-            origin: [x, y, 0],
+            origin: [lx, ly, 0],
             u_axis: [1, 0, 0],
             v_axis: [0, 0, 1],
             u_len: 1,

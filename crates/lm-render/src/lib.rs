@@ -2,11 +2,13 @@
 //! It handles chunk mesh building and palette management without Bevy dependencies.
 
 pub mod figure;
+pub mod fog;
 pub mod greedy;
 pub mod hash;
 pub mod mesh;
 pub mod palette;
 pub mod scene;
+pub mod upscale;
 
 #[cfg(test)]
 mod tests {

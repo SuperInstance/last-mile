@@ -104,6 +104,7 @@ fn read_input(
     map: Res<CurrentMap>,
     time: Res<Time>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    views: Option<Res<crate::Views>>,
 ) {
     let Ok(window) = windows.single() else {
         return;
@@ -183,6 +184,15 @@ fn read_input(
                 }
             }
         }
+    }
+
+    // The pointer and the 2D camera belong to the 2D map. When the 3D view
+    // is the one on screen (`--view both`, flipped with `V`), its own
+    // camera controller answers these same verbs in depth — this plugin
+    // must not read them against a map that is not drawn.
+    let map_shown = views.map(|views| !views.0.showing_3d()).unwrap_or(true);
+    if !map_shown {
+        return;
     }
 
     // The mouse: a click on the map is a cell to walk to, a drag is the

@@ -6,6 +6,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# DLSS upscaling (phase 6 Task 7's optional mode): RTX-only, Vulkan. The
+# `dlss_wgpu` SDK crate is fetched from crates.io — it is not in the local
+# registry — so the feature is off by default and the main build stays
+# offline-buildable. `upscale = "dlss"` in a build without the feature is a
+# start-up configuration error, not a crash.
+dlss = ["bevy/dlss", "dep:uuid"]
+
 [dependencies]
 # Pinned exactly: docs/notes/bevy-0.20.md records the API facts for these
 # versions, and later tasks build on the notes rather than re-guessing.
@@ -30,3 +38,6 @@ lm-render = { path = "../lm-render" }
 lm-tools = { path = "../lm-tools" }
 # The voice service: the microphone path, the ASR and the prosody port.
 lm-voice = { path = "../lm-voice" }
+# The DLSS project id is a UUID string in render.toml (only pulled in by the
+# `dlss` feature; the crate is in the local registry — bevy itself uses it).
+uuid = { version = "1", optional = true }

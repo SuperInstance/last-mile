@@ -17,6 +17,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
+use lm_core::fixed::UNITS_PER_M;
+use lm_render::greedy;
 use lm_render::mesh::{ChunkCoord, ChunkMesh};
 use lm_render::scene::ChunkEntities;
 
@@ -76,11 +78,18 @@ pub fn chunk_mesh(mesh: &ChunkMesh) -> Mesh {
 
 /// Bring the drawn chunks to the visible set: spawn what entered, despawn
 /// what left, touch nothing that stayed.
+///
+/// The visible set is the fogged one (Task 8): the chunks the viewer does
+/// not know are not drawn at all, by the 2D map's own rule (`lm_render`'s
+/// one shared implementation of it) — a spectator sees the round whole, a
+/// possessing player sees the squad's knowledge. What is drawn but beyond
+/// `fog_far_m` the world camera's distance fog ramps into the sky.
 pub fn sync(
     mut commands: Commands,
     round: Res<Round>,
     settings: Res<View3dSettings>,
     materials: Res<View3dMaterials>,
+    input: Res<crate::input_plugin::Input>,
     mut assets: ResMut<Assets<Mesh>>,
     mut store: ResMut<ChunkStore>,
 ) {
@@ -90,7 +99,8 @@ pub fn sync(
     // One reborrow of the store, so its halves can be lent to the sync at
     // once: the entities to update, the cache to build through.
     let store = &mut *store;
-    let want = lm_render::scene::visible_chunks(sim.world(), store.focus_m, &settings.render);
+    let viewer = crate::view3d::fog_viewer(&input.0, &round);
+    let want = lm_render::fog::visible_chunks_fogged(sim, store.focus_m, &settings.render, viewer);
     let (added, removed) = store.entities.sync(
         &want,
         sim.world(),
@@ -111,10 +121,18 @@ pub fn sync(
                 mesh
             }
         };
+        // The mesh is chunk-local (the cache is content-addressed: the same
+        // structure is the same asset wherever it sits), so the chunk's own
+        // world tile places it.
+        let cells = greedy::cells_per_chunk(sim.world()).max(1);
+        let (x0, y0) = greedy::chunk_origin(chunk, cells);
+        let cell_m = sim.world().cell_units as f32 / UNITS_PER_M as f32;
+        let at = Vec3::new(x0 as f32 * cell_m, 0.0, -(y0 as f32) * cell_m);
         let entity = commands
             .spawn((
                 Mesh3d(mesh),
                 MeshMaterial3d(materials.chunk.clone()),
+                Transform::from_translation(at),
                 ChunkTile,
             ))
             .id();

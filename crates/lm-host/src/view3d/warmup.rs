@@ -23,6 +23,8 @@
 //! chunk quads render — and each figure wears its squad's material, exactly
 //! how the round's agents render.
 
+use bevy::asset::RenderAssetUsages;
+use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 
 use lm_core::fixed::UNITS_PER_M;
@@ -31,6 +33,7 @@ use lm_render::palette::MaterialClass;
 use crate::sim_plugin::Round;
 use crate::view3d::agents::{self, FigureMesh};
 use crate::view3d::chunks::ChunkStore;
+use crate::view3d::upscale;
 use crate::view3d::{View3dMaterials, View3dSettings, ViewStage};
 
 /// How many frames the card is drawn before the round starts.
@@ -40,14 +43,55 @@ use crate::view3d::{View3dMaterials, View3dSettings, ViewStage};
 /// whole card is a blink.
 const CARD_FRAMES: u32 = 8;
 
-/// How far the spectator's overview sits from the point it looks at, in
-/// metres. Close enough that a 1.5 m figure is a readable body, far enough
-/// that the view holds a good slice of the world.
-const OVERVIEW_DISTANCE_M: f32 = 100.0;
-/// The overview's pitch above the ground: about 41 degrees — steep enough
-/// that a wall shows its sides, shallow enough that the world reads in
-/// depth.
-const OVERVIEW_PITCH_RAD: f32 = 0.72;
+/// The overview's pitch above the ground: about 20 degrees.
+///
+/// Task 6's reviewer finding 2 — "walls read as flat tiles" — was in the
+/// end the mesh, not the angle: the wall sides were being drawn a
+/// millimetre tall, so no pitch could have shown them (the sides render
+/// at their full height now, and they carry 62% of their colour besides,
+/// so a wall reads as a box from any angle). What the pitch *is* for is
+/// the top of the frame: the round's beacons stand a hundred metres and
+/// more from the squads, which puts them a few degrees below the horizon,
+/// and a 45°-field camera pitched 20° puts the horizon at its top edge —
+/// the frame holds the ground, the fog that melts into the sky, and the
+/// beacon towers over both, with no empty sky to waste (Task 8's
+/// acceptance asks for a beacon tower in the opening frame).
+pub const OVERVIEW_PITCH_RAD: f32 = 0.35;
+
+/// The colour of the ground under the world: the void the world floats on.
+///
+/// It has to read as *neither* the floor nor the sky — Task 8's reviewer
+/// finding 1 was a floor the colour of the clear colour, in which the
+/// world's edge could not be seen. The void is darker than both, so the
+/// edge of the board shows as an edge.
+const VOID_GROUND: lm_render::palette::Color = lm_render::palette::Color {
+    r: 0.004,
+    g: 0.004,
+    b: 0.009,
+    a: 1.0,
+};
+
+/// How far the void ground spreads past the world, in metres: far enough
+/// that a camera looking from beyond the world's edge sees ground below the
+/// horizon rather than sky, near enough to stay inside the camera's far
+/// plane.
+const VOID_SPREAD_M: f32 = 400.0;
+
+/// How far below the floor the void ground sits, in metres. Below the depth
+/// buffer's reach at the world's far edge, above z-fighting with it.
+const VOID_DROP_M: f32 = 0.2;
+
+/// The ground the world floats on: one dark quad under everything, out past
+/// the world's edges (Task 8's review: "add a ground plane").
+///
+/// It wears the chunk material and carries its colour as vertex colour —
+/// the same pipeline the floor quads render through, so nothing is compiled
+/// for it — and the distance fog ramps it into the sky like any ground, so
+/// the world still melts into its background at the far edge. It carries no
+/// information about the round: the fog of war rules the chunks, and the
+/// void is merely not-sky.
+#[derive(Component)]
+pub struct VoidGround;
 
 /// The weak ambient light of the round: enough that a lit figure's own
 /// shadowed side is not a black hole, no more.
@@ -135,12 +179,15 @@ fn focus_m(round: &Round, world: (f32, f32)) -> (f32, f32) {
 
 /// Set the view up: the held round, the camera, the lights, the materials,
 /// the figure, and the card.
+#[allow(clippy::too_many_arguments)]
 pub fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     settings: Res<View3dSettings>,
     round: Res<Round>,
+    targets: Res<upscale::UpscaleTargets>,
+    wants: Option<Res<crate::view3d::WantsDlss>>,
     mut time: ResMut<Time<Virtual>>,
 ) {
     // The round is held while the card is up. `Time<Virtual>` paused means
@@ -152,9 +199,28 @@ pub fn setup(
     let centre = bevy_xz((world.0 * 0.5, world.1 * 0.5));
 
     // The camera, with the scene's weak ambient on it, looking at the card
-    // from the south and a little above.
-    commands.spawn((
+    // from the south and a little above. It renders into the upscale's
+    // offscreen picture when the integer upscale is on (Task 7), below
+    // every camera that draws to the window; and it carries the distance
+    // fog (Task 8), which ramps the far chunks into the sky's own colour —
+    // the fog colour may match the sky, the floor may not.
+    let mut camera = commands.spawn((
         Camera3d::default(),
+        Camera {
+            order: -1,
+            ..default()
+        },
+        // The render target is its own component in Bevy 0.20: the
+        // upscale's offscreen picture, or the window by default.
+        upscale::world_target(&targets),
+        DistanceFog {
+            color: crate::view3d::SKY,
+            falloff: FogFalloff::Linear {
+                start: settings.render.fog_near_m,
+                end: settings.render.fog_far_m,
+            },
+            ..default()
+        },
         AmbientLight {
             brightness: AMBIENT_BRIGHTNESS,
             ..default()
@@ -162,6 +228,14 @@ pub fn setup(
         Transform::from_translation(centre + Vec3::new(0.0, 7.0, 12.0)).looking_at(centre, Vec3::Y),
         ViewCamera,
     ));
+    // DLSS rides the world camera, in a build that has it and a
+    // configuration that asks for it; the flag is set at plugin build.
+    if wants.is_some() {
+        #[cfg(feature = "dlss")]
+        camera.insert(bevy::anti_alias::dlss::Dlss::default());
+        #[cfg(not(feature = "dlss"))]
+        let _ = &mut camera;
+    }
 
     // The sun: flat unlit terrain ignores it, the lit figures read as solid
     // for it.
@@ -177,7 +251,8 @@ pub fn setup(
 
     // The materials, fixed for the whole round: one white unlit chunk
     // material (the vertex colour carries every surface's identity), one lit
-    // material per squad.
+    // material per squad, and the palette's own two beacon classes for the
+    // markers (Task 8's reviewer finding 4).
     let chunk = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         unlit: true,
@@ -190,14 +265,47 @@ pub fn setup(
             ..default()
         })
     });
+    let mut beacon_of = |class: lm_render::palette::MaterialClass| {
+        let color = settings.palette.class_color(class);
+        materials.add(StandardMaterial {
+            base_color: Color::linear_rgba(color.r, color.g, color.b, color.a),
+            unlit: true,
+            // A beacon is the round's common knowledge — the 2D map draws
+            // every one of them for every viewer — so the 3D view does not
+            // fog its markers: a tower seen across the field, the way the
+            // map's diamond is. (Task 8's acceptance asks for a beacon
+            // tower in the opening frame, and the round's beacons stand a
+            // hundred metres and more from the squads.)
+            fog_enabled: false,
+            ..default()
+        })
+    };
+    let beacon_free = beacon_of(lm_render::palette::MaterialClass::BeaconFree);
+    let beacon_held = beacon_of(lm_render::palette::MaterialClass::BeaconHeld);
     commands.insert_resource(View3dMaterials {
         chunk: chunk.clone(),
         squads: squads.clone(),
+        beacon_free: beacon_free.clone(),
+        beacon_held: beacon_held.clone(),
     });
 
-    // The one figure mesh every agent shares, instanced by the engine.
+    // The one figure mesh every agent shares, instanced by the engine, and
+    // the one marker mesh every beacon shares: a slim tower, taller than
+    // the walls, in the beacon class's colour — a beacon is the thing the
+    // round plays toward, and it reads from across the field.
     let figure = meshes.add(agents::figure_mesh(&lm_render::figure::Figure::new()));
     commands.insert_resource(FigureMesh(figure.clone()));
+    let marker = meshes.add(Cuboid::new(1.2, 7.2, 1.2).mesh().build());
+    commands.insert_resource(agents::BeaconMesh(marker.clone()));
+
+    // The ground under the world, out past its edges: the world floats on
+    // the void, and the camera never sees sky below the horizon.
+    commands.spawn((
+        Mesh3d(meshes.add(void_ground_mesh(world))),
+        MeshMaterial3d(chunk.clone()),
+        Transform::from_translation(centre + Vec3::new(0.0, -VOID_DROP_M, 0.0)),
+        VoidGround,
+    ));
 
     // The card: every material the round draws with, on it. The class boxes
     // wear the chunk material and carry their class's colour as vertex
@@ -238,6 +346,54 @@ pub fn setup(
             WarmupCard,
         ));
     }
+
+    // The beacons' own materials ride the card too, so a beacon changing
+    // hands mid-round compiles nothing.
+    for (index, material) in [beacon_free.clone(), beacon_held.clone()]
+        .into_iter()
+        .enumerate()
+    {
+        let east = (index as f32 - 0.5) * 2.2;
+        commands.spawn((
+            Mesh3d(marker.clone()),
+            MeshMaterial3d(material),
+            Transform::from_translation(centre + Vec3::new(east, 3.6, -6.0)),
+            WarmupCard,
+        ));
+    }
+}
+
+/// The void ground as a Bevy `Mesh`: one quad, centred on the world, in the
+/// void colour, facing up.
+///
+/// Built like a chunk's quads are — flat normal, one flat colour on every
+/// corner — so it renders through the chunk material and its pipeline
+/// without a thing of its own.
+fn void_ground_mesh(world_m: (f32, f32)) -> Mesh {
+    let half = VOID_SPREAD_M + world_m.0.max(world_m.1) * 0.5;
+    let corners = [
+        (-half, 0.0, half),
+        (half, 0.0, half),
+        (half, 0.0, -half),
+        (-half, 0.0, -half),
+    ];
+    let mut out = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    // The mesh is built this call; it cannot have been extracted yet, so
+    // the error the `try` form reports cannot happen.
+    let _ = out.try_insert_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        corners.iter().map(|p| [p.0, p.1, p.2]).collect::<Vec<_>>(),
+    );
+    let _ = out.try_insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; corners.len()]);
+    let _ = out.try_insert_attribute(
+        Mesh::ATTRIBUTE_COLOR,
+        vec![[VOID_GROUND.r, VOID_GROUND.g, VOID_GROUND.b, VOID_GROUND.a]; corners.len()],
+    );
+    out.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
+    out
 }
 
 /// Wait out the card, then hand the view to the round: the card goes, the
@@ -252,6 +408,7 @@ pub fn advance(
     mut time: ResMut<Time<Virtual>>,
     round: Res<Round>,
     mut store: ResMut<ChunkStore>,
+    mut rig: ResMut<crate::view3d::CameraRig3d>,
     mut cameras: Query<&mut Transform, With<ViewCamera>>,
     cards: Query<Entity, With<WarmupCard>>,
 ) {
@@ -277,19 +434,38 @@ pub fn advance(
         commands.entity(entity).despawn();
     }
 
-    // The camera takes the spectator's overview: above and south of the
-    // home squad, looking at it.
+    // The rig takes the opening overview: the middle of the **home
+    // squad**, far enough back that every one of its figures is in frame
+    // (Task 6's reviewer finding 3), yawed so the camera looks past the
+    // squad **into** the world — behind the squad from the nearest beacon,
+    // so the opening frame is the squad and the tower it plays toward
+    // (Task 8's review: a beacon tower in frame, and no camera looking
+    // across a corner into the void). The camera system holds the camera
+    // to the rig from here on; setting it once here keeps the handover
+    // frame from being the one frame behind.
     let world = world_m(&round);
     let focus = focus_m(&round, world);
-    let centre = bevy_xz(focus);
+    let home = round.sim().and_then(|sim| {
+        sim.agent_ids()
+            .iter()
+            .filter_map(|&id| sim.agent(id))
+            .map(|agent| agent.squad)
+            .min()
+    });
+    let radius = home
+        .and_then(|squad| lm_render::scene::squad_radius_m(round.sim()?, squad))
+        .unwrap_or(0.0);
+    let beacons = round
+        .sim()
+        .map(lm_render::scene::beacons)
+        .unwrap_or_default();
+    rig.focus_m = focus;
+    rig.distance_m = lm_render::scene::overview_distance(radius);
+    rig.pitch_rad = OVERVIEW_PITCH_RAD;
+    rig.yaw_rad = lm_render::scene::opening_yaw(focus, &beacons, world);
     store.focus_m = focus;
-    let offset = Vec3::new(
-        0.0,
-        OVERVIEW_DISTANCE_M * OVERVIEW_PITCH_RAD.sin(),
-        -OVERVIEW_DISTANCE_M * OVERVIEW_PITCH_RAD.cos(),
-    );
     for mut transform in &mut cameras {
-        *transform = Transform::from_translation(centre + offset).looking_at(centre, Vec3::Y);
+        *transform = crate::view3d::rig_transform(&rig);
     }
 
     // The round runs.

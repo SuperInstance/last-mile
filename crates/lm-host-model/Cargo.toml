@@ -17,6 +17,10 @@ lm-core = { path = "../lm-core" }
 # sealed prediction and its verdict, and the human's answer goes back into it.
 # The flow does not depend on this crate, so the edge points one way only.
 lm-learn = { path = "../lm-learn" }
+# The render side of the fog seam: the 2D map's fog and the 3D view's
+# chunks are one rule, and it lives there (phase 6 Task 8) so the two
+# views cannot drift.
+lm-render = { path = "../lm-render" }
 lm-tools = { path = "../lm-tools" }
 # The voice service: the microphone path, the ASR and the prosody port.
 lm-voice = { path = "../lm-voice" }

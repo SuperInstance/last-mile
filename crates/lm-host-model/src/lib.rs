@@ -43,6 +43,9 @@ pub mod scrub;
 pub mod talk;
 // The human's voice: the commands, the tutor ladder and the score.
 pub mod voice;
+// Which view of the round the host draws, and the runtime switch between
+// them (phase 6 Task 8).
+pub mod view;
 
 // Re-exported at the end of the file, so the parallel phase-2 tasks (4: map,
 // 5: roll + scrub) can add their own without touching these lines.
