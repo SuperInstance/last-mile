@@ -12,7 +12,10 @@
 //!    simulation's legal menu into the `questions` pack of a System One call
 //!    (D37). A `choice` gate over the menu gets one criterion per option,
 //!    keyed `opt0`, `opt1`, … — the same keys the answer comes back under, so
-//!    an option and its probability never come apart.
+//!    an option and its probability never come apart. A `score` gate gets an
+//!    **array** of level descriptions, lowest score first: the API refuses a
+//!    score question whose criteria is a map (it wants 2 to 10 levels, in
+//!    order), and it answers with the index of the level it picked.
 //! 2. **Answering.** [`answers_to_decisions`] turns the model's answers into
 //!    decisions: the menu's `choice` gate becomes a [`Lane`] — one quantised
 //!    sample per option, in menu order — and every other gate is left to the
@@ -26,14 +29,14 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use lm_core::{Decision, Kind, Lane, Menu, MenuOption, Provenance, Source, Tick};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use crate::sysone::{Answer, Answers, Refusal};
+use crate::sysone::{Answer, Answers, Refusal, MAX_SCORE_LEVELS, MIN_SCORE_LEVELS};
 
 /// The prefix of a menu option's key: `opt0`, `opt1`, …
 ///
@@ -89,6 +92,30 @@ pub enum OptionsFrom {
     Menu,
 }
 
+/// One level of a score gate: its key, its score and what it means.
+///
+/// A score gate is an **ordered scale**, not a set of options: the API
+/// takes its levels as an array of 2 to 10 descriptions, lowest score
+/// first, and answers with the index of the level it picked. So a level
+/// says its own score here, and the order of the array is decided by the
+/// score and never by the order the file happens to be written in.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Level {
+    /// The level's key: how the code names it (`idle`, `urgent`).
+    #[serde(rename = "key")]
+    pub key: String,
+    /// The level's score: the lowest level is 0, the next is 1, and so on.
+    ///
+    /// The scores count from zero without a gap, because the index the
+    /// model answers *is* the score: the answer's level 2 is the level
+    /// whose score is 2.
+    #[serde(rename = "score")]
+    pub score: u32,
+    /// What the level means, in the words the model reads.
+    #[serde(rename = "description")]
+    pub description: String,
+}
+
 /// One gate: a typed question, its instructions and its options.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Gate {
@@ -112,8 +139,20 @@ pub struct Gate {
     /// menu decides how many beacons there are and the file must not
     /// depend on that. The text of a beacon option may hold `{beacon}`,
     /// which is filled with that beacon's number.
+    ///
+    /// A `score` gate does not use this: its options are the ordered
+    /// scale of [`Level`]s.
     #[serde(default, rename = "criteria")]
     pub criteria: BTreeMap<String, String>,
+    /// The levels of a `score` gate: an ordered scale, lowest score first.
+    ///
+    /// The API wants a score question's criteria as an **array** of 2 to
+    /// 10 level descriptions, so the levels are written out here with
+    /// their scores instead of as a map: a map's key order is not a
+    /// scale, and the API refuses the whole pack when a score question
+    /// arrives as one.
+    #[serde(default, rename = "levels")]
+    pub levels: Vec<Level>,
     /// Where the options come from.
     #[serde(default, rename = "options_from")]
     pub options_from: OptionsFrom,
@@ -187,7 +226,8 @@ impl Gate {
         match self.kind {
             // A yes/no question has no options.
             GateKind::Noul => {}
-            GateKind::Choice | GateKind::Score => {
+            // A choice is a map of option key -> what the option means.
+            GateKind::Choice => {
                 let criteria = match self.options_from {
                     OptionsFrom::Menu => self.menu_criteria(menu),
                     OptionsFrom::Fixed => self
@@ -198,8 +238,39 @@ impl Gate {
                 };
                 question.insert("criteria".to_string(), Value::Object(criteria));
             }
+            // A score is an ordered scale: an **array** of level
+            // descriptions, lowest score first. The API refuses a score
+            // question whose criteria is a map ("criteria must be an array
+            // of 2 to 10 levels"), and it answers with the index of the
+            // level it picked — so the array's order is the scale.
+            GateKind::Score => {
+                question.insert(
+                    "criteria".to_string(),
+                    Value::Array(self.level_descriptions()),
+                );
+            }
         }
         Value::Object(question)
+    }
+
+    /// The levels of a score gate, lowest score first.
+    ///
+    /// The order is the score's and never the file's: a file may write
+    /// its levels in any order, and the array the model reads is always
+    /// the scale from the lowest level to the highest.
+    fn levels_by_score(&self) -> Vec<&Level> {
+        let mut levels: Vec<&Level> = self.levels.iter().collect();
+        levels.sort_by_key(|level| level.score);
+        levels
+    }
+
+    /// The descriptions of the levels, lowest score first: the array the
+    /// API wants for a `score` question.
+    fn level_descriptions(&self) -> Vec<Value> {
+        self.levels_by_score()
+            .into_iter()
+            .map(|level| json!(level.description))
+            .collect()
     }
 }
 
@@ -236,6 +307,19 @@ pub enum GateError {
     DuplicateId(String),
     /// A gate with fixed options lists none.
     MissingCriteria(String),
+    /// A score gate's levels do not fit the API's scale.
+    ScoreLevels {
+        /// Which gate it was.
+        id: String,
+        /// Why the levels do not fit.
+        why: String,
+    },
+    /// A score gate takes its options from the menu.
+    ///
+    /// The menu's options are named keys, not a scale: the API wants a
+    /// score question's levels as an ordered array, and the menu cannot
+    /// say which of its options is the lowest level.
+    ScoreOverMenu(String),
     /// The set holds more gates than a `u8` can number.
     TooManyGates,
 }
@@ -253,11 +337,74 @@ impl fmt::Display for GateError {
             GateError::MissingCriteria(id) => {
                 write!(f, "the gate {id} has fixed options and lists none")
             }
+            GateError::ScoreLevels { id, why } => {
+                write!(f, "the score gate {id} does not fit the scale: {why}")
+            }
+            GateError::ScoreOverMenu(id) => write!(
+                f,
+                "the score gate {id} takes its levels from the menu, and the menu is not a scale"
+            ),
             GateError::TooManyGates => {
                 write!(f, "a gate set holds at most {MAX_GATES} gates")
             }
         }
     }
+}
+
+/// Check a score gate against the API's scale.
+///
+/// The API wants a `score` question's criteria as an **array of 2 to 10**
+/// level descriptions, lowest score first, and it answers with the index
+/// of the level it picked. So the levels have to exist, they have to
+/// number 2 to 10, and their scores have to count 0, 1, 2, … with no gap
+/// and no repeat: the index the model answers is the score, and the affect
+/// the line gets is bucketed from it.
+fn check_score_gate(gate: &Gate) -> Result<(), GateError> {
+    let id = gate.id.clone();
+    if gate.options_from == OptionsFrom::Menu {
+        return Err(GateError::ScoreOverMenu(id));
+    }
+    let count = gate.levels.len();
+    if !(MIN_SCORE_LEVELS..=MAX_SCORE_LEVELS).contains(&count) {
+        return Err(GateError::ScoreLevels {
+            id,
+            why: format!(
+                "it holds {count} levels and the API takes {MIN_SCORE_LEVELS} to {MAX_SCORE_LEVELS}"
+            ),
+        });
+    }
+    let mut keys: BTreeSet<&str> = BTreeSet::new();
+    for level in &gate.levels {
+        if level.key.is_empty() {
+            return Err(GateError::ScoreLevels {
+                id,
+                why: "a level has no key".to_string(),
+            });
+        }
+        if level.description.is_empty() {
+            return Err(GateError::ScoreLevels {
+                id,
+                why: format!("the level {} has no description", level.key),
+            });
+        }
+        if !keys.insert(level.key.as_str()) {
+            return Err(GateError::ScoreLevels {
+                id,
+                why: format!("two levels are named {}", level.key),
+            });
+        }
+    }
+    let mut scores: Vec<u32> = gate.levels.iter().map(|level| level.score).collect();
+    scores.sort_unstable();
+    for (index, score) in scores.iter().enumerate() {
+        if *score != index as u32 {
+            return Err(GateError::ScoreLevels {
+                id,
+                why: format!("the scores must count from zero, but they are {scores:?}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// An agent's gates: the questions it asks its decision model.
@@ -308,11 +455,18 @@ impl GateSet {
             if gates[..index].iter().any(|g| g.id == gate.id) {
                 return Err(GateError::DuplicateId(gate.id.clone()));
             }
-            if gate.options_from == OptionsFrom::Fixed
-                && matches!(gate.kind, GateKind::Choice | GateKind::Score)
-                && gate.criteria.is_empty()
-            {
-                return Err(GateError::MissingCriteria(gate.id.clone()));
+            match gate.kind {
+                // A choice with fixed options has to say what its options
+                // mean; a choice over the menu takes them from the menu.
+                GateKind::Choice => {
+                    if gate.options_from == OptionsFrom::Fixed && gate.criteria.is_empty() {
+                        return Err(GateError::MissingCriteria(gate.id.clone()));
+                    }
+                }
+                // A score is a scale, and the scale has to fit the API's.
+                GateKind::Score => check_score_gate(gate)?,
+                // A noul has no options at all.
+                GateKind::Noul => {}
             }
         }
 
@@ -327,6 +481,19 @@ impl GateSet {
     /// The gate with this id, if the set has one.
     pub fn gate(&self, id: &str) -> Option<&Gate> {
         self.gates.iter().find(|g| g.id == id)
+    }
+
+    /// The level a score answer named.
+    ///
+    /// The API answers a score question with the **index** of the level it
+    /// picked, counted from the lowest level of the array that was sent.
+    /// This maps that index back to the level it names, so the code never
+    /// has to guess what "level 2" meant: the index is the level's score.
+    pub fn level_for(&self, gate: &str, index: usize) -> Option<&Level> {
+        let gate = self.gate(gate)?;
+        gate.levels
+            .iter()
+            .find(|level| usize::try_from(level.score).ok() == Some(index))
     }
 
     /// Where the gate with this id sits in the set, if the set has one.
@@ -349,9 +516,11 @@ impl GateSet {
 
     /// The `questions` pack of a System One call (D37).
     ///
-    /// One entry per gate, keyed by the gate's id. A `choice` or `score`
-    /// gate over the menu carries one criterion per menu option, keyed
-    /// `opt0`, `opt1`, … — the keys its answer comes back under.
+    /// One entry per gate, keyed by the gate's id. A `choice` gate over
+    /// the menu carries one criterion per menu option, keyed `opt0`,
+    /// `opt1`, … — the keys its answer comes back under. A `score` gate
+    /// carries an **array** of level descriptions, lowest score first:
+    /// the API refuses a score question whose criteria is a map.
     pub fn to_questions(&self, menu: &Menu) -> Value {
         self.to_questions_limited(menu, u16::MAX)
     }
@@ -856,6 +1025,183 @@ beacon = "walk to beacon {beacon}"
         assert_eq!(criteria.len(), 2);
         assert_eq!(criteria["north"], "the beacon lies north of you");
         assert_eq!(criteria["south"], "the beacon lies south of you");
+    }
+
+    #[test]
+    fn score_criteria_are_an_ordered_array() {
+        // The API wants a score question's criteria as an ARRAY of 2 to
+        // 10 level descriptions, lowest score first. A map is refused —
+        // and the whole pack with it, which is what stopped the agents
+        // from deciding anything on the Thor.
+        let set = default_set();
+        let questions = set.to_questions(&menu());
+
+        let criteria = questions["intention"]["criteria"]
+            .as_array()
+            .expect("the score criteria are an array");
+        assert_eq!(criteria.len(), 3);
+        assert_eq!(
+            criteria[0],
+            "the moment is quiet: no enemy is within 6 cells and your squad is where it should be"
+        );
+        assert_eq!(
+            criteria[1],
+            "the moment is ordinary: the usual play goes on and nothing has to be said now"
+        );
+        assert_eq!(
+            criteria[2],
+            "the moment is urgent: an enemy can see you within 6 cells, or a beacon your squad holds is about to be lost"
+        );
+
+        // The order is the score's and not the file's: a file that writes
+        // its levels out of order still sends the scale from the lowest
+        // level to the highest.
+        let text = r#"
+            [[gates]]
+            id = "intention"
+            type = "score"
+            options_from = "fixed"
+            instructions = "How urgent is this moment?"
+
+            [[gates.levels]]
+            key = "urgent"
+            score = 2
+            description = "the moment is urgent"
+
+            [[gates.levels]]
+            key = "idle"
+            score = 0
+            description = "the moment is quiet"
+
+            [[gates.levels]]
+            key = "ordinary"
+            score = 1
+            description = "the moment is ordinary"
+        "#;
+        let set = GateSet::parse(text).expect("the gates parse");
+        let questions = set.to_questions(&menu());
+        let criteria = questions["intention"]["criteria"]
+            .as_array()
+            .expect("the score criteria are an array");
+        assert_eq!(
+            criteria,
+            &vec![
+                json!("the moment is quiet"),
+                json!("the moment is ordinary"),
+                json!("the moment is urgent"),
+            ]
+        );
+
+        // And the index the model answers names the right level: the
+        // index is the level's score, so "level 2" is the urgent one.
+        assert_eq!(
+            set.level_for("intention", 0)
+                .map(|level| level.key.as_str()),
+            Some("idle")
+        );
+        assert_eq!(
+            set.level_for("intention", 1)
+                .map(|level| level.key.as_str()),
+            Some("ordinary")
+        );
+        assert_eq!(
+            set.level_for("intention", 2)
+                .map(|level| level.key.as_str()),
+            Some("urgent")
+        );
+        assert!(
+            set.level_for("intention", 3).is_none(),
+            "the scale has three levels"
+        );
+    }
+
+    #[test]
+    fn a_score_gate_that_does_not_fit_the_scale_is_refused() {
+        // Too few levels: the API takes 2 to 10, and the gates are read
+        // before anything is sent, so the broken scale is a typed error
+        // here and not a 400 on the Thor.
+        let text = r#"
+            [[gates]]
+            id = "intention"
+            type = "score"
+            options_from = "fixed"
+            instructions = "How urgent is this moment?"
+
+            [[gates.levels]]
+            key = "idle"
+            score = 0
+            description = "the moment is quiet"
+        "#;
+        let error = GateSet::parse(text).expect_err("the one-level scale is refused");
+        match error {
+            GateError::ScoreLevels { id, why } => {
+                assert_eq!(id, "intention");
+                assert!(why.contains("2 to 10"), "got {why}");
+            }
+            other => panic!("expected a score-level error, got {other:?}"),
+        }
+
+        // Too many levels.
+        let mut text = String::from(
+            "\n[[gates]]\nid = \"intention\"\ntype = \"score\"\noptions_from = \"fixed\"\ninstructions = \"How urgent is this moment?\"\n",
+        );
+        for level in 0..11 {
+            text.push_str(&format!(
+                "\n[[gates.levels]]\nkey = \"level{level}\"\nscore = {level}\ndescription = \"level {level}\"\n"
+            ));
+        }
+        let error = GateSet::parse(&text).expect_err("the eleven-level scale is refused");
+        assert!(
+            matches!(error, GateError::ScoreLevels { .. }),
+            "got {error:?}"
+        );
+    }
+
+    #[test]
+    fn a_score_gate_whose_scores_do_not_count_from_zero_is_refused() {
+        // The index the model answers is the level's score, so the
+        // scores have to count 0, 1, 2, … with no gap: a scale that
+        // skips one would make the model's answer name the wrong level.
+        let text = r#"
+            [[gates]]
+            id = "intention"
+            type = "score"
+            options_from = "fixed"
+            instructions = "How urgent is this moment?"
+
+            [[gates.levels]]
+            key = "idle"
+            score = 0
+            description = "the moment is quiet"
+
+            [[gates.levels]]
+            key = "urgent"
+            score = 2
+            description = "the moment is urgent"
+        "#;
+        let error = GateSet::parse(text).expect_err("the scale with a gap is refused");
+        match error {
+            GateError::ScoreLevels { id, why } => {
+                assert_eq!(id, "intention");
+                assert!(why.contains("count from zero"), "got {why}");
+            }
+            other => panic!("expected a score-level error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_score_gate_over_the_menu_is_refused() {
+        // The menu's options are named keys, not a scale: nothing says
+        // which of them is the lowest level.
+        let text = r#"
+            [[gates]]
+            id = "intention"
+            type = "score"
+            options_from = "menu"
+            instructions = "How urgent is this moment?"
+        "#;
+        let error = GateSet::parse(text).expect_err("the score gate over the menu is refused");
+        assert_eq!(error, GateError::ScoreOverMenu("intention".to_string()));
     }
 
     #[test]

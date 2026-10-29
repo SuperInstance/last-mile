@@ -58,6 +58,16 @@ pub const JEV_MIN_CONFIDENCE: f32 = 0.5;
 /// The per-request timeout, in the spirit of `AgentsConfig::request_timeout_ms`.
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 400;
 
+/// The fewest levels a `score` question may hold (the API's rule).
+///
+/// The API refuses a score question whose criteria is not an array of 2
+/// to 10 levels: "questions.intention: \"criteria\" must be an array of 2
+/// to 10 levels".
+pub const MIN_SCORE_LEVELS: usize = 2;
+
+/// The most levels a `score` question may hold (the API's rule).
+pub const MAX_SCORE_LEVELS: usize = 10;
+
 // ---------------------------------------------------------------- the contract
 
 /// A decision model that answers typed questions about a situation.
@@ -134,6 +144,12 @@ pub enum Refusal {
     Http(u16),
     /// The answer did not match the schema.
     Malformed(String),
+    /// The pack does not fit the API's schema.
+    ///
+    /// The pack is built by the gates and checked before it is sent, so
+    /// this never reaches a model: a question that breaks the API's rules
+    /// is a bug in the pack, not a refusal by the model.
+    InvalidPack(String),
     /// The answer was less confident than this backend's threshold.
     LowConfidence(f32),
     /// The menu changed between the question and the answer.
@@ -149,11 +165,115 @@ impl fmt::Display for Refusal {
             Refusal::Http(0) => f.write_str("the call never reached an HTTP status"),
             Refusal::Http(code) => write!(f, "the endpoint answered {code}"),
             Refusal::Malformed(why) => write!(f, "the answer did not match the schema: {why}"),
+            Refusal::InvalidPack(why) => {
+                write!(f, "the pack does not fit the API's schema: {why}")
+            }
             Refusal::LowConfidence(c) => write!(f, "the answer was only {c} confident"),
             Refusal::MenuChanged => f.write_str("the menu changed under the question"),
             Refusal::Budget => f.write_str("the budget is spent"),
         }
     }
+}
+
+/// Why a pack does not fit the API's schema.
+///
+/// The message is the API's own shape — `questions.<gate>: <rule>` — so a
+/// pack that breaks a rule reads the same here as it would in a 400 from
+/// the Thor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PackError {
+    /// The gate that broke the rule.
+    pub gate: String,
+    /// What the rule is.
+    pub why: String,
+}
+
+impl fmt::Display for PackError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "questions.{}: {}", self.gate, self.why)
+    }
+}
+
+impl std::error::Error for PackError {}
+
+/// Check a pack against the System One API's question schema.
+///
+/// The API refuses the **whole pack** when one question does not fit, so a
+/// pack that breaks the rules is caught here, where it was built, instead
+/// of turning into a 400 on the Thor and a round with no decisions.
+///
+/// The rules:
+/// - a `noul` question has no criteria;
+/// - a `choice` question's criteria is a map of option key -> what the
+///   option means;
+/// - a `score` question's criteria is an **array of 2 to 10** level
+///   descriptions, lowest score first — the API's own words are
+///   `"criteria" must be an array of 2 to 10 levels`.
+pub fn validate_pack(questions: &Value) -> Result<(), PackError> {
+    let Some(gates) = questions.as_object() else {
+        return Err(PackError {
+            gate: String::new(),
+            why: "the pack is not a table of questions".to_string(),
+        });
+    };
+    for (id, question) in gates {
+        let kind = question
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("choice");
+        match kind {
+            "noul" => {
+                if question.get("criteria").is_some() {
+                    return Err(PackError {
+                        gate: id.clone(),
+                        why: "a noul question has no criteria".to_string(),
+                    });
+                }
+            }
+            "choice" => {
+                let Some(criteria) = question.get("criteria").and_then(Value::as_object) else {
+                    return Err(PackError {
+                        gate: id.clone(),
+                        why: "\"criteria\" must be a map of options".to_string(),
+                    });
+                };
+                if criteria.is_empty() {
+                    return Err(PackError {
+                        gate: id.clone(),
+                        why: "\"criteria\" must name at least one option".to_string(),
+                    });
+                }
+            }
+            "score" => {
+                let Some(criteria) = question.get("criteria").and_then(Value::as_array) else {
+                    return Err(PackError {
+                        gate: id.clone(),
+                        why: "\"criteria\" must be an array of 2 to 10 levels".to_string(),
+                    });
+                };
+                let levels = MIN_SCORE_LEVELS..=MAX_SCORE_LEVELS;
+                if !levels.contains(&criteria.len()) {
+                    return Err(PackError {
+                        gate: id.clone(),
+                        why: "\"criteria\" must be an array of 2 to 10 levels".to_string(),
+                    });
+                }
+                if !criteria.iter().all(Value::is_string) {
+                    return Err(PackError {
+                        gate: id.clone(),
+                        why: "\"criteria\" must be an array of 2 to 10 levels".to_string(),
+                    });
+                }
+            }
+            other => {
+                return Err(PackError {
+                    gate: id.clone(),
+                    why: format!("unknown question type {other}"),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------- the backends
@@ -239,6 +359,10 @@ impl fmt::Debug for ThorBackend {
 
 impl SysOne for ThorBackend {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        // The pack is checked before it is sent: the API refuses a whole
+        // pack when one question does not fit, so a pack that breaks the
+        // rules is named here instead of turning into a 400 on the Thor.
+        validate_pack(questions).map_err(|e| Refusal::InvalidPack(e.to_string()))?;
         let body = request_body(&self.model, state, questions);
         let (text, latency_ms) = post_pack(&self.agent, &self.url(), None, &body, deadline)?;
         let answers = parse_answers(&text, &self.model, latency_ms)?;
@@ -341,6 +465,10 @@ impl fmt::Debug for JevBackend {
 
 impl SysOne for JevBackend {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        // The pack is checked before it is sent: the API refuses a whole
+        // pack when one question does not fit, so a pack that breaks the
+        // rules is named here instead of turning into a 400 from the API.
+        validate_pack(questions).map_err(|e| Refusal::InvalidPack(e.to_string()))?;
         let body = request_body(&self.model, state, questions);
         let (text, latency_ms) = post_pack(
             &self.agent,
@@ -744,11 +872,29 @@ fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
         let kind = gate.get("type").and_then(Value::as_str).unwrap_or("choice");
         let answer = match kind {
             "noul" => Answer::Noul(0.8),
-            "score" => Answer::Score {
-                probs: gate_probs(gate, id)?,
-                score: 1.0,
-                confidence,
-            },
+            "score" => {
+                // A score question's options are the levels of its scale,
+                // counted from zero. The stub stands in for a model: it
+                // answers the middle of the scale (idle 0, ordinary 1,
+                // urgent 2) and it puts its weight on that level.
+                let levels = gate
+                    .get("criteria")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| Refusal::Malformed(format!("the gate {id} has no levels")))?
+                    .len();
+                let middle = levels.saturating_sub(1) / 2;
+                let rest = levels.saturating_sub(1).max(1) as f32;
+                let mut probs = BTreeMap::new();
+                for level in 0..levels {
+                    let p = if level == middle { 0.7 } else { 0.3 / rest };
+                    probs.insert(level.to_string(), p);
+                }
+                Answer::Score {
+                    probs,
+                    score: middle as f32,
+                    confidence,
+                }
+            }
             _ => Answer::Choice {
                 probs: gate_probs(gate, id)?,
                 confidence,
@@ -1079,6 +1225,11 @@ fn check_confidence(answers: &Answers, min_confidence: f32) -> Result<(), Refusa
 ///
 /// A model that answers none of the gates it was asked has failed: that is a
 /// refusal, not a round with no decisions (D26).
+///
+/// A score answer has to name a level of the scale that was asked: the API
+/// answers a score question with the index of the level it picked, and an
+/// index off the end of the scale is an answer to a question that was
+/// never asked.
 fn check_answered(answers: &Answers, questions: &Value) -> Result<(), Refusal> {
     let asked = questions.as_object().is_some_and(|gates| !gates.is_empty());
     if asked && answers.per_gate.is_empty() {
@@ -1086,7 +1237,30 @@ fn check_answered(answers: &Answers, questions: &Value) -> Result<(), Refusal> {
             "the model answered none of the gates".to_string(),
         ));
     }
+    for (id, answer) in &answers.per_gate {
+        let Answer::Score { score, .. } = answer else {
+            continue;
+        };
+        let Some(levels) = score_scale(questions, id) else {
+            continue;
+        };
+        let top = levels.saturating_sub(1) as f32;
+        if !score.is_finite() || *score < 0.0 || *score > top {
+            return Err(Refusal::Malformed(format!(
+                "the gate {id} answered the level {score}, which is not one of its {levels} levels"
+            )));
+        }
+    }
     Ok(())
+}
+
+/// How many levels a score question asked over.
+fn score_scale(questions: &Value, id: &str) -> Option<usize> {
+    let question = questions.get(id)?;
+    if question.get("type").and_then(Value::as_str) != Some("score") {
+        return None;
+    }
+    Some(question.get("criteria")?.as_array()?.len())
 }
 
 /// The path of the Jev key.
@@ -1145,6 +1319,8 @@ fn ms(duration: Duration) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lm_core::{Menu, MenuOption};
+    use serde_json::Map;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::atomic::AtomicBool;
@@ -1227,6 +1403,67 @@ mod tests {
         "Agent A is at column 3, row 4. The beacon B is at column 7, row 4. \
          A walking path to the beacon exists and is 4 steps long. \
          No enemies are on the map."
+    }
+
+    /// The four-option menu of a squad with one beacon.
+    fn menu() -> Menu {
+        Menu {
+            id: 0x5eed_0001,
+            options: vec![
+                MenuOption::GoToBeacon(0),
+                MenuOption::Hold,
+                MenuOption::FollowLeader,
+                MenuOption::Retreat,
+            ],
+        }
+    }
+
+    /// A reply that answers every gate of a pack.
+    ///
+    /// The mock is the API's stand-in, so it answers what it is asked: a
+    /// noul with a yes, a choice with its first option, and a score with
+    /// the middle of its scale.
+    fn answer_for(pack: &Value) -> String {
+        let mut answers = Map::new();
+        for (id, question) in pack.as_object().expect("a pack of gates") {
+            let answer = match question
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("choice")
+            {
+                "noul" => json!({ "type": "noul", "noul": 0.8 }),
+                "score" => {
+                    let levels = question["criteria"].as_array().map(Vec::len).unwrap_or(2);
+                    let probs: Map<String, Value> = (0..levels)
+                        .map(|level| (level.to_string(), json!(1.0 / levels as f64)))
+                        .collect();
+                    json!({
+                        "type": "score",
+                        "score": (levels.saturating_sub(1)) as f64 / 2.0,
+                        "probabilities": probs,
+                        "confidence": 0.9
+                    })
+                }
+                _ => {
+                    let options = question["criteria"].as_object().expect("the options");
+                    let probs: Map<String, Value> = options
+                        .keys()
+                        .enumerate()
+                        .map(|(index, key)| {
+                            (key.clone(), json!(if index == 0 { 1.0 } else { 0.0 }))
+                        })
+                        .collect();
+                    json!({
+                        "type": "choice",
+                        "choice": options.keys().next().expect("an option"),
+                        "probabilities": probs,
+                        "confidence": 0.9
+                    })
+                }
+            };
+            answers.insert(id.clone(), answer);
+        }
+        json!({ "answers": Value::Object(answers) }).to_string()
     }
 
     /// A deadline far enough away for a mock answer.
@@ -1451,6 +1688,152 @@ mod tests {
     }
 
     #[test]
+    fn the_default_pack_passes_the_api_schema() {
+        // The default harness's pack is what every live ask sends. The
+        // API refuses the WHOLE pack when one question does not fit, so
+        // the pack has to fit the schema — here and on the Thor.
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/harness/default");
+        let harness = crate::harness::Harness::open(&dir).expect("the default harness opens");
+        let set = crate::gates::GateSet::parse(&harness.gates_toml).expect("the gates parse");
+        let questions = set.to_questions(&menu());
+
+        // The score question carries its levels as an array, lowest score
+        // first.
+        let criteria = questions["intention"]["criteria"]
+            .as_array()
+            .expect("the score criteria are an array");
+        assert_eq!(criteria.len(), 3);
+
+        // The pack fits the API's schema...
+        validate_pack(&questions).expect("the default pack fits the API's schema");
+
+        // ...and the API agrees: the mock enforces the same rule, so a
+        // pack that broke it would come back as a 400 and this test
+        // would fail.
+        let mock = MockServer::start(200, answer_for(&questions), Duration::ZERO);
+        let backend = ThorBackend::new("http://127.0.0.1", mock.port(), "d1-3B").without_proxy();
+
+        let answers = backend
+            .ask(state(), &questions, deadline())
+            .expect("the Thor answered the default pack");
+
+        assert_eq!(mock.requests(), 1);
+        assert_eq!(answers.per_gate.len(), 11);
+        // The score gate came back on the scale that was asked: the
+        // middle of three levels is level 1.
+        match answers.per_gate.get("intention") {
+            Some(Answer::Score { score, .. }) => assert!(close(*score, 1.0), "got {score}"),
+            other => panic!("the intention gate is a score, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_mock_refuses_a_pack_that_breaks_the_api_schema() {
+        // The mock is the API's stand-in, and the API refused the whole
+        // pack over one score question whose criteria was a map. The
+        // mock refuses it the same way, with the API's own words.
+        let mock = MockServer::start(200, THOR_FACTS_REPLY.to_string(), Duration::ZERO);
+        let body = json!({
+            "model": "d1-3B",
+            "state": state(),
+            "questions": {
+                "intention": {
+                    "type": "score",
+                    "instructions": "How urgent is this moment?",
+                    "criteria": {
+                        "idle": "the moment is quiet",
+                        "ordinary": "the moment is ordinary",
+                        "urgent": "the moment is urgent"
+                    }
+                }
+            }
+        })
+        .to_string();
+
+        let reply = mock.raw_post(&body);
+
+        assert!(reply.starts_with("HTTP/1.1 400"), "got {reply}");
+        assert!(
+            reply.contains("must be an array of 2 to 10 levels"),
+            "got {reply}"
+        );
+        assert!(reply.contains("invalid_request_error"), "got {reply}");
+
+        // And an array that is too short is refused too: the API takes 2
+        // to 10 levels, not one.
+        let body = json!({
+            "model": "d1-3B",
+            "state": state(),
+            "questions": {
+                "intention": {
+                    "type": "score",
+                    "instructions": "How urgent is this moment?",
+                    "criteria": ["the moment is quiet"]
+                }
+            }
+        })
+        .to_string();
+
+        let reply = mock.raw_post(&body);
+
+        assert!(reply.starts_with("HTTP/1.1 400"), "got {reply}");
+        assert!(
+            reply.contains("must be an array of 2 to 10 levels"),
+            "got {reply}"
+        );
+    }
+
+    #[test]
+    fn a_pack_that_breaks_the_api_schema_is_never_sent() {
+        // The client checks the pack before it sends it: a broken
+        // question is a typed refusal here, and not a 400 on the Thor.
+        let mock = MockServer::start(200, THOR_FACTS_REPLY.to_string(), Duration::ZERO);
+        let backend = ThorBackend::new("http://127.0.0.1", mock.port(), "d1-3B").without_proxy();
+        let broken = json!({
+            "intention": {
+                "type": "score",
+                "instructions": "How urgent is this moment?",
+                "criteria": { "idle": "the moment is quiet" }
+            }
+        });
+
+        let result = backend.ask(state(), &broken, deadline());
+
+        match result {
+            Err(Refusal::InvalidPack(why)) => {
+                assert!(
+                    why.contains("must be an array of 2 to 10 levels"),
+                    "got {why}"
+                );
+            }
+            other => panic!("expected an invalid-pack refusal, got {other:?}"),
+        }
+        // And nothing reached the Thor.
+        assert_eq!(mock.requests(), 0);
+
+        // A scale that is too short is refused the same way.
+        let short = json!({
+            "intention": {
+                "type": "score",
+                "instructions": "How urgent is this moment?",
+                "criteria": ["the moment is quiet"]
+            }
+        });
+
+        match backend.ask(state(), &short, deadline()) {
+            Err(Refusal::InvalidPack(why)) => {
+                assert!(
+                    why.contains("must be an array of 2 to 10 levels"),
+                    "got {why}"
+                );
+            }
+            other => panic!("expected an invalid-pack refusal, got {other:?}"),
+        }
+        assert_eq!(mock.requests(), 0);
+    }
+
+    #[test]
     fn the_stub_answers_its_script() {
         let answers = Answers {
             per_gate: BTreeMap::from([(
@@ -1642,6 +2025,37 @@ mod tests {
                 .cloned()
                 .unwrap_or_default()
         }
+
+        /// Post a body to the mock by hand and hand back the reply.
+        ///
+        /// The client checks a pack before it sends it, so the mock's own
+        /// refusal is only ever seen by a raw request: this is how a test
+        /// watches what the API answers a pack that breaks the schema.
+        fn raw_post(&self, body: &str) -> String {
+            let mut stream =
+                TcpStream::connect(("127.0.0.1", self.port)).expect("the mock answers");
+            let request = format!(
+                "POST {SYSTEMONE_PATH} HTTP/1.1\r\n\
+                 Host: 127.0.0.1\r\n\
+                 Content-Type: application/json\r\n\
+                 Content-Length: {len}\r\n\
+                 \r\n\
+                 {body}",
+                len = body.len(),
+            );
+            stream
+                .write_all(request.as_bytes())
+                .expect("the request is written");
+            stream.flush().expect("the request is flushed");
+            // The mock keeps the connection alive; the reply is read once
+            // the request is done.
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            let mut reply = String::new();
+            stream
+                .read_to_string(&mut reply)
+                .expect("the reply is read");
+            reply
+        }
     }
 
     impl Drop for MockServer {
@@ -1665,7 +2079,7 @@ mod tests {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
         let mut buf = Vec::new();
         loop {
-            let Some((head, _body)) = read_request(&mut stream, &mut buf) else {
+            let Some((head, request)) = read_request(&mut stream, &mut buf) else {
                 return;
             };
             requests.fetch_add(1, Ordering::SeqCst);
@@ -1678,14 +2092,23 @@ mod tests {
                 thread::sleep(delay);
             }
 
+            // The mock is the API's stand-in, so it enforces the API's
+            // question schema: a pack that breaks the rules is refused
+            // with the API's own error, and a gate that asks a score
+            // question the wrong way fails a test instead of passing one.
+            let (status, answer) = match schema_error(&request) {
+                Some(why) => (400u16, api_error(&why)),
+                None => (status, body.to_string()),
+            };
+
             let response = format!(
                 "HTTP/1.1 {status} {reason}\r\n\
                  Content-Type: application/json\r\n\
                  Content-Length: {len}\r\n\
                  \r\n\
-                 {body}",
+                 {answer}",
                 reason = if status == 200 { "OK" } else { "Error" },
-                len = body.len(),
+                len = answer.len(),
             );
             if stream.write_all(response.as_bytes()).is_err() {
                 return;
@@ -1694,6 +2117,30 @@ mod tests {
                 return;
             }
         }
+    }
+
+    /// Why a request body breaks the API's question schema, if it does.
+    ///
+    /// The rules are the API's: a `score` question's criteria is an array
+    /// of 2 to 10 levels, a `choice` question's criteria is a map of
+    /// options, and a `noul` question has none.
+    fn schema_error(body: &[u8]) -> Option<String> {
+        let text = std::str::from_utf8(body).ok()?;
+        let request: Value = serde_json::from_str(text).ok()?;
+        let questions = request.get("questions")?;
+        validate_pack(questions).err().map(|e| e.to_string())
+    }
+
+    /// The API's refusal of a pack that breaks its schema.
+    fn api_error(why: &str) -> String {
+        json!({
+            "error": {
+                "code": 400,
+                "message": why,
+                "type": "invalid_request_error",
+            }
+        })
+        .to_string()
     }
 
     /// Read one HTTP request: its head and its body.

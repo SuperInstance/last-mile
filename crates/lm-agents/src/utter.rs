@@ -228,6 +228,13 @@ fn attention(answers: &Answers, ctx: &GateCtx<'_>) -> Result<Addressee, Refusal>
 }
 
 /// The affect of the line, bucketed by code and never by the model.
+///
+/// The `intention` gate is a `score` question, and the API answers it with
+/// the **index** of the level it picked: the gate's levels are sent as an
+/// ordered array, lowest score first, so the index *is* the level's score
+/// (idle 0, ordinary 1, urgent 2). The gate set is what says which level
+/// that is — see `GateSet::level_for` — and the score is what is bucketed
+/// here.
 fn intention(answers: &Answers) -> Result<Affect, Refusal> {
     match answered(answers, GATE_INTENTION)? {
         Answer::Score { score, .. } => Ok(bucket_affect(*score)),

@@ -12,6 +12,11 @@
 # with `options_from = "fixed"` are the ones written here, under
 # `criteria`.
 #
+# A `score` gate is the one exception: its options are an ordered scale,
+# written under `levels`, with each level saying its own score. The API
+# takes a score question's levels as an array of 2 to 10 descriptions,
+# lowest score first, and answers with the index of the level it picked.
+#
 # This file is part of the harness, so it is edited between rounds and
 # pinned into the round log by the harness commit (D27).
 #
@@ -126,10 +131,29 @@ type = "score"
 options_from = "fixed"
 instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. Use the facts: an enemy you can see, a beacon your squad is about to lose and a squad that is not moving together make the moment urgent; a quiet moment makes it idle."
 
-[gates.criteria]
-idle = "the moment is quiet: no enemy is within 6 cells and your squad is where it should be"
-ordinary = "the moment is ordinary: the usual play goes on and nothing has to be said now"
-urgent = "the moment is urgent: an enemy can see you within 6 cells, or a beacon your squad holds is about to be lost"
+# A score gate's levels are an ordered scale, not a map of options. The
+# API takes them as an array of 2 to 10 descriptions, lowest score first,
+# and answers with the index of the level it picked — so a score question
+# whose criteria is a map is refused, and the whole pack with it.
+#
+# Each level therefore says its own score here, and the order of the array
+# is decided by that score and never by the order of this file. The index
+# the model answers is the score, which is what the affect of the line is
+# bucketed from (idle 0, ordinary 1, urgent 2).
+[[gates.levels]]
+key = "idle"
+score = 0
+description = "the moment is quiet: no enemy is within 6 cells and your squad is where it should be"
+
+[[gates.levels]]
+key = "ordinary"
+score = 1
+description = "the moment is ordinary: the usual play goes on and nothing has to be said now"
+
+[[gates.levels]]
+key = "urgent"
+score = 2
+description = "the moment is urgent: an enemy can see you within 6 cells, or a beacon your squad holds is about to be lost"
 
 [[gates]]
 id = "intention_present"

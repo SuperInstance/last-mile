@@ -744,7 +744,20 @@ impl Mind {
     /// [`Mind::with_params`] when the round starts (a mind built without
     /// them uses the parameter defaults).
     pub fn new(agent: u16, role: Role, harness: &Harness, cfg: &AgentsConfig) -> Mind {
-        let gates = GateSet::parse(&harness.gates_toml).unwrap_or_default();
+        // A harness whose gates do not load is a refusal the round can
+        // see, not a silent agent that never thinks: the gates are the
+        // questions, and a question that does not fit the API's schema
+        // is refused by the model anyway (D26).
+        let (gates, refusals) = match GateSet::parse(&harness.gates_toml) {
+            Ok(gates) => (gates, Vec::new()),
+            Err(error) => (
+                GateSet::default(),
+                vec![(
+                    0,
+                    Refusal::Malformed(format!("the harness gates do not load: {error}")),
+                )],
+            ),
+        };
         let phrasebook = Phrasebook::parse(&harness.phrasebook_toml).unwrap_or_default();
         Mind {
             agent,
@@ -764,7 +777,7 @@ impl Mind {
             cache: BTreeMap::new(),
             ready: Vec::new(),
             thoughts: Vec::new(),
-            refusals: Vec::new(),
+            refusals,
             seq_counter: 0,
             roster: Vec::new(),
             talk: TalkParams::default(),
@@ -2256,6 +2269,37 @@ mod tests {
             "a line that is not there is not said: {decisions:?}"
         );
         assert!(m.refusals().is_empty(), "silence is not a refusal");
+    }
+
+    #[test]
+    fn a_harness_whose_gates_do_not_load_is_a_refusal() {
+        // The gates are the questions: a harness whose gates do not fit
+        // the API's schema is a refusal the round can see, and not a
+        // silent agent that never thinks.
+        let mut h = harness(STUB_POLICY);
+        h.gates_toml = r#"
+            [[gates]]
+            id = "intention"
+            type = "score"
+            options_from = "fixed"
+            instructions = "How urgent is this moment?"
+
+            [gates.criteria]
+            idle = "the moment is quiet"
+        "#
+        .to_owned();
+
+        let m = Mind::new(1, Role::Member, &h, &AgentsConfig::default());
+
+        assert_eq!(m.refusals().len(), 1);
+        assert!(
+            m.refusals()[0]
+                .1
+                .to_string()
+                .contains("the harness gates do not load"),
+            "got {:?}",
+            m.refusals()[0].1
+        );
     }
 
     #[test]

@@ -201,7 +201,7 @@ fn the_agents_refuse_rather_than_guess() {
     assert_eq!(stats.decisions, 0, "a refusal is not a decision");
 }
 
-/// The live round: the Thor's own d1-3B, on the LAN.
+/// The live round: the Thor's own d1-2B (the default fast tier since D62), on the LAN.
 ///
 /// It is ignored by default: it needs the Thor to be up and it talks to a
 /// real model. Run it with `cargo test -p lm-host-model -- --ignored`.
@@ -232,12 +232,12 @@ fn live_round_on_thor() {
     let harness = default_harness();
     let cfg = AgentsConfig::default();
 
-    let port = cfg.ports["d1-3b"];
-    let backend = ThorBackend::new(&cfg.thor_base, port, "d1-3b")
+    let port = cfg.ports["d1-2b"];
+    let backend = ThorBackend::new(&cfg.thor_base, port, "d1-2b")
         .with_min_confidence(FLOOR)
         .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
     let backends = BTreeMap::from([(
-        "thor-d1-3b".to_owned(),
+        "thor-d1-2b".to_owned(),
         Box::new(backend) as Box<dyn SysOne + Send>,
     )]);
 
