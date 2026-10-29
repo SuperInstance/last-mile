@@ -1,0 +1,10 @@
+[package]
+name = "lm-tools"
+description = "The `lm` CLI: headless rounds, replay, diff and golden checks."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+lm-core = { path = "../lm-core" }

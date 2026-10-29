@@ -1,0 +1,16 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+
+# Overflow is a bug, never silent: the checks stay on in every profile.
+[profile.dev]
+overflow-checks = true
+
+[profile.release]
+overflow-checks = true

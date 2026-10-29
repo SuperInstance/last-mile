@@ -1,0 +1,11 @@
+[package]
+name = "lm-core"
+description = "Deterministic fixed-point simulation core for last-mile M1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Phase 1 keeps `lm-core` dependency-free. Later tasks add the four crates the
+# dependency rule allows (serde, postcard, rhai, thiserror) and nothing else.
+[dependencies]
