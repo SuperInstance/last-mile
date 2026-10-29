@@ -24,6 +24,9 @@ impl ParamError {
     }
 }
 
+/// Upper bound on grid cells (2048 x 2048) so a hostile header can't crash worldgen.
+pub const MAX_GRID_CELLS: u64 = 4_194_304;
+
 /// All tunables of a round (spec §11 / D20–D45).
 ///
 /// Fixed-point fields carry their scale in the name: `*_q16` are Q16
@@ -187,6 +190,26 @@ impl Params {
             return Err(ParamError::new(
                 "cell_m",
                 "cell_m must divide chunk_m evenly",
+            ));
+        }
+        // Bound the grid so worldgen arithmetic and allocation stay sane (audit R1).
+        let cells_x =
+            u64::from(self.world_chunks.0) * u64::from(self.chunk_m) / u64::from(self.cell_m);
+        let cells_y =
+            u64::from(self.world_chunks.1) * u64::from(self.chunk_m) / u64::from(self.cell_m);
+        if cells_x * cells_y > MAX_GRID_CELLS {
+            return Err(ParamError::new(
+                "world_chunks",
+                "the world is larger than MAX_GRID_CELLS cells",
+            ));
+        }
+        // More than one cell per tick would let the motor step over walls (audit N6).
+        if i64::from(self.speed_upt) > i64::from(self.cell_m) * i64::from(crate::fixed::UNITS_PER_M)
+            || self.speed_upt < 0
+        {
+            return Err(ParamError::new(
+                "speed_upt",
+                "speed must be between 0 and one cell per tick",
             ));
         }
         if self.squads == 0 {
@@ -354,5 +377,21 @@ mod tests {
         let mut q = p;
         q.cover_density_pct = 7;
         assert_ne!(p.state_hash(), q.state_hash());
+    }
+
+    #[test]
+    fn validate_rejects_huge_world_and_wall_hopping_speed() {
+        let huge = Params {
+            world_chunks: (51, 51),
+            chunk_m: 255,
+            cell_m: 1,
+            ..Params::default()
+        };
+        assert_eq!(huge.validate().unwrap_err().field, "world_chunks");
+        let fast = Params {
+            speed_upt: i32::from(Params::default().cell_m) * 1024 + 1,
+            ..Params::default()
+        };
+        assert_eq!(fast.validate().unwrap_err().field, "speed_upt");
     }
 }

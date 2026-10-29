@@ -113,7 +113,7 @@ impl Agent {
         self.intent = Some(ActiveIntent {
             plan: i.plan.clone(),
             safe: i.safe.clone(),
-            expires: now + u64::from(i.ttl_ticks),
+            expires: now.saturating_add(u64::from(i.ttl_ticks)), // audit R2: hostile start_tick
             on_safe: false,
             idx: 0,
         });
@@ -558,5 +558,17 @@ mod tests {
             0,
         );
         assert_ne!(a.state_hash(), c.state_hash());
+    }
+
+    #[test]
+    fn intent_expiry_saturates_near_tick_max() {
+        let mut a = Agent::new(0, 0, crate::header::Role::Member, crate::fixed::Pos::zero());
+        let i = crate::decision::Intent {
+            ttl_ticks: 300,
+            plan: vec![],
+            safe: vec![],
+        };
+        a.set_intent(&i, u64::MAX - 5);
+        assert_eq!(a.intent.as_ref().unwrap().expires, u64::MAX);
     }
 }

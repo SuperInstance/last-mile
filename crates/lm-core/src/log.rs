@@ -339,7 +339,7 @@ pub struct Recorder {
     root: u64,
     segments: Vec<Segment>,
     current: Segment,
-    current_ticks: u32,
+    current_ticks: u64,
 }
 
 impl Recorder {
@@ -375,7 +375,7 @@ impl Recorder {
             self.current.hashes.push((tick, hash));
         }
         self.current_ticks += 1;
-        if self.segment_ticks > 0 && self.current_ticks >= self.segment_ticks {
+        if self.segment_ticks > 0 && self.current_ticks >= u64::from(self.segment_ticks) {
             self.close_segment();
         }
     }

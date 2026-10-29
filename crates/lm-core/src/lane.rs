@@ -77,11 +77,12 @@ impl LaneConditioner {
     /// more than [`MAX_OPTIONS`] options cannot be named by a `u8` index, so
     /// it is refused and no selection is made.
     pub fn update(&mut self, menu_id: u64, values: &[u8]) -> Option<u8> {
-        if self.menu_id != Some(menu_id) || self.lanes.len() != values.len() {
-            self.reset(menu_id, values.len());
-        }
+        // Refuse before touching state, so a rejected sample can't change the hash (audit N5).
         if values.len() > MAX_OPTIONS {
             return None;
+        }
+        if self.menu_id != Some(menu_id) || self.lanes.len() != values.len() {
+            self.reset(menu_id, values.len());
         }
 
         let shift = self.alpha_shift;
@@ -244,5 +245,14 @@ mod tests {
         let wide: Vec<u8> = vec![0; 256];
         let mut l = lc();
         assert_eq!(l.update(1, &wide), Some(0));
+    }
+
+    #[test]
+    fn refused_wide_sample_leaves_state_untouched() {
+        let mut l = LaneConditioner::new(2, 6_554);
+        l.update(1, &[200, 10]);
+        let before = crate::hash::StateHash::state_hash(&l);
+        assert_eq!(l.update(2, &vec![1u8; 300]), None);
+        assert_eq!(crate::hash::StateHash::state_hash(&l), before);
     }
 }

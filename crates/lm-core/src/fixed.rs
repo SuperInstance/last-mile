@@ -98,7 +98,11 @@ fn split_units(units: i64) -> (i32, i32) {
     let chunk_units = i64::from(CHUNK_UNITS);
     let carry = units.div_euclid(chunk_units);
     let offset = units.rem_euclid(chunk_units);
-    (carry as i32, offset as i32)
+    // Saturate instead of wrapping so from_units/to_units stays total (audit N4).
+    (
+        i32::try_from(carry).unwrap_or(if carry < 0 { i32::MIN } else { i32::MAX }),
+        offset as i32,
+    )
 }
 
 /// Carry an in-chunk offset into its chunk.

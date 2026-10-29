@@ -55,7 +55,7 @@ pub fn generate(seed: u64, p: &Params) -> World {
     // Walls: rectangular blocks of 2..=6 cells per side, placed in the top
     // half until it carries `wall_density_pct` (the mirror doubles the
     // count to the same percentage of the whole grid).
-    let wall_target = half_cells * u32::from(p.wall_density_pct) / 100;
+    let wall_target = (u64::from(half_cells) * u64::from(p.wall_density_pct) / 100) as u32; // u64: no overflow at large worlds (audit R1)
     let mut walls = 0u32;
     let mut attempts = 0u32;
     while walls < wall_target && attempts < attempt_cap {
@@ -82,7 +82,7 @@ pub fn generate(seed: u64, p: &Params) -> World {
 
     // Cover: single scattered cells on still-Floor ground, to
     // `cover_density_pct`.
-    let cover_target = half_cells * u32::from(p.cover_density_pct) / 100;
+    let cover_target = (u64::from(half_cells) * u64::from(p.cover_density_pct) / 100) as u32;
     let mut covers = 0u32;
     let mut attempts = 0u32;
     while covers < cover_target && attempts < attempt_cap {
