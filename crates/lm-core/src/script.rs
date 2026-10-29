@@ -511,11 +511,40 @@ mod tests {
     #[test]
     fn default_reflex_flees_a_near_enemy() {
         let mut rt = with_default();
-        // The enemy is 2 cells west: the reflex steps 4 cells east.
-        let view = view(cell(5, 5), &[(cell(9, 9), None)], &[(cell(3, 5), 0)]);
+        // Two fresh enemies 2 cells west and I'm alone, so outnumbered: the
+        // reflex steps 4 cells east, away from the nearest (index 0 on a tie).
+        let view = view(
+            cell(5, 5),
+            &[(cell(9, 9), None)],
+            &[(cell(3, 5), 0), (cell(3, 6), 0)],
+        );
         assert_eq!(
             rt.reflex("default", &view, 10_000),
             ReflexOut::Cmd(MotorCmd::GoTo(cell(9, 5)))
+        );
+    }
+
+    #[test]
+    fn default_reflex_charges_at_equal_numbers() {
+        let mut rt = with_default();
+        // One fresh enemy 2 cells west and I'm alone: 1 >= 1, so charge it
+        // (a tag needs contact). Fleeing at equal numbers made squads stand
+        // off forever.
+        let view = view(cell(5, 5), &[(cell(9, 9), None)], &[(cell(3, 5), 0)]);
+        assert_eq!(
+            rt.reflex("default", &view, 10_000),
+            ReflexOut::Cmd(MotorCmd::GoTo(cell(3, 5)))
+        );
+    }
+
+    #[test]
+    fn default_reflex_ignores_a_stale_sighting() {
+        let mut rt = with_default();
+        // The enemy was last seen 30 ticks ago: a ghost, so go for the beacon.
+        let view = view(cell(5, 5), &[(cell(9, 9), None)], &[(cell(3, 5), 30)]);
+        assert_eq!(
+            rt.reflex("default", &view, 10_000),
+            ReflexOut::Cmd(MotorCmd::GoTo(cell(9, 9)))
         );
     }
 
@@ -533,9 +562,13 @@ mod tests {
     #[test]
     fn default_reflex_clamps_the_flee_to_the_map() {
         let mut rt = with_default();
-        // The enemy is east: the flee would leave the map, so it is clamped
-        // to the origin of the grid.
-        let view = view(cell(1, 1), &[(cell(9, 9), None)], &[(cell(5, 1), 0)]);
+        // Two enemies east and I'm alone: the flee would leave the map, so it
+        // is clamped to the origin of the grid.
+        let view = view(
+            cell(1, 1),
+            &[(cell(9, 9), None)],
+            &[(cell(5, 1), 0), (cell(5, 2), 0)],
+        );
         assert_eq!(
             rt.reflex("default", &view, 10_000),
             ReflexOut::Cmd(MotorCmd::GoTo(cell(0, 1)))

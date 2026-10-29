@@ -581,15 +581,21 @@ mod tests {
         let h = Header::default_round(1, DEFAULT_REFLEX);
         let mut sim = Sim::new(&h).expect("the round starts");
         let mut held = 0u64;
+        let mut tagged = 0u64;
         for _ in 0..3000 {
             let out = sim.step(&[]);
             for event in &out.events {
-                if matches!(event, Event::BeaconHeld { .. }) {
-                    held += 1;
+                match event {
+                    Event::BeaconHeld { .. } => held += 1,
+                    Event::Tagged { .. } => tagged += 1,
+                    _ => {}
                 }
             }
         }
         assert!(held >= 1, "no beacon held in 3000 ticks");
+        // Restored from the plan: squads must make contact. The first reflex
+        // fled every enemy, so this was 0; the retuned one charges with numbers.
+        assert!(tagged >= 1, "no tag in 3000 ticks");
         let scores = sim.scores();
         assert!(scores.iter().any(|&s| s > 0), "nobody scored: {scores:?}");
     }

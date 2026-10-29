@@ -14,10 +14,19 @@
 //
 // The rules, in order:
 //
-//   1. an enemy within 6 cells: step 4 cells directly away from it,
-//      clamped into the map (the motor refuses walls anyway);
-//   2. otherwise the nearest beacon no squad of ours holds;
+//   1. a FRESH enemy sighting (seen within the last 6 ticks) within 6 cells:
+//      count my non-stunned squadmates within 4 cells of me. If we at
+//      least match the fresh enemies near me, CHARGE the nearest one (a tag
+//      needs contact within 2 m). Otherwise step 4 cells directly away.
+//   2. otherwise walk to the nearest beacon my squad doesn't hold;
 //   3. otherwise hold.
+//
+// Why "outnumber": fleeing every enemy (the first version of this script)
+// meant squads never met, so no tag ever happened (found in Task 11 over
+// 24 seeds). Charging only with at least equal numbers keeps agents from suiciding while
+// making contact, and so scouting and callouts, matter. Stale sightings
+// (old memories in the squad's knowledge) are ignored: you don't flee a
+// ghost.
 //
 // Distances are Chebyshev (the metric of the 8-connected grid). The work
 // is split over small functions on purpose: the sandbox caps how deeply
@@ -69,14 +78,53 @@ fn free_beacon(v, me) {
     best
 }
 
+// How many of my squadmates (not me, not stunned) stand within 4 cells.
+fn allies_near(v, me) {
+    let n = 0;
+    for mate in v.squad {
+        if mate.id != v.me.id && !mate.stunned && chebyshev(me, mate.cell) <= 4 {
+            n += 1;
+        }
+    }
+    n
+}
+
+// Fresh enemy sightings within 6 cells: [count, index of the nearest, its distance].
+fn threats(v, me) {
+    let count = 0;
+    let nearest = -1;
+    let nearest_d = 0;
+    for i in 0..v.enemies.len() {
+        let e = v.enemies[i];
+        if e.age_ticks <= 6 {
+            let d = chebyshev(me, e.cell);
+            if d <= 6 {
+                count += 1;
+                if nearest < 0 || d < nearest_d {
+                    nearest = i;
+                    nearest_d = d;
+                }
+            }
+        }
+    }
+    [count, nearest, nearest_d]
+}
+
 fn reflex(v) {
     let me = v.me.cell;
 
-    // 1. Flee an enemy that is close enough.
-    for enemy in v.enemies {
-        if chebyshev(me, enemy.cell) <= 6 {
-            return flee(me, enemy.cell);
+    // 1. Fresh contact: charge with numbers, flee without.
+    let t = threats(v, me);
+    if t[0] > 0 {
+        let target = v.enemies[t[1]].cell;
+        // Equal numbers engage too: on a mirrored map with mirrored squads,
+        // "strictly outnumber" makes both sides back off forever (a standoff
+        // found by the contact probe). Ties go to whoever moves first, which
+        // the sim's rotated order makes fair over time.
+        if allies_near(v, me) + 1 >= t[0] {
+            return #{ "goto": [target[0], target[1]] };
         }
+        return flee(me, target);
     }
 
     // 2. Take the nearest beacon that no squad of ours holds.
