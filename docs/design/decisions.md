@@ -66,6 +66,8 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 
 | D57 | 2026-10-28 | **Cognition is priced on three axes: time, money and model size** (Casey: "the money-to-cognition ratio… an additional budget on their cloud use or model-size constraints"). Each tier in the `TierTable` (D55) carries latency (ticks), money (tokens × the exchange rate, D16) and a size class (≤1B, ≤3B, ≤9B, cloud). The **round header sets the economy**: per-role cloud allotments, an optional bonus cloud budget, and per-role size caps (for example members ≤3B, leaders up to cloud). This yields game variants (a poor squad, small minds, a rich leader) that are fair, visible and replayable. Agents optimise quality per tick and quality per dollar inside the caps. New metrics: quality per token and quality per tick, per agent and per squad | Extends D55/D56 from time to money and size; turns budgets from limits into a strategic economy | D16, D55, D56 |
 
+| D58 | 2026-10-28 | **The round's clock is a parameter:** a T-minus time countdown (`time_limit_ticks`), a **token-limit countdown** (the round ends when a squad's or the shared thinking budget is spent; `rules.end_on = time | tokens | both`), or both. The HUD shows whichever clock is running, and agents see their remaining clock in their facts, so strategy shifts with the clock (spend early vs hoard) | Casey: "sometimes it's on a time-minus countdown, other times a token-limit countdown, like my subscriptions" | D16, D55–D57 |
+
 ## Pending (under discussion)
 - Spikes S1/S2: decision-model latency on the Thor (16 agents × 8 gates, p99, other tenants loaded) and on the ProArt 4050
 - User review of the M1 spec (now with fleet refinements D23–D36)
