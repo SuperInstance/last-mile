@@ -62,6 +62,8 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 | D49 | 2026-10-28 | **Gate state is code-computed facts in plain language, never raw grids or spatial arithmetic.** Local member/leader gates default to **d1-3B** on the Thor (:8093); d1-omni-600M only for trivial direct questions after calibration against a stronger model; Jev and clef-flash are teachers/judges. Each model gets its own confidence threshold; never average models. Supersedes the d1-2B pick in D35/D37 | E4c: d1-3B 0.45 → 0.97 on action with facts instead of the grid; Jev 1.00; bearing (arithmetic) stays in code | [poc/thor](../research/poc/thor/RESULTS.md) |
 | D50 | 2026-10-28 | **Network:** keep connections persistent (QUIC/keep-alive) to the Thor's endpoints; recommend Ethernet for the Thor in production | Wi-Fi adds ~12 ms median per call with new connections, and the p99 is ~1 s from connection-setup loss | poc/thor |
 
+| D51 | 2026-10-28 | **`lm-agents` runs wherever is convenient (a parameter; default the ProArt) and calls the Thor's decision models over HTTP.** A Thor-resident agent host, the mirror sim and the QUIC decision link wait until measured latency says the extra hop matters; the cross-arch golden check is a separate handoff to the Thor's agent | The Thor already serves every model over System One HTTP (fromthor1); this removes aarch64 deployment from the critical path | [phase 3 plan](../superpowers/plans/2026-10-28-m1-phase3-agents.md) |
+
 ## Pending (under discussion)
 - Spikes S1/S2: decision-model latency on the Thor (16 agents × 8 gates, p99, other tenants loaded) and on the ProArt 4050
 - User review of the M1 spec (now with fleet refinements D23–D36)
