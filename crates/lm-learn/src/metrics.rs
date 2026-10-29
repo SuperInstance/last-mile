@@ -470,12 +470,13 @@ mod tests {
         rec.finish()
     }
 
-    /// A brawl: both squads pinned to the one beacon of a one-chunk world,
-    /// every tick, until they meet and trade tags.
+    /// A brawl: both squads pinned to the first beacon of a one-chunk world,
+    /// every tick, until they meet and trade tags. (Two beacons: since the
+    /// fairness fix, beacons come in point-symmetric pairs, D61.)
     fn melee_log() -> RoundLog {
         let mut h = Header::default_round(1, REFLEX);
         h.params.world_chunks = (1, 1);
-        h.params.beacons = 1;
+        h.params.beacons = 2;
         // Short stuns, so the tagged walk back and the tags keep landing.
         h.params.stun_ticks = 2;
         let beacon = Sim::new(&h).expect("the round starts").world().beacons[0];
