@@ -16,6 +16,7 @@ use crate::agent::Agent;
 use crate::decision::Tick;
 use crate::hash::{Fnv64, StateHash};
 use crate::params::{ParamError, Params};
+use crate::script::ScriptError;
 use crate::world::World;
 use serde::{Deserialize, Serialize};
 
@@ -145,6 +146,8 @@ pub enum SimError {
     UnknownRuleset(String),
     /// The parameters of the round are not usable.
     Params(ParamError),
+    /// A reflex script of the round could not be loaded.
+    Script(ScriptError),
 }
 
 impl std::fmt::Display for SimError {
@@ -152,11 +155,18 @@ impl std::fmt::Display for SimError {
         match self {
             SimError::UnknownRuleset(name) => write!(f, "unknown ruleset: {name}"),
             SimError::Params(e) => write!(f, "invalid parameter {}: {}", e.field, e.reason),
+            SimError::Script(e) => write!(f, "{e}"),
         }
     }
 }
 
 impl std::error::Error for SimError {}
+
+impl From<ScriptError> for SimError {
+    fn from(e: ScriptError) -> Self {
+        SimError::Script(e)
+    }
+}
 
 /// The ruleset with this name.
 ///

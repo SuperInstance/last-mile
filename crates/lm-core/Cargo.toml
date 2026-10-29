@@ -12,3 +12,4 @@ license.workspace = true
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
+rhai = { version = "1", default-features = false, features = ["no_float", "sync", "std"] }

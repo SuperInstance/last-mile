@@ -24,6 +24,7 @@ pub mod params;
 pub mod rng;
 pub mod rules;
 pub mod sched;
+pub mod script;
 pub mod trig_table;
 pub mod view;
 pub mod world;
@@ -39,6 +40,7 @@ pub use params::{ParamError, Params};
 pub use rng::{Domain, Rng};
 pub use rules::{Beacons, Event, Outcome, Ruleset, SimError};
 pub use sched::{lead_ticks, Reject, SchedStats, Sequencer};
+pub use script::{ReflexOut, RhaiRuntime, ScriptError, ScriptRuntime};
 pub use trig_table::{SIN_Q14, TRIG_TABLE_HASH};
 pub use view::{
     menu, option_cmd, AgentSnap, BeaconSnap, EnemySeen, Menu, MenuOption, ScoreView, SquadKnowledge,
