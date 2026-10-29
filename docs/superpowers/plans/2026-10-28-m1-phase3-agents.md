@@ -171,5 +171,5 @@ crates/lm-host-model/src/host_loop.rs   (modify) accept decisions from a Channel
 
 ### Out of this plan (handoffs)
 
-- **Cross-architecture golden check:** ask the Thor's agent (in a `forthor` handoff) to `git clone` the repo, `cargo run -p lm-tools --release -- golden`, and report `OK 3/3` on aarch64. This is the D10/D26 x86↔ARM proof.
+- **Cross-architecture golden check:** ask the Thor's agent (in a `forthor` handoff) to `git clone` the repo, `cargo run --release --bin lm -- golden`, and report `OK 3/3` on aarch64. This is the D10/D26 x86↔ARM proof.
 - **QUIC transport and a Thor-resident `lm-agents`:** only if measured latency says the extra hop matters (D51).

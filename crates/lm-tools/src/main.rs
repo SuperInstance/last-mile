@@ -70,7 +70,8 @@ enum Command {
         /// The seed of the round.
         #[arg(long)]
         seed: u64,
-        /// How many ticks the round may run.
+        /// How many ticks the round may run. 0 plays an empty round: a valid
+        /// log with a header and no ticks, which replays as `OK 0 hashes`.
         #[arg(long)]
         ticks: u64,
         /// A JSON Lines file of decisions to inject.
@@ -282,6 +283,11 @@ fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> Exit
 /// A short description of how the round went.
 fn describe(stats: &runner::RunStats) -> String {
     let mut text = format!("scores {:?}", stats.scores);
+    if stats.ticks == 0 {
+        // A round of zero ticks is still a round: the log has a header and no
+        // segments, and it replays as `OK 0 hashes`.
+        text = format!("empty round, {text}");
+    }
     if stats.stale > 0 || stats.refused > 0 {
         text.push_str(&format!(
             ", {} refused ({} stale)",

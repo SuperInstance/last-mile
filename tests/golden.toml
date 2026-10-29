@@ -8,7 +8,7 @@
 # the commit that touches this file has to say why the world changed.
 #
 # Regenerate with:
-#     cargo run -p lm-tools --release -- golden --write
+#     cargo run --release --bin lm -- golden --write
 
 ticks = 3000
 

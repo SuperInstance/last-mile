@@ -26,20 +26,25 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 ## Build and test (WSL / Linux)
 
 ```bash
-bash scripts/check.sh          # fmt, clippy -D warnings, no-float guard, tests (debug + release), lm golden
+bash scripts/check.sh          # fmt, clippy -D warnings, no-float guard, tests (debug + release), lm golden, acceptance session
 cargo test --workspace         # tests only
-cargo run -p lm-tools -- gen-trig > /tmp/t.rs   # regenerate the pinned trig table (it must stay byte-identical)
+cargo run --bin lm -- gen-trig > /tmp/t.rs   # regenerate the pinned trig table (it must stay byte-identical)
 ```
 
-The headless tools:
+The headless tools. The crate is `lm-tools`; the binary it builds is `lm`:
 
 ```bash
-cargo run -p lm-tools --release -- run --seed 1 --ticks 9000 --out /tmp/r.lml   # play a round, write its log
-cargo run -p lm-tools --release -- replay /tmp/r.lml                            # OK <n> hashes
-cargo run -p lm-tools --release -- diff /tmp/a.lml /tmp/b.lml                   # the first tick that moves
-cargo run -p lm-tools --release -- golden                                       # OK 3/3, against tests/golden.toml
-cargo run -p lm-tools --release -- golden --write                               # re-pin tests/golden.toml
+cargo build --release -p lm-tools                                  # builds ./target/release/lm
+./target/release/lm run --seed 1 --ticks 9000 --out /tmp/r.lml   # play a round, write its log
+./target/release/lm replay /tmp/r.lml                            # OK <n> hashes
+./target/release/lm diff /tmp/a.lml /tmp/b.lml                   # the first tick that moves
+./target/release/lm golden                                       # OK 3/3, against tests/golden.toml
+./target/release/lm golden --write                               # re-pin tests/golden.toml
 ```
+
+`cargo run --release --bin lm -- <subcommand>` does the same thing without the
+explicit build. `bash scripts/acceptance.sh` drives the built binary through a
+whole session (run, replay, diff, golden) and says PASS or FAIL per step.
 
 `lm run` can also inject decisions from a JSON Lines file
 (`--inject decisions.jsonl`), one decision and its arrival tick per line:
@@ -56,7 +61,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 |---|---|---|
 | [`lm-core`](crates/lm-core/src/lib.rs) | The deterministic simulation: fixed-point math, worldgen, LOS, JPS, decisions and sequencer, lane conditioner, agents with safe branches, fog-of-war views and menus, Beacons rules, sandboxed Rhai reflexes, the hash-chained round log | No floats, no unordered containers, no clock, no network. Overflow checks on in release |
 | [`lm-proto`](crates/lm-proto/src/lib.rs) | Wire messages, a strict postcard codec, the version handshake | No transport yet (QUIC comes in phase 3) |
-| [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI: `run`, `replay`, `diff`, `golden` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
+| [`lm-tools`](crates/lm-tools/src/main.rs) | The `lm` CLI (the crate is `lm-tools`, the binary it builds is `lm`): `run`, `replay`, `diff`, `golden` and `gen-trig`, plus the headless runner ([`lm_tools::runner`](crates/lm-tools/src/runner.rs)) the phase-2 host will drive | Floats allowed here only (the table generator) |
 
 ## Repository map
 
