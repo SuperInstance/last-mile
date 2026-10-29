@@ -134,3 +134,36 @@ What this gives System Two (the slow, deliberate layer: the leader, the between-
 The vocabulary itself is versioned and learned like the lexicon: a new mark is proposed only when a residual cluster recurs, is sealed with a prediction, and is adopted on evidence. The notation grows the way musical notation did: when performers keep doing something that has no name yet.
 
 **Experiment E6:** inter-rater agreement. Does the marks layer agree with (a) LFM3's answers and (b) a human listener on the skald dataset? Do marks make System Two's proposals more accurate than dials alone? Pass: the agreement is reported per family, and families below chance are reworked or dropped.
+
+## 12. The full score: face, gaze and body on the same staff
+
+Speech is one instrument of a person's expression. The face, gaze, head and hands play at the same time, and meaning often lives in how they line up: a falling *hold* with a nod and lowered brows is a different act from the same word with raised brows and a glance away. The same MIDI split applies to them, and it is older there than in speech. MPEG-4's Facial Animation Parameters (1999) were designed to animate a face at a few kbit/s. FACS action units name the muscles. ARKit's 52 blendshapes and the VRM/VMC (OSC) protocols stream them live today.
+
+**One score, many staves.** A person is one **system** in an orchestral score. Every staff shares one clock (the sim tick, plus a sub-tick frame index):
+
+| Staff | L0 (frame) | L1 (gesture) | L2.5 (marks, draft) |
+|---|---|---|---|
+| Voice | Vox Score L0 (§4) | syllables | strong, clipped, falling… |
+| Face | ~52 blendshape / action-unit levels at 30–60 Hz | an AU's onset and release, with attack and decay (the same ADSR as a note) | brows-down, tight-lipped, smile-onset, jaw-set |
+| Gaze | direction and fixation | saccade, hold, aversion | at-you, away, scanning |
+| Head | pose (3 angles) | nod, shake, tilt, lean | nodding, still, turning-away |
+| Hands/body | key joints | point, beckon, halt-palm, shrug | pointing-left, open, closed |
+
+The same encoding (§5: running status, deltas, rests) keeps a face to a few hundred B/s. The same layers apply: L0 → gestures → a phrase patch → marks → intent. Marks are shared across staves where they mean the same thing (emphasis, hesitation, address).
+
+**The synoptic view is the conductor's score.** last-mile already draws a piano roll, one lane per agent. That roll grows into a full score: per person, a voice staff (the words above it, marks below), a face staff, a gaze staff and a gesture staff, all aligned on the same time axis. You see the *complete* expression at once: what was said, how it was said, where they looked and what their face did, and how those lined up or contradicted each other. Cross-staff patterns (motifs that span voice + face + head) become minable and nameable, exactly as single-staff motifs are (§11).
+
+**Both directions, again.**
+- **Perception (reality):** camera → face/pose landmarks → blendshape/AU levels → the face, gaze, head and body staves. Microphone → the voice staff. The decision model reads cross-staff marks, which are more reliable than any single channel.
+- **Generation (virtual):** an agent's decision writes *one* score, and every renderer plays from it: the voice (skald / LPC), the avatar's face and the avatar's body. Voice and face can't disagree, because they are the same performance played on different instruments. This is the fix for the "uncanny" mismatch of separately generated speech and animation.
+- **Coaching and review:** the score can be replayed, edited ("make the brows softer here") and re-rendered, like editing MIDI and re-playing it.
+
+**Constraints and honesty:**
+- Faces are far more identifying than prosody. The face staff stores blendshape levels, never images, and is a separate privacy tier (§8), on by explicit choice only.
+- NVIDIA Audio2Face and Maxine are x86-only (verified by the Thor's agent), so on the Thor the face path is landmark-based.
+- The Thor already hosts 3D vision services (:8098 capture, :8099 MoGe). Whether a face/pose landmark model runs there is to be measured, not assumed.
+
+**Experiments:**
+- **E7, the synoptic view:** extend the piano roll into a multi-staff score for agents, using their own decisions first (they already have intents and talk), then the voice staff from Vox Score. Pass: a reviewer can tell from the score alone which of two deliveries was the urgent one.
+- **E8, one score drives voice and face:** an agent's line renders voice and avatar face from the same L2 marks in the 3D view. Pass: in a blind A/B, viewers judge the expression as coherent more often than with independent voice and animation.
+- **E0 is extended** to FACS, MPEG-4 FAP/FBA, ARKit blendshapes, VRM/VMC, OSC, BVH and Live Link.
