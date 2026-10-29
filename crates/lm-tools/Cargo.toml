@@ -16,11 +16,19 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
+# The `voice` subcommand plays its round with the stub minds of the
+# shipped harness, so it needs the agents the host would attach. The
+# agents do not depend on this crate (their lm-host-model edge is a
+# dev-dependency), so this edge points one way only.
+lm-agents = { path = "../lm-agents" }
 lm-core = { path = "../lm-core" }
 # The learning flow: the `learn` subcommand runs one learning round. The
 # flow's crate does not depend on this one (that would be a cycle), so the
 # flow plays its rounds with lm-core alone.
 lm-learn = { path = "../lm-learn" }
+# The voice lane: the skald client, the bank and the prefetch queue the
+# `voice` subcommand reports on.
+lm-voice = { path = "../lm-voice" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 toml = "1.1.8"

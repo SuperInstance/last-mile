@@ -1,6 +1,6 @@
 //! The `lm` CLI.
 //!
-//! Six subcommands:
+//! Seven subcommands:
 //!
 //! * `lm run` plays a headless round and writes its log;
 //! * `lm replay` replays a log and checks every hash it recorded;
@@ -8,6 +8,8 @@
 //! * `lm golden` checks (or writes) the pinned golden hashes;
 //! * `lm branch` rewinds a round to a tick, changes one thing and re-runs
 //!   it;
+//! * `lm voice` plays a seeded round and reports the voice lane's numbers
+//!   through the skald bank;
 //! * `lm gen-trig` writes the Q14 sine table that `lm-core` commits.
 //!
 //! The table is generated on the host (where floating point is allowed) and
@@ -156,6 +158,29 @@ enum Command {
     },
     /// Print the Q14 sine table that `lm-core` commits.
     GenTrig,
+    /// Play a seeded round with the stub minds, pre-render every line it
+    /// speaks through the skald voice bank, and report the voice lane's
+    /// numbers: unique lines, the cache hit rate on a second run, render
+    /// latency, the real-time factor, the lines that would have been late
+    /// at the round's real pace, and the ASR round-trip intelligibility
+    /// gate.
+    Voice {
+        /// The seed of the round.
+        #[arg(long, default_value_t = 1)]
+        seed: u64,
+        /// How many ticks the round may run.
+        #[arg(long, default_value_t = 3000)]
+        ticks: u64,
+        /// Where the voice bank lives.
+        #[arg(long, default_value = "target/voice-bank")]
+        bank: PathBuf,
+        /// A voice.toml that overrides the shipped one.
+        #[arg(long)]
+        voice_toml: Option<PathBuf>,
+        /// How many lines the intelligibility gate samples.
+        #[arg(long, default_value_t = 8)]
+        sample: usize,
+    },
 }
 
 fn main() -> ExitCode {
@@ -200,6 +225,19 @@ fn main() -> ExitCode {
             print!("{}", gen_trig());
             ExitCode::SUCCESS
         }
+        Command::Voice {
+            seed,
+            ticks,
+            bank,
+            voice_toml,
+            sample,
+        } => lm_tools::voice::cmd_voice(&lm_tools::voice::VoiceArgs {
+            seed,
+            ticks,
+            bank,
+            voice_toml,
+            sample,
+        }),
     }
 }
 

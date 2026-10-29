@@ -4179,8 +4179,10 @@ name = "lm-tools"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "lm-agents",
  "lm-core",
  "lm-learn",
+ "lm-voice",
  "serde",
  "serde_json",
  "toml",

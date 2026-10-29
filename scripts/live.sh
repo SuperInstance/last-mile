@@ -27,10 +27,14 @@
 #   lm-host-model  live_round_on_thor                        d1-3b
 #   lm-host-model  the_doctrine_pack_is_confident_enough...  d1-3b
 #   lm-host-model  talk_soak                                 d1-2b
+#   lm-voice       live_skald_speaks                         skald :8000
+#   lm-voice       live_skald_round_trip_is_intelligible     skald :8000 (+ whisper venv)
 #
 # The Riva tests (lm-voice's live_riva_tts and lm-host-model's
 # live_round_with_riva) are not in this lane: they need a Riva service, not
-# the Thor.
+# the Thor. The skald lane below is different: the voice daemon runs on
+# this very Thor (localhost:8000), so it is probed on its own and skipped
+# when it is down.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -225,6 +229,29 @@ run_live "lm-host-model the_doctrine_pack_is_confident_enough_to_drive_play" \
 
 run_live "lm-host-model talk_soak" "$PORT_D1_2B" check_soak_table \
   -p lm-host-model --test talk_soak talk_soak
+
+# The skald lane: the voice daemon on the Thor itself (localhost:8000),
+# not the decision models. The daemon's health path is /v1/health, which
+# port_is_up does not try, so the probe is any HTTP answer at all — the
+# daemon's / answers 200. The round-trip test also needs the whisper venv
+# of skald's own smoke test; without ears it fails loudly, because an
+# unverified clip is not a working clip.
+SKALD_PORT=8000
+if port_is_up "$SKALD_PORT"; then
+  run_live "lm-voice live_skald_speaks" "$SKALD_PORT" check_ran \
+    -p lm-voice --lib live_skald_speaks
+
+  if [ -x /tmp/whisperenv/bin/python3 ]; then
+    run_live "lm-voice live_skald_round_trip_is_intelligible" "$SKALD_PORT" check_ran \
+      -p lm-voice --lib live_skald_round_trip_is_intelligible
+  else
+    printf 'SKIP: lm-voice live_skald_round_trip_is_intelligible -- no whisper venv at /tmp/whisperenv\n'
+    skipped=$((skipped + 1))
+  fi
+else
+  printf 'SKIP: the skald lane -- the voice daemon on :%s is not serving\n' "$SKALD_PORT"
+  skipped=$((skipped + 1))
+fi
 
 if [ "$failed" -gt 0 ]; then
   printf '\n==> live checks FAILED: %s of %s test(s) failed\n' \

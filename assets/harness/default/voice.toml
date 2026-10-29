@@ -1,0 +1,81 @@
+# The voice map: which skald voice speaks each agent, and which emotion
+# style each tone of the score is spoken in (the D67 sidecar, pre-rendered
+# and never blocking the game).
+#
+# skald is the voice service on the Thor: POST /v1/audio/speech on the
+# daemon answers a WAV (22 050 Hz, mono, 16-bit) about 0.7 s after the ask
+# when the Thor is idle and about 2.3 s for a 2.7 s line when it is busy —
+# so lines are rendered AHEAD of time into the bank and looked up when
+# they are due, never rendered inline (a line that is not ready plays as
+# the tone, and the miss is counted).
+#
+# What the service actually accepts (probed 2026-10-29): the emotion style
+# is NOT a parameter of its own — it is the suffix of the voice id. The
+# aliases mia/jason/aria and the canonical ids
+# Magpie-Multilingual.EN-US.<Speaker>[.<Style>] work; the short form
+# "Mia.Calm" answers HTTP 400. The styles are Default, Neutral, Calm,
+# Angry, Happy and Sad. There is no rate or pitch parameter either; the
+# pace is the client's playback concern.
+#
+# This file is part of the harness: a reviewer edits it between rounds and
+# the round pins it (D27). Every entry is a parameter with a default
+# (D19); the engine id joins the bank key so a swapped engine can never be
+# served as the old one's clips.
+
+[skald]
+# Where the daemon is. It is on this machine (the Thor), so localhost.
+base = "http://localhost"
+port = 8000
+# The identity of the renderer, hashed into every bank key. skald's daemon
+# reports version 0.1.0 over the official riva_quickstart 2.26 tegra-thor
+# prebuilt (research 2026-10-29c); change this string when the engine
+# changes and the bank re-renders instead of serving stale clips.
+engine_id = "skald-0.1.0+riva-2.26.0-tegra-thor-magpie"
+# The WAV rate the daemon is asked for.
+sample_rate_hz = 22050
+# How long one render may take. The prefetch worker renders ahead of time,
+# so this only bounds a wedged service; 8 s clears the busiest measured
+# Thor (2.3 s for a 2.7 s line under load; 4.0 s measured while the box
+# also compiled the workspace) with room to spare.
+deadline_ms = 8000
+
+[agents]
+# The speaker each agent's lines are rendered in, by agent id. The default
+# covers an agent the table does not name. Three speakers ship (mia,
+# jason, aria — canonical ids work too); the default round is two squads
+# of four, so the leaders get their own voices and the members share one.
+default = "jason"
+"0" = "mia"  # squad 0's leader
+"4" = "aria" # squad 1's leader
+
+# The emotion style a line is rendered in. The `tone` table maps the
+# score's affect buckets (the intention gate's score, bucketed by code);
+# the `intent` table is an optional override keyed by the line's intent
+# (order, ack, warn, query, report) and wins when it names one.
+#
+# The defaults are chosen for contrast from Neutral, not for taste: a
+# reviewer retunes them. Probed: the palette is per speaker — Jason
+# carries no Sad (`...Jason.Sad` answers HTTP 400), so the shipped table
+# sticks to the styles every shipped speaker (mia, jason, aria) carries:
+# Neutral, Calm, Angry, Happy. A harness that names a speaker with the
+# full palette (mia, aria, ...) may use Sad freely.
+[styles.tone]
+calm = "Neutral"      # the everyday voice of the field
+urgent = "Angry"      # the pressed moment: the loudest departure from Neutral
+uncertain = "Calm"    # doubt: the gentler, drawn style (Sad is not on every speaker)
+
+# Example (uncomment to override the tone table for one intent):
+# [styles.intent]
+# query = "Calm"
+
+[asr]
+# The intelligibility gate: audio "works" only when a speech recognizer
+# agrees with what was asked for (skald's ASR round-trip rule). Riva's
+# HTTP surface has /v1/audio/transcriptions, but this deployment carries
+# TTS models only (it answers "Model not found" for every language), so
+# the gate falls through to the faster-whisper venv skald's own smoke
+# test uses. When neither path answers, the report says so plainly and
+# claims nothing.
+riva_base = "http://localhost"
+riva_port = 50000
+whisper_python = "/tmp/whisperenv/bin/python3"

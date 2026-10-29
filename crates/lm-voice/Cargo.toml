@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "the voice service: the TTS/ASR traits, the stub backends, the Riva placeholders and the bark cache (phase 4 Task 5)"
+description = "the voice service: the TTS/ASR traits, the stub backends, the Riva placeholders, the bark cache (phase 4 Task 5), and the skald sidecar path: the voice bank, the prefetch queue and the ASR round-trip gate (D73)"
 
 [dependencies]
 # The score and the hearing physics: the voice service is told what was
