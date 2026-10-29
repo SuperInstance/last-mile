@@ -71,6 +71,13 @@ pub struct AgentsConfig {
     /// What an exhausted budget does: `reflex` keeps the reflexes playing,
     /// `freeze` freezes (D24).
     pub on_exhaust: String,
+    /// An enemy sighting older than this many ticks is stale: [`crate::facts`]
+    /// omits it (D49). Was a constant in phase 3 Task 1; a parameter since
+    /// Task 5.
+    pub stale_enemy_ticks: u32,
+    /// Allies farther away than this many cells (Chebyshev) are not stated in
+    /// the facts. Was a constant; a parameter since Task 5.
+    pub ally_range_cells: i32,
 }
 
 impl Default for AgentsConfig {
@@ -99,6 +106,8 @@ impl Default for AgentsConfig {
             squad_weight: 0.5,
             budget_calls_per_round: 400,
             on_exhaust: "reflex".to_owned(),
+            stale_enemy_ticks: 6,
+            ally_range_cells: 4,
         }
     }
 }
@@ -160,9 +169,11 @@ mod tests {
                 c.request_timeout_ms,
                 c.squad_weight,
                 c.budget_calls_per_round,
-                c.on_exhaust.as_str()
+                c.on_exhaust.as_str(),
+                c.stale_enemy_ticks,
+                c.ally_range_cells
             ),
-            (3, 400, 0.5, 400, "reflex")
+            (3, 400, 0.5, 400, "reflex", 6, 4)
         );
     }
 
@@ -200,6 +211,8 @@ request_timeout_ms = 250
 squad_weight = 0.25
 budget_calls_per_round = 40
 on_exhaust = "freeze"
+stale_enemy_ticks = 9
+ally_range_cells = 7
 
 [ports]
 d1-3b = 9000
@@ -224,9 +237,11 @@ jev = 0.7
                 c.request_timeout_ms,
                 c.squad_weight,
                 c.budget_calls_per_round,
-                c.on_exhaust.as_str()
+                c.on_exhaust.as_str(),
+                c.stale_enemy_ticks,
+                c.ally_range_cells
             ),
-            (2, 1, "presence", 5, 6, 250, 0.25, 40, "freeze")
+            (2, 1, "presence", 5, 6, 250, 0.25, 40, "freeze", 9, 7)
         );
     }
 

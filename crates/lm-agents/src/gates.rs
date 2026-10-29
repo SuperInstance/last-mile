@@ -297,8 +297,17 @@ impl GateSet {
     /// gate over the menu carries one criterion per menu option, keyed
     /// `opt0`, `opt1`, … — the keys its answer comes back under.
     pub fn to_questions(&self, menu: &Menu) -> Value {
+        self.to_questions_limited(menu, u16::MAX)
+    }
+
+    /// The `questions` pack, capped at `limit` gates (the D56
+    /// `max_questions` lever): a smaller pack is a faster call.
+    ///
+    /// The gates are taken in file order; a gate left unasked simply makes no
+    /// decision (nothing is invented for it, D26).
+    pub fn to_questions_limited(&self, menu: &Menu, limit: u16) -> Value {
         let mut questions = Map::new();
-        for gate in &self.gates {
+        for gate in self.gates.iter().take(usize::from(limit)) {
             questions.insert(gate.id.clone(), gate.question(menu));
         }
         Value::Object(questions)
@@ -322,7 +331,10 @@ impl GateSet {
 ///
 /// `now` is the tick the answer came back on and `lead` the number of ticks
 /// the decision needs to arrive, so the decision is applied on
-/// `now + lead`.
+/// `now + lead`. `situation_key` is the D25 facts key the question was asked
+/// over: it travels in the decision's provenance, so the log names the exact
+/// situation the model answered (and the policy sees when a situation
+/// repeats).
 pub fn answers_to_decisions(
     set: &GateSet,
     answers: &Answers,
@@ -330,6 +342,7 @@ pub fn answers_to_decisions(
     agent: u16,
     now: Tick,
     lead: u16,
+    situation_key: u64,
 ) -> Result<Vec<Decision>, Refusal> {
     // An answer that names a gate we never asked is not an answer to our
     // question: refuse the whole pack instead of taking the part that fits.
@@ -377,10 +390,10 @@ pub fn answers_to_decisions(
                 model: answers.model.clone(),
                 tokens: answers.input_tokens,
                 latency_ms: answers.latency_ms,
-                // The menu's id is the hash of the situation the decision
-                // was made over that this layer can see: the legal options.
-                // The facts' own key (D25) travels with the think request.
-                situation_key: menu.id,
+                // The situation the decision answered: the D25 key of the
+                // facts the question was asked over. The menu's own id
+                // travels in the lane.
+                situation_key,
             },
         });
     }
@@ -474,6 +487,9 @@ mod tests {
         }
     }
 
+    /// The situation key the tests answer under: an arbitrary facts key.
+    const SITUATION: u64 = 0x00c0_ffee_0000_0006;
+
     /// A choice answer over the given option keys.
     fn choice(probs: &[(&str, f32)]) -> Answer {
         Answer::Choice {
@@ -520,7 +536,7 @@ mod tests {
             choice(&[("opt0", 0.1), ("opt1", 0.6), ("opt2", 0.2), ("opt3", 0.1)]),
         );
 
-        let decisions = answers_to_decisions(&set, &answers, &menu, 3, 100, 4)
+        let decisions = answers_to_decisions(&set, &answers, &menu, 3, 100, 4, SITUATION)
             .expect("the answer becomes a decision");
         assert_eq!(decisions.len(), 1);
 
@@ -543,11 +559,14 @@ mod tests {
                 model,
                 tokens,
                 latency_ms,
-                ..
+                situation_key,
             } => {
                 assert_eq!(model, "d1-3B");
                 assert_eq!(*tokens, 512);
                 assert_eq!(*latency_ms, 120);
+                // The situation key is the facts key the decision answered,
+                // not the menu's id (D25).
+                assert_eq!(*situation_key, SITUATION);
             }
             other => panic!("the decision is a System 1 decision, got {other:?}"),
         }
@@ -564,7 +583,7 @@ mod tests {
             choice(&[("opt0", 0.5), ("opt1", 0.3), ("opt2", 0.2)]),
         );
 
-        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2)
+        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2, SITUATION)
             .expect_err("the stale answer is refused");
         assert_eq!(refusal, Refusal::MenuChanged);
     }
@@ -575,7 +594,7 @@ mod tests {
         let menu = menu();
         let answers = answers_for("sneak", Answer::Noul(0.5));
 
-        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2)
+        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2, SITUATION)
             .expect_err("the unknown gate is refused");
         assert!(matches!(refusal, Refusal::Malformed(_)), "got {refusal:?}");
     }
@@ -607,8 +626,8 @@ mod tests {
         let menu = menu();
         let answers = answers_for("call_out", Answer::Noul(0.8));
 
-        let decisions =
-            answers_to_decisions(&set, &answers, &menu, 1, 5, 1).expect("the answer is accepted");
+        let decisions = answers_to_decisions(&set, &answers, &menu, 1, 5, 1, SITUATION)
+            .expect("the answer is accepted");
         assert!(decisions.is_empty(), "got {decisions:?}");
     }
 
@@ -636,8 +655,8 @@ mod tests {
             choice(&[("opt0", 0.5), ("opt1", 0.2), ("opt2", 0.2), ("opt3", 0.1)]),
         );
 
-        let decisions =
-            answers_to_decisions(&set, &answers, &menu, 2, 7, 3).expect("the answer is accepted");
+        let decisions = answers_to_decisions(&set, &answers, &menu, 2, 7, 3, SITUATION)
+            .expect("the answer is accepted");
         assert_eq!(decisions.len(), 1);
         match &decisions[0].kind {
             Kind::Lane(lane) => assert_eq!(lane.gate, 0),
@@ -675,8 +694,8 @@ mod tests {
             latency_ms: 120,
         };
 
-        let decisions =
-            answers_to_decisions(&set, &answers, &menu, 2, 7, 3).expect("the answers are accepted");
+        let decisions = answers_to_decisions(&set, &answers, &menu, 2, 7, 3, SITUATION)
+            .expect("the answers are accepted");
         assert_eq!(decisions.len(), 2);
         let gates: Vec<u8> = decisions
             .iter()
@@ -716,6 +735,35 @@ mod tests {
         let set = default_set();
         let menu = menu();
         assert_eq!(set.to_questions(&menu), set.to_questions(&menu));
+    }
+
+    #[test]
+    fn a_limited_pack_asks_fewer_gates() {
+        // The max_questions lever (D56): a smaller pack takes the gates in
+        // file order and leaves the rest unasked.
+        let text = r#"
+            [[gates]]
+            id = "move"
+            type = "choice"
+            options_from = "menu"
+            instructions = "What should you do now?"
+
+            [[gates]]
+            id = "call_out"
+            type = "noul"
+            instructions = "Should you call out to your squad?"
+        "#;
+        let set = GateSet::parse(text).expect("the gates parse");
+        let full = set.to_questions(&menu());
+        assert_eq!(full.as_object().expect("gates").len(), 2);
+
+        let limited = set.to_questions_limited(&menu(), 1);
+        let gates = limited.as_object().expect("gates");
+        assert_eq!(gates.len(), 1);
+        assert!(gates.contains_key("move"), "the first gate is asked");
+        assert!(!gates.contains_key("call_out"), "the second is not");
+        // A cap that covers everything asks everything.
+        assert_eq!(set.to_questions_limited(&menu(), 3), full);
     }
 
     #[test]

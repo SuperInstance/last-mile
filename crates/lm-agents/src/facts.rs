@@ -14,11 +14,7 @@ use lm_core::view::{EnemySeen, ScoreView};
 use lm_core::world::{jps, los, CellXY, World};
 use std::collections::BTreeMap;
 
-/// A sighting older than this many ticks is stale and omitted.
-const STALE_AFTER_TICKS: u32 = 6;
-
-/// Allies farther away than this many cells (Chebyshev) are not stated.
-const ALLY_RANGE_CELLS: i32 = 4;
+use crate::config::AgentsConfig;
 
 /// The compass words in the order their field indices run; row 0 is
 /// north, so +y is south. "here" is a zero step.
@@ -43,12 +39,12 @@ pub struct Facts {
 
 impl Facts {
     /// Compute the facts of `view` for an agent of squad `me_squad` on
-    /// `world`.
+    /// `world`, with the stale window and ally range of `cfg`.
     ///
     /// Deterministic by construction: fixed sentence order, integer math
     /// only, ordered maps only — the same view on the same world always
     /// yields the same text, fields and key.
-    pub fn from_view(view: &ScoreView, world: &World, me_squad: u8) -> Facts {
+    pub fn from_view(view: &ScoreView, world: &World, me_squad: u8, cfg: &AgentsConfig) -> Facts {
         let me = view.me.cell;
         let mut lines: Vec<String> = Vec::new();
         let mut fields: BTreeMap<String, i64> = BTreeMap::new();
@@ -123,7 +119,7 @@ impl Facts {
         // A stale memory is omitted entirely — better no fact than a
         // seven-tick-old position phrased as news.
         let mut any_enemy = false;
-        for e in fresh_enemies(view) {
+        for e in fresh_enemies(view, cfg.stale_enemy_ticks) {
             any_enemy = true;
             let dist = chebyshev(me, e.cell);
             let sighted = los::clear(&world.grid, me, e.cell);
@@ -156,7 +152,7 @@ impl Facts {
                 continue;
             }
             let dist = chebyshev(me, ally.cell);
-            if dist > i64::from(ALLY_RANGE_CELLS) {
+            if dist > i64::from(cfg.ally_range_cells) {
                 continue;
             }
             any_ally = true;
@@ -176,7 +172,10 @@ impl Facts {
             ));
         }
         if !any_ally {
-            lines.push(format!("No allies are within {ALLY_RANGE_CELLS} cells."));
+            lines.push(format!(
+                "No allies are within {} cells.",
+                cfg.ally_range_cells
+            ));
         }
 
         // My status.
@@ -210,12 +209,12 @@ pub fn situation_key(fields: &BTreeMap<String, i64>) -> u64 {
     h.finish()
 }
 
-/// The fresh enemy sightings, in view order: aged at most
-/// [`STALE_AFTER_TICKS`] ticks.
-fn fresh_enemies(view: &ScoreView) -> impl Iterator<Item = &EnemySeen> {
+/// The fresh enemy sightings, in view order: aged at most `stale_after`
+/// ticks.
+fn fresh_enemies(view: &ScoreView, stale_after: u32) -> impl Iterator<Item = &EnemySeen> {
     view.enemies
         .iter()
-        .filter(|e| e.age_ticks <= STALE_AFTER_TICKS)
+        .filter(move |e| e.age_ticks <= stale_after)
 }
 
 /// Chebyshev distance in cells — the metric of the 8-connected grid, and
@@ -255,9 +254,15 @@ fn role_word(role: Role) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::AgentsConfig;
     use lm_core::header::Role;
     use lm_core::view::{AgentSnap, BeaconSnap, EnemySeen};
     use lm_core::world::{jps, CellKind, CellXY, Grid};
+
+    /// The facts of a squad-0 view under the default config.
+    fn facts(view: &ScoreView, world: &World) -> Facts {
+        Facts::from_view(view, world, 0, &AgentsConfig::default())
+    }
 
     /// An unstunned snapshot at a cell.
     fn snap(id: u16, x: u16, y: u16, role: Role) -> AgentSnap {
@@ -332,8 +337,8 @@ mod tests {
 
     #[test]
     fn facts_are_deterministic() {
-        let a = Facts::from_view(&base_view(), &wall_world(), 0);
-        let b = Facts::from_view(&base_view(), &wall_world(), 0);
+        let a = facts(&base_view(), &wall_world());
+        let b = facts(&base_view(), &wall_world());
         assert_eq!(a.text, b.text);
         assert_eq!(a.fields, b.fields);
         assert_eq!(a.key, b.key);
@@ -342,7 +347,7 @@ mod tests {
 
     #[test]
     fn facts_state_numbers_not_grids() {
-        let f = Facts::from_view(&base_view(), &wall_world(), 0);
+        let f = facts(&base_view(), &wall_world());
         // Numbers, in cells, from code: positions and distances.
         assert!(f.text.contains("cells away"));
         assert!(f.text.contains("column"));
@@ -369,7 +374,7 @@ mod tests {
             ],
             ..base_view()
         };
-        let f = Facts::from_view(&view, &wall_world(), 0);
+        let f = facts(&view, &wall_world());
         // Age 6 is the last fresh age; age 7 is stale and omitted.
         assert!(f.text.contains("Enemy 7"));
         assert!(f.fields.contains_key("enemy.7.dist"));
@@ -381,7 +386,7 @@ mod tests {
     #[test]
     fn key_changes_with_situation() {
         let world = wall_world();
-        let a = Facts::from_view(&base_view(), &world, 0);
+        let a = facts(&base_view(), &world);
 
         // One step south is a different situation.
         let moved = ScoreView {
@@ -393,7 +398,7 @@ mod tests {
             ],
             ..base_view()
         };
-        let b = Facts::from_view(&moved, &world, 0);
+        let b = facts(&moved, &world);
         assert_ne!(a.key, b.key);
         assert_ne!(a.text, b.text);
 
@@ -403,13 +408,42 @@ mod tests {
             tick: 200,
             ..base_view()
         };
-        assert_eq!(a.key, Facts::from_view(&later, &world, 0).key);
+        assert_eq!(a.key, facts(&later, &world).key);
+    }
+
+    #[test]
+    fn stale_and_range_come_from_config() {
+        // Task 5 follow-up: the stale window and the ally range are
+        // parameters (defaults 6 and 4), not constants.
+        let world = wall_world();
+        let cfg = AgentsConfig {
+            stale_enemy_ticks: 3,
+            ally_range_cells: 1,
+            ..AgentsConfig::default()
+        };
+
+        // Under the tighter config the age-2 enemy is fresh but the age-4
+        // memory would be stale, and the ally 2 cells out is out of range.
+        let mut view = base_view();
+        view.enemies[1].age_ticks = 4;
+        let f = Facts::from_view(&view, &world, 0, &cfg);
+        assert!(f.text.contains("Enemy 4"));
+        assert!(!f.text.contains("Enemy 5"), "age 4 is stale at window 3");
+        assert!(!f.fields.contains_key("enemy.5.dist"));
+        assert!(!f.text.contains("Ally 1"), "2 cells is out of range at 1");
+        assert!(!f.fields.contains_key("ally.1.dist"));
+        assert!(f.text.contains("No allies are within 1 cells."));
+
+        // The defaults keep both.
+        let f = Facts::from_view(&view, &world, 0, &AgentsConfig::default());
+        assert!(f.text.contains("Enemy 5"), "age 4 is fresh at window 6");
+        assert!(f.fields.contains_key("ally.1.dist"));
     }
 
     #[test]
     fn position_beacons_allies_and_status_are_stated() {
         let world = wall_world();
-        let f = Facts::from_view(&base_view(), &world, 0);
+        let f = facts(&base_view(), &world);
         // The wall detour's exact step count comes from the same jps the
         // implementation calls (it is A*-verified in lm-core); the test
         // pins that the number lands in the sentence, correctly formatted.
@@ -453,7 +487,7 @@ mod tests {
         view.beacons[0].holder = Some(0);
         view.me.stunned = true;
         view.squad[1].stunned = true;
-        let f = Facts::from_view(&view, &world, 0);
+        let f = facts(&view, &world);
         assert!(f
             .text
             .contains("Beacon 0 at column 4, row 2 is held by your squad"));
@@ -472,7 +506,7 @@ mod tests {
             beacons: vec![],
             ..base_view()
         };
-        let f = Facts::from_view(&view, &wall_world(), 0);
+        let f = facts(&view, &wall_world());
         assert!(f.text.contains("You know of no fresh enemies."));
         assert!(f.text.contains("No allies are within 4 cells."));
     }
@@ -502,7 +536,7 @@ mod tests {
             cell: CellXY { x: 4, y: 2 },
             holder: None,
         }];
-        let f = Facts::from_view(&view, &world, 0);
+        let f = facts(&view, &world);
         assert!(f
             .text
             .contains("Beacon 0 at column 4, row 2 is unheld; there is no walking path to it."));

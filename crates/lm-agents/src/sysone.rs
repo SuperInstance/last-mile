@@ -1163,7 +1163,9 @@ mod tests {
 
     #[test]
     fn the_key_is_read_and_never_printed() {
-        let secrets = write_secrets("jev", "# the key\nTYPESAFE_API_KEY=sk-test-123456\n");
+        // Its own file name: the tests run in parallel on one temp dir, and
+        // two tests writing one shared path race each other's writes.
+        let secrets = write_secrets("jev-print", "# the key\nTYPESAFE_API_KEY=sk-test-123456\n");
         let backend = JevBackend::from_secrets_file(&secrets).expect("the key was read");
 
         let printed = format!("{backend:?}");
