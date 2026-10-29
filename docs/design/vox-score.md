@@ -105,3 +105,32 @@ The datasets are rendered by skald, so no human voice is recorded. A human-voice
 - `crates/lm-voice` (the voice seat's crate): the render ladder calls lm-vox for the LPC rung.
 - `crates/lm-agents`: the L2 line goes into gate prompts, and the gesture presets become gate options.
 - `crates/lm-learn`: the profile updates and the prosody lexicon.
+
+## 11. The notation layer: words for nuance, so System Two can think in it
+
+Dials are what System One reads and writes. But nuance that can't be *named* can't be discussed, compared or deliberately reproduced. Music solved this once already. Over the dials (velocity, timing, envelope) sits a small, shared **notation**: dynamics (pp … ff), articulation (staccato, tenuto, accent, marcato), shape (crescendo, a fall, a lift), time (rubato, fermata). Two musicians who have never met can say "play bar 12 marcato, falling" and both hear the same thing. Notation is a vocabulary for performance that sits above sound and beside words.
+
+Vox Score gets the same thing: **L2.5, marks**. It is a closed, small vocabulary, quantized deterministically from the L2 dials and always relative to the speaker profile:
+
+| Family | Marks (draft) | From which dials |
+|---|---|---|
+| Dynamics | hushed · soft · level · strong · shouted | level vs. profile |
+| Articulation | clipped · pressed · even · drawn · trailing | attack, release, sustain |
+| Contour | falling · flat · lifting · rise-fall · questioning | F0 glide, end slope |
+| Steadiness | steady · tight · shaking | vibrato/tremolo depth and rate |
+| Pace | rushed · brisk · even · measured · halting | tempo, pause structure |
+| Colour | dark · plain · bright · breathy · strained | tilt, noise |
+
+A line is then written the way a score is: `"hold" [strong, clipped, falling, tight, brisk]`.
+
+What this gives System Two (the slow, deliberate layer: the leader, the between-round learning flow, the human, and Claude):
+
+1. **It can be seen.** The between-round screen shows how the player said it in marks, beside what they said, and the player can correct the reading.
+2. **It can be patterned.** Mark sequences are discrete tokens, so recurring **motifs** can be mined, counted and compared across rounds and players, like n-grams over a score ("this player's urgent orders are always strong-clipped-falling; their questions are soft-drawn-lifting").
+3. **It can be reproduced.** A mark set renders back down to dials and then to voice (§6). An agent can be told "say it the way Casey says *hold* when it's real".
+4. **It can be discussed at a higher level.** The learning flow's proposals, sealed predictions and verdicts can be written in marks: "adopt: [clipped, falling] on *hold* means *now*; predicted: hold_ticks rises ≥ 1". A human can read that sentence and disagree with it.
+5. **It is vectorized, with names on the axes.** Each family is an ordered axis, so a delivery is a point in a small, interpretable space. System Two can measure distances ("this was halfway between calm and urgent"), interpolate, cluster and ask "what changed?" without dropping to raw vectors. Learned latents (JEPA, LFM3) are the dense space; marks are its named coordinates. The residual between them (§6.3) is where new marks get proposed.
+
+The vocabulary itself is versioned and learned like the lexicon: a new mark is proposed only when a residual cluster recurs, is sealed with a prediction, and is adopted on evidence. The notation grows the way musical notation did: when performers keep doing something that has no name yet.
+
+**Experiment E6:** inter-rater agreement. Does the marks layer agree with (a) LFM3's answers and (b) a human listener on the skald dataset? Do marks make System Two's proposals more accurate than dials alone? Pass: the agreement is reported per family, and families below chance are reworked or dropped.
