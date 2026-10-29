@@ -15,8 +15,15 @@
 #       --screenshot 'C:\Users\casey\src\shot1.png' --frames 30
 set -euo pipefail
 
-WIN_DIR='C:\Users\casey\src\last-mile-build'
-WSL_DIR=/mnt/c/Users/casey/src/last-mile-build
+# One mirror per worktree: concurrent worktrees sharing one mirror compiled
+# each other's trees (and one seat's uncommitted file was lost that way).
+# The suffix is the worktree's directory name; the main checkout keeps the
+# original path, so its incremental target/ survives.
+TOP=$(git rev-parse --show-toplevel)
+NAME=$(basename "$TOP")
+if [ "$NAME" = "last-mile" ]; then SUFFIX=""; else SUFFIX="-$NAME"; fi
+WIN_DIR="C:\\Users\\casey\\src\\last-mile-build$SUFFIX"
+WSL_DIR=/mnt/c/Users/casey/src/last-mile-build$SUFFIX
 CARGO_BIN='C:\Users\casey\.cargo\bin'
 
 if [ "$#" -lt 1 ]; then
