@@ -29,6 +29,21 @@ Append-only. Each entry: date, decision, why, and where it's discussed. If an en
 | D21 | 2026-10-28 | Agent host approved: cognition loop (see → summarize → decide whether to think → least-use-first queue → structured decisions); harness = a git repo per agent on the Thor; **reflexes in Rhai** (no floats, operation-limit fuel) inside `lm-core` on every node, behind a `ScriptRuntime` trait | Design section 3. Rhai is easy for agents to write; WASM can be swapped in later as a parameter | spec §5 |
 | D22 | 2026-10-28 | M1 spec written: crates `lm-core / lm-proto / lm-host / lm-agents / lm-router / lm-archive / lm-tools`; default mode "Beacons"; 6 build phases | User asked to keep moving; sections 4–5 folded into the spec | [M1 spec](../superpowers/specs/2026-10-28-last-mile-m1-design.md) |
 
+| D23 | 2026-10-28 | **System-1 rolls dice:** the sim offers a menu of legal decisions; the model returns `p[]`; `lm-core` rolls at `apply_tick` with the seeded RNG; `p[]` is logged in quilt `ROLL` shape | Mirrors agree without trusting the Thor; biased models become visible; replay needs no model | [fleet/02](../research/fleet/02-lessons.md) |
+| D24 | 2026-10-28 | Budget exhaustion behaviour is a parameter (`reflex` default, `freeze` as in COLOR SQUAD) | Both are valid game designs | fleet/02 |
+| D25 | 2026-10-28 | **The descent:** System-1 decisions are logged with a situation key; N=3 consistent wins → reflex candidate (promoted in M2); reflexes decay or get evicted; **reflex share** is tracked; bark cache | Casey's excavator rubric, from voice-games, voice-reflex-gate and pincher | fleet/02 |
+| D26 | 2026-10-28 | **A refusal is an outcome** (no guessed defaults); intents carry a TTL; fixed-point and Rhai golden vectors run on x86 and ARM | thor-firstline's hard-won rules | fleet/02 |
+| D27 | 2026-10-28 | The round header pins each agent's harness commit; after the round the harness is tagged `round-<id>` (frozen state) | Learned behaviour replays exactly; rollback unit (saddle) | fleet/02 |
+| D28 | 2026-10-28 | Agent audio is half-duplex around the human's push-to-talk; held frames are dropped, not queued | thor-firstline voice gate | fleet/02 |
+| D29 | 2026-10-28 | Optional tutor ladder of verbs for the human; negations refused | voice-games; serves D5 | fleet/02 |
+| D30 | 2026-10-28 | Downmixing for agent memory and archive: stems for old history, notable events kept verbatim | chrono-tensor §4 | fleet/02 |
+| D31 | 2026-10-28 | Squad talk timing: replies pre-drafted while a teammate speaks, airtime budget, silence as a menu option, cadence per agent | quilt-conversation | fleet/02 |
+| D32 | 2026-10-28 | Learning judged on held-out eval seeds with sealed predictions; uptake-by-speaker metric; COLOR SQUAD seasons as the M2 template | dungeon-ml-zoo, color-squad, erised | fleet/02 |
+| D33 | 2026-10-28 | Between-round human change requests become markdown deposits (said / inferred / machine diff / questions) | moldmaker | fleet/02 |
+| D34 | 2026-10-28 | Adaptive scheduling lead from measured p99; the ProArt dials out (WSL NAT); avoid port 8788; wired Thor recommended | Stage 0 LAN weather: Thor paths have an 80–112 ms p99 tail | [fleet/01](../research/fleet/01-measured-facts.md) |
+| D35 | 2026-10-28 | Provisional models: members LFM2-1.2B, leaders qwen3.5:9b, between-round operator Qwen3-Coder-30B; optional ProArt 0.6B fallback | Resident on the Thor per Stage 0; the spec sheet may replace them | fleet/01, 02 |
+| D36 | 2026-10-28 | last-mile is a **room in the whole-house quilt** (seams, no M1 dependency): `net.sequencer_node` defaults to the ProArt when a human plays and may be the Thor for agent-only rounds; quilt heartbeat; contention classes | Reconciles the quilt's Thor-engine ruling with D18 | [fleet/03](../research/fleet/03-whole-house-quilt-fit.md) |
+
 ## Pending (under discussion)
-- User review of the M1 spec
-- Thor model inventory (spec sheet coming from the user)
+- User review of the M1 spec (now with fleet refinements D23–D36)
+- Thor spec sheet from the user: confirms or replaces D35; Riva port and vector DB still open
