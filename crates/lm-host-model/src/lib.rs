@@ -33,6 +33,7 @@ pub use host_loop::{catch_up, HostLoop, TickBudget, TickOut};
 // each fill their own file and never collide here.
 pub mod audio;
 pub mod barks;
+pub mod between;
 pub mod input;
 pub mod map;
 pub mod record;

@@ -18,6 +18,9 @@ bevy_egui = "=0.43.1"
 lm-agents = { path = "../lm-agents" }
 lm-core = { path = "../lm-core" }
 lm-host-model = { path = "../lm-host-model" }
+# The learning flow: it runs between the rounds, on its own thread, and the
+# between-round screen shows what it decided.
+lm-learn = { path = "../lm-learn" }
 # The 3D view's pure half: the palette, the chunk meshes, the figures -- all
 # of it plain data, all of it tested in WSL with no GPU.
 lm-render = { path = "../lm-render" }

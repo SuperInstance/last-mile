@@ -19,7 +19,9 @@
 //!   before the round starts (`--view 3d`);
 //! * [`input_plugin`] turns the keyboard and the mouse into decisions;
 //! * [`hud_plugin`] is the bar at the top, [`roll_plugin`] the piano roll at
-//!   the bottom.
+//!   the bottom;
+//! * [`between_plugin`] runs the learning flow between the rounds -- on its
+//!   own thread, never on the frame -- and shows what it decided.
 //!
 //! The app plays a round, or it opens one: `--replay FILE` opens a recorded
 //! round log and scrubs it instead of playing a new one.
@@ -32,10 +34,22 @@
 //! `thor` is the real thing: the Thor's d1-2B (D62) on the LAN, and the cloud tier
 //! when its key is there.
 //!
+//! ## The rounds between rounds
+//!
+//! When a round is over, the learning flow runs: it measures the round, asks
+//! its reviewer what should change, seals the prediction of what that change
+//! will do and tests it on held-out seeds. `--reviewer stub|router` says who
+//! reviews: the stub needs no network and no key, the router asks the cloud.
+//! The flow works on `--harness-root` (one directory per agent) and writes to
+//! `--runs`. When it answers, a window says what it decided, and the human
+//! may adopt it, refuse it, go against the measurement, or ask for a change.
+//! "Next round" then plays round N+1 with the header the flow wrote.
+//!
 //! Build and run it with Windows cargo via `scripts/win-build.sh`; this WSL
 //! toolchain has none of Bevy's Linux system libraries.
 
 mod audio_plugin;
+mod between_plugin;
 mod hud_plugin;
 mod input_plugin;
 mod map_plugin;
@@ -78,6 +92,10 @@ const DEFAULT_TICK_HZ: u16 = 30;
 const DEFAULT_HARNESS: &str = "assets/harness/default";
 /// The render configuration of the 3D view, when there is one.
 const RENDER_TOML: &str = "render.toml";
+/// Where the flow's harnesses are: one directory per agent.
+const DEFAULT_HARNESS_ROOT: &str = "runs/harness";
+/// Where the flow writes: the record, the ledger and the deposits.
+const DEFAULT_RUNS: &str = "runs";
 
 /// `--screenshot PATH --frames N`: after N frames, capture the window to
 /// PATH (a PNG) and exit. `spawned` guards against requesting twice.
@@ -108,6 +126,16 @@ struct Options {
     harness: PathBuf,
     /// The agents' configuration, when the command line names one.
     config: Option<PathBuf>,
+    /// Who reviews the round between rounds.
+    reviewer: between_plugin::ReviewerChoice,
+    /// Where the flow's harnesses are: one directory per agent.
+    harness_root: PathBuf,
+    /// Where the flow writes.
+    runs: PathBuf,
+    /// How many ticks the learning round plays.
+    learn_ticks: u64,
+    /// How long the round is, in ticks, when the command line says.
+    ticks: Option<u32>,
 }
 
 /// Which view of the round the host draws.
@@ -181,7 +209,9 @@ fn main() -> AppExit {
             eprintln!(
                 "usage: lm-host [--seed N] [--window WxH] [--view 2d|3d] \
                  [--possess AGENT] [--replay FILE] [--screenshot PATH [--frames N]] \
-                 [--agents off|stub|thor] [--harness DIR] [--agents-config FILE]"
+                 [--agents off|stub|thor] [--harness DIR] [--agents-config FILE] \
+                 [--reviewer stub|router] [--harness-root DIR] [--runs DIR] \
+                 [--learn-ticks N] [--ticks N]"
             );
             return AppExit::Error(NonZeroU8::MIN);
         }
@@ -223,7 +253,10 @@ fn main() -> AppExit {
         None => {
             // The round: the standard one, with the shipped reflex. The host
             // plays the same round the headless tools do.
-            let header = Header::default_round(options.seed, lm_tools::runner::DEFAULT_REFLEX);
+            let mut header = Header::default_round(options.seed, lm_tools::runner::DEFAULT_REFLEX);
+            if let Some(ticks) = options.ticks {
+                header.params.time_limit_ticks = ticks;
+            }
             let tick_hz = header.params.tick_hz;
             let mut host = match HostLoop::new(header.clone()) {
                 Ok(host) => host,
@@ -241,7 +274,13 @@ fn main() -> AppExit {
                     "lm-host: the agents think with the {} model",
                     options.agents.as_str()
                 );
-                match attach_agents(&options, &header, &mut host) {
+                match attach_agents(
+                    options.agents,
+                    options.config.as_deref(),
+                    &options.harness,
+                    &header,
+                    &mut host,
+                ) {
                     Ok(()) => {}
                     Err(err) => {
                         eprintln!("lm-host: the agents do not start: {err}");
@@ -257,6 +296,22 @@ fn main() -> AppExit {
                 }
             }
 
+            // The flow needs a harness of its own: one directory per agent.
+            // When the root has none, the host seeds it from the round's
+            // harness, so the flow has something to change.
+            if let Err(err) =
+                between_plugin::seed_harness_root(&options.harness_root, &options.harness)
+            {
+                eprintln!(
+                    "lm-host: the harness root {} cannot be prepared: {err}",
+                    options.harness_root.display()
+                );
+            }
+            println!(
+                "lm-host: between rounds the {} reviewer looks at what changed",
+                options.reviewer.as_str()
+            );
+
             // The round is written down when it is over, or when the window
             // closes: one file per round, named after the seed it was played
             // from and the second it was played in.
@@ -269,6 +324,20 @@ fn main() -> AppExit {
         }
     };
 
+    // The flow, and what the next round needs to start.
+    let flow_settings = between_plugin::FlowSettings {
+        harness_root: options.harness_root.clone(),
+        runs_root: options.runs.clone(),
+        reviewer: options.reviewer,
+        ticks: options.learn_ticks,
+        stamp: unix_secs(),
+    };
+    let next_round = between_plugin::NextRound {
+        agents: options.agents,
+        config: options.config.clone(),
+        harness: options.harness.clone(),
+        harness_root: options.harness_root.clone(),
+    };
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -316,6 +385,9 @@ fn main() -> AppExit {
                 audio_plugin::VoicePlugin,
                 hud_plugin::HudPlugin,
                 roll_plugin::RollPlugin,
+                // The between-round screen is egui, so it lives in the 2D
+                // branch: it is the one view with an egui context today.
+                between_plugin::BetweenPlugin::new(flow_settings, next_round),
             ))
             // What the person did is read before the map is drawn, so the
             // frame shows the order that was just given.
@@ -366,20 +438,26 @@ fn unix_secs() -> u64 {
 ///
 /// The harness is the agents' own: the gates they ask and the policy they
 /// think with. The models are behind the tiers of that policy.
-fn attach_agents(options: &Options, header: &Header, host: &mut HostLoop) -> Result<(), String> {
-    let cfg = match &options.config {
+fn attach_agents(
+    choice: AgentChoice,
+    config: Option<&std::path::Path>,
+    harness_dir: &std::path::Path,
+    header: &Header,
+    host: &mut HostLoop,
+) -> Result<(), String> {
+    let cfg = match config {
         Some(path) => AgentsConfig::load(path)
             .map_err(|err| format!("the configuration {} cannot be read: {err}", path.display()))?,
         None => AgentsConfig::default(),
     };
-    let harness = Harness::open(&options.harness).map_err(|err| {
+    let harness = Harness::open(harness_dir).map_err(|err| {
         format!(
             "the harness {} cannot be read: {err}",
-            options.harness.display()
+            harness_dir.display()
         )
     })?;
 
-    let backends = backends(options.agents, &cfg, &harness);
+    let backends = backends(choice, &cfg, &harness);
     if backends.is_empty() {
         return Err("no model is there to ask".to_owned());
     }
@@ -449,6 +527,11 @@ fn parse_args() -> Result<Options, String> {
     let mut agents = AgentChoice::Off;
     let mut harness = PathBuf::from(DEFAULT_HARNESS);
     let mut config = None;
+    let mut reviewer = between_plugin::ReviewerChoice::Stub;
+    let mut harness_root = PathBuf::from(DEFAULT_HARNESS_ROOT);
+    let mut runs = PathBuf::from(DEFAULT_RUNS);
+    let mut learn_ticks = lm_learn::flow::DEFAULT_TICKS;
+    let mut ticks = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -516,6 +599,39 @@ fn parse_args() -> Result<Options, String> {
                         String::from("`--agents-config` needs a file")
                     })?));
             }
+            "--reviewer" => {
+                let text = args
+                    .next()
+                    .ok_or_else(|| String::from("`--reviewer` needs stub or router"))?;
+                reviewer = between_plugin::ReviewerChoice::parse(&text)?;
+            }
+            "--harness-root" => {
+                harness_root = PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| String::from("`--harness-root` needs a directory"))?,
+                );
+            }
+            "--runs" => {
+                runs = PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| String::from("`--runs` needs a directory"))?,
+                );
+            }
+            "--learn-ticks" => {
+                learn_ticks = args
+                    .next()
+                    .ok_or_else(|| String::from("`--learn-ticks` needs a number"))?
+                    .parse()
+                    .map_err(|_| String::from("`--learn-ticks` needs a whole number"))?;
+            }
+            "--ticks" => {
+                ticks = Some(
+                    args.next()
+                        .ok_or_else(|| String::from("`--ticks` needs a number"))?
+                        .parse()
+                        .map_err(|_| String::from("`--ticks` needs a whole number"))?,
+                );
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -536,6 +652,11 @@ fn parse_args() -> Result<Options, String> {
         agents,
         harness,
         config,
+        reviewer,
+        harness_root,
+        runs,
+        learn_ticks,
+        ticks,
     })
 }
 

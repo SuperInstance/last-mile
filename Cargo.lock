@@ -4015,6 +4015,7 @@ dependencies = [
  "lm-agents",
  "lm-core",
  "lm-host-model",
+ "lm-learn",
  "lm-render",
  "lm-tools",
  "lm-voice",
@@ -4026,6 +4027,7 @@ version = "0.1.0"
 dependencies = [
  "lm-agents",
  "lm-core",
+ "lm-learn",
  "lm-tools",
  "lm-voice",
  "serde_json",
