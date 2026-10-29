@@ -104,7 +104,14 @@ pub struct Gate {
     pub instructions: String,
     /// The fixed options and what each one means.
     ///
-    /// Empty for a gate whose options come from the menu.
+    /// For a gate with `options_from = "fixed"` the keys are the option
+    /// keys themselves (`opt0`, `opt1`, …).
+    ///
+    /// For a gate with `options_from = "menu"` the keys are the *kinds* of
+    /// option — `beacon`, `hold`, `follow` and `retreat` — because the
+    /// menu decides how many beacons there are and the file must not
+    /// depend on that. The text of a beacon option may hold `{beacon}`,
+    /// which is filled with that beacon's number.
     #[serde(default, rename = "criteria")]
     pub criteria: BTreeMap<String, String>,
     /// Where the options come from.
@@ -122,13 +129,40 @@ impl Gate {
     ///
     /// A menu gate takes its options from the menu, even when the file also
     /// lists criteria: the menu is the legal set, and a legal option is the
-    /// only one the simulation can carry out.
+    /// only one the simulation can carry out. What the file decides is how
+    /// each option is *described* — see [`Gate::criterion_for`].
     fn menu_criteria(&self, menu: &Menu) -> Map<String, Value> {
         let mut criteria = Map::new();
         for (index, option) in menu.options.iter().enumerate() {
-            criteria.insert(Self::option_key(index), json!(describe_option(option)));
+            criteria.insert(Self::option_key(index), json!(self.criterion_for(option)));
         }
         criteria
+    }
+
+    /// How this option is described to the model.
+    ///
+    /// The file's own words come first: a gate with `options_from = "menu"`
+    /// writes its criteria by kind — `beacon`, `hold`, `follow`, `retreat`
+    /// — because the number of beacons is the simulation's business, not the
+    /// file's. A beacon's text may hold `{beacon}`, which is filled with the
+    /// beacon's number.
+    ///
+    /// A kind the file is silent about falls back to the default wording,
+    /// so a gate set never refuses to describe an option.
+    fn criterion_for(&self, option: &MenuOption) -> String {
+        let (kind, beacon) = match option {
+            MenuOption::GoToBeacon(b) => ("beacon", Some(*b)),
+            MenuOption::Hold => ("hold", None),
+            MenuOption::FollowLeader => ("follow", None),
+            MenuOption::Retreat => ("retreat", None),
+        };
+        match self.criteria.get(kind) {
+            Some(text) => text.replace(
+                "{beacon}",
+                &beacon.map_or_else(String::new, |b| b.to_string()),
+            ),
+            None => describe_option(option),
+        }
     }
 
     /// The question this gate asks, as the System One pack carries it.
@@ -506,16 +540,40 @@ mod tests {
 
         let move_gate = &questions["move"];
         assert_eq!(move_gate["type"], "choice");
-        assert_eq!(move_gate["instructions"], "What should you do now?");
+        // The move gate states the squad's doctrine as a rule over the
+        // facts, so the model applies the rule instead of guessing.
+        let instructions = move_gate["instructions"].as_str().unwrap_or_default();
+        assert!(instructions.contains("squad's doctrine"));
+        assert!(instructions.contains("retreat"));
+        assert!(instructions.contains("hold"));
+        assert!(instructions.contains("the nearest beacon your squad does not hold"));
 
+        // One criterion per menu option, keyed opt0..optN, and each one
+        // says which branch of the doctrine it answers.
         let criteria = move_gate["criteria"]
             .as_object()
             .expect("the criteria are a map");
         assert_eq!(criteria.len(), 4);
-        assert_eq!(criteria["opt0"], "go to beacon 0");
-        assert_eq!(criteria["opt1"], "hold position");
-        assert_eq!(criteria["opt2"], "follow the squad leader");
-        assert_eq!(criteria["opt3"], "retreat to the squad's spawn");
+        assert!(criteria["opt0"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("go to beacon 0"));
+        assert!(criteria["opt0"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("the nearest beacon your squad does not hold"));
+        assert!(criteria["opt1"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("you are standing on a beacon your squad holds"));
+        assert!(criteria["opt2"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no branch of the doctrine"));
+        assert!(criteria["opt3"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("an enemy can see you within 6 cells"));
 
         // The noul gate is asked too, but it has no options.
         let call_out = &questions["call_out"];
@@ -525,6 +583,33 @@ mod tests {
             "Should you call out to your squad?"
         );
         assert!(call_out.get("criteria").is_none());
+    }
+
+    #[test]
+    fn a_menu_gate_without_criteria_falls_back_to_the_default_wording() {
+        // The file describes the options by kind; a kind it is silent
+        // about still gets a description, so a gate never asks an
+        // undescribed question.
+        let text = r#"
+[[gates]]
+id = "move"
+type = "choice"
+options_from = "menu"
+instructions = "What should you do now?"
+
+[gates.criteria]
+beacon = "walk to beacon {beacon}"
+"#;
+        let set = GateSet::parse(text).expect("the gates parse");
+        let menu = menu();
+        let questions = set.to_questions(&menu);
+        let criteria = questions["move"]["criteria"]
+            .as_object()
+            .expect("the criteria are a map");
+        assert_eq!(criteria["opt0"], "walk to beacon 0");
+        assert_eq!(criteria["opt1"], "hold position");
+        assert_eq!(criteria["opt2"], "follow the squad leader");
+        assert_eq!(criteria["opt3"], "retreat to the squad's spawn");
     }
 
     #[test]
@@ -612,7 +697,14 @@ mod tests {
         let move_gate = set.gate("move").expect("the move gate is there");
         assert_eq!(move_gate.kind, GateKind::Choice);
         assert_eq!(move_gate.options_from, OptionsFrom::Menu);
-        assert_eq!(move_gate.instructions, "What should you do now?");
+        // The doctrine is a rule over the facts, not an open question.
+        assert!(move_gate.instructions.contains("squad's doctrine"));
+        assert!(move_gate.instructions.contains("retreat"));
+        // And the file describes each kind of menu option.
+        assert!(move_gate.criteria.contains_key("beacon"));
+        assert!(move_gate.criteria.contains_key("hold"));
+        assert!(move_gate.criteria.contains_key("follow"));
+        assert!(move_gate.criteria.contains_key("retreat"));
         let call_out = set.gate("call_out").expect("the call-out gate is there");
         assert_eq!(call_out.kind, GateKind::Noul);
         assert_eq!(call_out.instructions, "Should you call out to your squad?");

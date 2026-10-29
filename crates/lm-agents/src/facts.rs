@@ -20,6 +20,15 @@ use crate::config::AgentsConfig;
 /// north, so +y is south. "here" is a zero step.
 const COMPASS: [&str; 5] = ["north", "east", "south", "west", "here"];
 
+/// How close an enemy has to be to count as near, in cells (Chebyshev).
+///
+/// The squad doctrine of the default harness speaks of "near" in the same
+/// cells: `assets/harness/default/gates.toml` says "within 6 cells" and
+/// this is that 6. The rule and the facts have to agree on the number, or
+/// the model is asked to apply a rule about a different world than the one
+/// it is shown (E4c: facts beat grids; a rule over facts beats a guess).
+pub const ENEMY_NEAR_CELLS: i32 = 6;
+
 /// One agent's situation as code-computed facts (D49): what the model
 /// reads, what the situation key addresses, both from one computation.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -66,7 +75,50 @@ impl Facts {
         // Each beacon: holder, walking-path length and bearing, all
         // computed by code (the path in cells from JPS, the compass word
         // from the offsets).
+        //
+        // The paths come first: the doctrine's target is the nearest
+        // beacon my squad does not hold, and "nearest" is the walk that
+        // really costs, so the path decides — and a beacon with no path
+        // cannot be walked to, so it cannot be the target.
+        let mut paths: Vec<(Option<i64>, i64)> = Vec::with_capacity(view.beacons.len());
+        for beacon in &view.beacons {
+            match jps(&world.grid, me, beacon.cell) {
+                Some(path) => {
+                    let steps = path.len() as i64 - 1;
+                    let bearing = bearing(
+                        i32::from(beacon.cell.x) - i32::from(me.x),
+                        i32::from(beacon.cell.y) - i32::from(me.y),
+                    );
+                    paths.push((Some(steps), bearing));
+                }
+                None => paths.push((None, -1)),
+            }
+        }
+
+        // The beacon the doctrine would send me to: the nearest one my
+        // squad does not hold, by the steps of the walk to it. The lowest
+        // index breaks a tie, so the same situation always names the same
+        // beacon.
+        let mut nearest_unheld: Option<(u8, i64)> = None;
         for (i, beacon) in view.beacons.iter().enumerate() {
+            if beacon.holder == Some(me_squad) {
+                continue;
+            }
+            let (Some(steps), _) = paths[i] else {
+                continue;
+            };
+            if nearest_unheld.is_none_or(|(_, best)| steps < best) {
+                nearest_unheld = Some((i as u8, steps));
+            }
+        }
+        let nearest_unheld = nearest_unheld.map(|(index, _)| index);
+        fields.insert(
+            "beacon.nearest_unheld".to_string(),
+            nearest_unheld.map_or(-1, i64::from),
+        );
+
+        for (i, beacon) in view.beacons.iter().enumerate() {
+            let mine = beacon.holder == Some(me_squad);
             let holder_word = match beacon.holder {
                 None => "unheld".to_owned(),
                 Some(s) if s == me_squad => "held by your squad".to_owned(),
@@ -78,47 +130,97 @@ impl Facts {
                 format!("beacon.{i}.holder"),
                 beacon.holder.map_or(-1, i64::from),
             );
-            match jps(&world.grid, me, beacon.cell) {
-                Some(path) => {
-                    let steps = path.len() as i64 - 1;
-                    let bearing = bearing(
-                        i32::from(beacon.cell.x) - i32::from(me.x),
-                        i32::from(beacon.cell.y) - i32::from(me.y),
-                    );
+            // The doctrine's wording, said of this beacon: it is the one
+            // the rule would send me to, or it is not.
+            let nearest = if mine {
+                String::new()
+            } else if nearest_unheld == Some(i as u8) {
+                "; it is the nearest beacon your squad does not hold".to_owned()
+            } else {
+                "; it is not the nearest beacon your squad does not hold".to_owned()
+            };
+            match paths[i] {
+                (Some(steps), bearing) => {
                     fields.insert(format!("beacon.{i}.steps"), steps);
                     fields.insert(format!("beacon.{i}.bearing"), bearing);
                     if steps == 0 {
                         lines.push(format!(
                             "Beacon {i} at column {}, row {} is {holder_word}; \
-                             you are standing on it.",
+                             you are standing on it{nearest}.",
                             beacon.cell.x, beacon.cell.y
                         ));
                     } else {
                         lines.push(format!(
-                            "Beacon {i} at column {}, row {} is {holder_word}; \
+                            "Beacon {i} at column {}, row {} is {holder_word}{nearest}; \
                              a walking path from you is {steps} steps long \
                              to the {}.",
                             beacon.cell.x, beacon.cell.y, COMPASS[bearing as usize]
                         ));
                     }
                 }
-                None => {
+                (None, _) => {
                     // Unreachable is a fact, not a failure to compute one.
                     fields.insert(format!("beacon.{i}.steps"), -1);
                     fields.insert(format!("beacon.{i}.bearing"), -1);
                     lines.push(format!(
                         "Beacon {i} at column {}, row {} is {holder_word}; \
-                         there is no walking path to it.",
+                         you cannot go there, there is no walking path to it.",
                         beacon.cell.x, beacon.cell.y
                     ));
                 }
             }
         }
 
+        // Where I stand, and whose beacon it is: the doctrine's second
+        // branch is about exactly this, so it is said in the doctrine's
+        // words.
+        let standing_on = view
+            .beacons
+            .iter()
+            .position(|beacon| beacon.cell == me)
+            .map(|i| i as u8);
+        let standing_on_mine =
+            standing_on.and_then(|i| view.beacons[usize::from(i)].holder) == Some(me_squad);
+        fields.insert(
+            "me.on_beacon".to_string(),
+            standing_on.map_or(-1, i64::from),
+        );
+        fields.insert("me.on_held_beacon".to_string(), i64::from(standing_on_mine));
+        match standing_on {
+            Some(i) => {
+                let whose = match view.beacons[usize::from(i)].holder {
+                    Some(s) if s == me_squad => "which your squad holds".to_owned(),
+                    Some(s) => format!("which enemy squad {s} holds"),
+                    None => "which nobody holds".to_owned(),
+                };
+                lines.push(format!("You are standing on beacon {i}, {whose}."));
+            }
+            None => lines.push("You are not standing on a beacon.".to_owned()),
+        }
+
+        // The doctrine's target, named. When there is none the rule says
+        // what to do instead, so the fact has to say why.
+        if nearest_unheld.is_none() {
+            let unheld = view
+                .beacons
+                .iter()
+                .filter(|beacon| beacon.holder != Some(me_squad))
+                .count();
+            lines.push(if unheld == 0 {
+                "Your squad holds every beacon; there is no beacon your squad does not hold."
+                    .to_owned()
+            } else {
+                "Every beacon your squad does not hold is out of reach; there is no walking path to it."
+                    .to_owned()
+            });
+        }
+
         // Each fresh enemy: distance and line of sight from where I stand.
         // A stale memory is omitted entirely — better no fact than a
         // seven-tick-old position phrased as news.
         let mut any_enemy = false;
+        let mut enemies_near = 0i64;
+        let mut enemies_seeing = 0i64;
         for e in fresh_enemies(view, cfg.stale_enemy_ticks) {
             any_enemy = true;
             let dist = chebyshev(me, e.cell);
@@ -128,6 +230,12 @@ impl Facts {
             fields.insert(format!("enemy.{}.age", e.id), i64::from(e.age_ticks));
             fields.insert(format!("enemy.{}.dist", e.id), dist);
             fields.insert(format!("enemy.{}.los", e.id), i64::from(sighted));
+            if dist <= i64::from(ENEMY_NEAR_CELLS) {
+                enemies_near += 1;
+                if sighted {
+                    enemies_seeing += 1;
+                }
+            }
             let ticks = if e.age_ticks == 1 { "tick" } else { "ticks" };
             let sight = if sighted {
                 "can see you (clear line of sight)"
@@ -144,9 +252,33 @@ impl Facts {
             lines.push("You know of no fresh enemies.".to_owned());
         }
 
+        // How many enemies are near, and how many of them see me: the
+        // doctrine's first branch is a comparison of these two numbers.
+        fields.insert("enemy.near".to_string(), enemies_near);
+        fields.insert("enemy.seeing".to_string(), enemies_seeing);
+        lines.push(match (enemies_near, enemies_seeing) {
+            (0, _) => format!("No enemy is within {ENEMY_NEAR_CELLS} cells of you."),
+            (1, 1) => format!(
+                "1 enemy is within {ENEMY_NEAR_CELLS} cells of you, and it can see you."
+            ),
+            (1, _) => format!(
+                "1 enemy is within {ENEMY_NEAR_CELLS} cells of you, and it cannot see you."
+            ),
+            (n, 0) => format!(
+                "{n} enemies are within {ENEMY_NEAR_CELLS} cells of you, and none of them can see you."
+            ),
+            (n, seen) if n == seen => format!(
+                "{n} enemies are within {ENEMY_NEAR_CELLS} cells of you, and all of them can see you."
+            ),
+            (n, seen) => format!(
+                "{n} enemies are within {ENEMY_NEAR_CELLS} cells of you, and {seen} of them can see you."
+            ),
+        });
+
         // Allies within range: who is near enough to matter, myself
         // excluded (I am the position sentence).
         let mut any_ally = false;
+        let mut allies_near = 0i64;
         for ally in &view.squad {
             if ally.id == view.me.id {
                 continue;
@@ -156,6 +288,7 @@ impl Facts {
                 continue;
             }
             any_ally = true;
+            allies_near += 1;
             fields.insert(format!("ally.{}.x", ally.id), i64::from(ally.cell.x));
             fields.insert(format!("ally.{}.y", ally.id), i64::from(ally.cell.y));
             fields.insert(format!("ally.{}.dist", ally.id), dist);
@@ -174,6 +307,17 @@ impl Facts {
         if !any_ally {
             lines.push(format!(
                 "No allies are within {} cells.",
+                cfg.ally_range_cells
+            ));
+        }
+
+        // How many allies are near: the other number of the doctrine's
+        // first branch.
+        fields.insert("ally.near".to_string(), allies_near);
+        if allies_near > 0 {
+            let noun = if allies_near == 1 { "ally" } else { "allies" };
+            lines.push(format!(
+                "You have {allies_near} {noun} within {} cells of you.",
                 cfg.ally_range_cells
             ));
         }
@@ -456,13 +600,18 @@ mod tests {
             format!(
                 "You are agent 3, the member, of squad 0 at column 2, row 2 \
                  (row 0 is north). \
-                 Beacon 0 at column 4, row 2 is unheld; a walking path from \
+                 Beacon 0 at column 4, row 2 is unheld; it is the nearest \
+                 beacon your squad does not hold; a walking path from \
                  you is 2 steps long to the east. \
-                 Beacon 1 at column 10, row 2 is held by enemy squad 1; a \
+                 Beacon 1 at column 10, row 2 is held by enemy squad 1; it \
+                 is not the nearest beacon your squad does not hold; a \
                  walking path from you is {detour} steps long to the east. \
+                 You are not standing on a beacon. \
                  Enemy 4, last seen 2 ticks ago at column 3, row 3, is 1 \
                  cells away and can see you (clear line of sight). \
+                 1 enemy is within 6 cells of you, and it can see you. \
                  Ally 1 (member) is 2 cells away at column 2, row 4. \
+                 You have 1 ally within 4 cells of you. \
                  You are not stunned."
             )
         );
@@ -472,12 +621,56 @@ mod tests {
         assert_eq!(f.fields["beacon.0.bearing"], 1); // east
         assert_eq!(f.fields["beacon.1.steps"], detour);
         assert_eq!(f.fields["beacon.1.holder"], 1);
+        // The doctrine's numbers, as the facts state them.
+        assert_eq!(f.fields["beacon.nearest_unheld"], 0);
+        assert_eq!(f.fields["me.on_beacon"], -1);
+        assert_eq!(f.fields["me.on_held_beacon"], 0);
+        assert_eq!(f.fields["enemy.near"], 1);
+        assert_eq!(f.fields["enemy.seeing"], 1);
+        assert_eq!(f.fields["ally.near"], 1);
         // Allies: in range stated, out of range and self omitted.
         assert_eq!(f.fields["ally.1.dist"], 2);
         assert!(!f.text.contains("Ally 0"));
         assert!(!f.text.contains("Ally 3"));
         assert!(!f.fields.contains_key("ally.0.dist"));
         assert_eq!(f.fields["me.stunned"], 0);
+    }
+
+    #[test]
+    fn the_doctrine_facts_are_stated_in_its_words() {
+        // Every term of the doctrine in the default harness must be a
+        // fact the builder states, in the words the rule uses (E4c).
+        let world = wall_world();
+        let mut view = base_view();
+        // Standing on the beacon my squad holds, with one ally in range
+        // and one enemy in sight: the doctrine's second branch.
+        view.me.cell = CellXY { x: 4, y: 2 };
+        view.squad[2].cell = CellXY { x: 4, y: 2 };
+        view.beacons[0].holder = Some(0);
+        let f = facts(&view, &world);
+        assert!(f
+            .text
+            .contains("You are standing on beacon 0, which your squad holds."));
+        assert_eq!(f.fields["me.on_beacon"], 0);
+        assert_eq!(f.fields["me.on_held_beacon"], 1);
+        // The beacon my squad holds is not the doctrine's target, and the
+        // one it does not hold is named as the nearest.
+        assert!(f.text.contains(
+            "Beacon 0 at column 4, row 2 is held by your squad; you are standing on it."
+        ));
+        assert_eq!(f.fields["beacon.nearest_unheld"], 1);
+        assert!(f
+            .text
+            .contains("it is the nearest beacon your squad does not hold"));
+
+        // With every beacon held by my squad there is no target, and the
+        // facts say so.
+        view.beacons[1].holder = Some(0);
+        let f = facts(&view, &world);
+        assert_eq!(f.fields["beacon.nearest_unheld"], -1);
+        assert!(f.text.contains(
+            "Your squad holds every beacon; there is no beacon your squad does not hold."
+        ));
     }
 
     #[test]
@@ -537,10 +730,15 @@ mod tests {
             holder: None,
         }];
         let f = facts(&view, &world);
-        assert!(f
-            .text
-            .contains("Beacon 0 at column 4, row 2 is unheld; there is no walking path to it."));
+        assert!(f.text.contains(
+            "Beacon 0 at column 4, row 2 is unheld; you cannot go there, there is no walking path to it."
+        ));
         assert_eq!(f.fields["beacon.0.steps"], -1);
         assert_eq!(f.fields["beacon.0.bearing"], -1);
+        // A beacon you cannot walk to is not the doctrine's target.
+        assert_eq!(f.fields["beacon.nearest_unheld"], -1);
+        assert!(f.text.contains(
+            "Every beacon your squad does not hold is out of reach; there is no walking path to it."
+        ));
     }
 }
