@@ -13,6 +13,7 @@
 )]
 #![forbid(unsafe_code)]
 
+pub mod agent;
 pub mod decision;
 pub mod fixed;
 pub mod hash;
@@ -23,8 +24,10 @@ pub mod params;
 pub mod rng;
 pub mod sched;
 pub mod trig_table;
+pub mod view;
 pub mod world;
 
+pub use agent::{ActiveIntent, Agent, MotorCmd};
 pub use decision::{Action, Decision, Intent, Kind, Lane, Provenance, Roll, Source, Stamped, Tick};
 pub use fixed::{Angle, Pos, CHUNK_UNITS, UNITS_PER_M};
 pub use hash::{Fnv64, StateHash};
