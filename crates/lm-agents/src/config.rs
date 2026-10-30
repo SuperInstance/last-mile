@@ -63,6 +63,9 @@ pub struct AgentsConfig {
     /// It is asked that gate **alone**, one question in one call, so its
     /// pack always fits.
     pub escalate_backend: String,
+    /// How a gate may be asked (see [`ShapeConfig`]).
+    #[serde(default)]
+    pub shape: ShapeConfig,
     /// Member think rate in Hz. 1 by default (D68): the Thor serves ~9
     /// requests/s for the whole match, so 8 agents asking at 4 Hz only queue
     /// up and go stale; at 1 Hz they get ~93% of the decisions with headroom
@@ -226,6 +229,7 @@ impl Default for AgentsConfig {
             ]),
             escalate_below: 0.5,
             escalate_backend: "thor-clef-flash".to_owned(),
+            shape: ShapeConfig::default(),
             think_hz_member: 1,
             think_hz_leader: 1,
             mode: "auto".to_owned(),
@@ -240,6 +244,39 @@ impl Default for AgentsConfig {
             utter: UterConfig::default(),
         }
     }
+}
+
+/// How a gate may be asked.
+///
+/// A gate is asked as it is written, unless a parameter says otherwise.
+/// Both shapes are **off** by default: a harness that writes a tree in
+/// `gates.toml` and does not name it here keeps asking the gate as it is
+/// written.
+///
+/// The shape is the harness's own: the tree is written next to the gate
+/// it decomposes, and the parameters here only say which gate is asked in
+/// which shape, and how many options a ghosted gate is asked with.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShapeConfig {
+    /// The gate asked as a **two-step tree**: the coarse partition first,
+    /// then the choice inside the partition it picked.
+    ///
+    /// The tree itself is the harness's, in `gates.toml`.
+    pub tree_gate: Option<String>,
+    /// Whether the tree's **last** step is escalated to the second model
+    /// when it is unsure.
+    ///
+    /// The step that decides the answer is the one worth a second
+    /// opinion; the partition before it is not.
+    pub escalate_tree_step: bool,
+    /// The gate asked with its **rarely-chosen options ghosted**: only the
+    /// options that have been winning are asked at all.
+    pub prune_gate: Option<String>,
+    /// How many options a ghosted gate is asked with.
+    ///
+    /// Zero means the gate is not ghosted at all.
+    pub prune_k: u16,
 }
 
 impl AgentsConfig {
@@ -407,6 +444,29 @@ jev = 0.7
     fn missing_file_loads_defaults() {
         let c = AgentsConfig::load(Path::new("no-such-agents.toml")).expect("missing file is ok");
         assert_eq!(c, AgentsConfig::default());
+    }
+
+    #[test]
+    fn the_shape_is_off_by_default() {
+        // Nothing is asked in another shape until a parameter says so: a
+        // harness that writes a tree and does not ask for it keeps asking
+        // the gate as it is written.
+        let c = AgentsConfig::default();
+        assert_eq!(c.shape, ShapeConfig::default());
+        assert!(c.shape.tree_gate.is_none());
+        assert!(c.shape.prune_gate.is_none());
+        assert_eq!(c.shape.prune_k, 0);
+    }
+
+    #[test]
+    fn a_shape_can_be_written() {
+        let c = AgentsConfig::from_toml(
+            "[shape]\ntree_gate = \"attention\"\nprune_gate = \"gesture\"\nprune_k = 4\n",
+        )
+        .expect("the shape table loads");
+        assert_eq!(c.shape.tree_gate.as_deref(), Some("attention"));
+        assert_eq!(c.shape.prune_gate.as_deref(), Some("gesture"));
+        assert_eq!(c.shape.prune_k, 4);
     }
 
     #[test]

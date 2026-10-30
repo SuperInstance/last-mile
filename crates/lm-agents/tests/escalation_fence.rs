@@ -135,6 +135,7 @@ fn slow_second() -> StubBackend {
             per_gate: BTreeMap::new(),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
+            decomposed: BTreeMap::new(),
             model: "stub".to_owned(),
             input_tokens: 0,
             latency_ms: 0,

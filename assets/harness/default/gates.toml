@@ -132,6 +132,91 @@ agent5 = "agent 5 in particular (the doctrine's second branch: that agent in par
 agent6 = "agent 6 in particular (the doctrine's second branch: that agent in particular needs it)"
 agent7 = "agent 7 in particular (the doctrine's second branch: that agent in particular needs it)"
 
+# The same gate asked as a two-step tree.
+#
+# The gate above asks a ten-option question: a squad, everybody, or one
+# agent of eight. That is a wide question, and the wide question is why
+# the model is unsure about it. The tree asks the same thing in two
+# smaller questions: the coarse partition first, then the choice inside
+# the partition it picked.
+#
+# The tree is **off** unless a parameter asks for it (`shape.tree_gate`
+# in agents.toml): writing the tree here is the harness offering it, not
+# the harness using it.
+#
+# The partition is by **squad**, and it is absolute: "squad 0" is agents
+# 0-3 and "squad 1" is agents 4-7, whoever is asking. It cannot be
+# "your own squad" and "another squad", because the tree is the same
+# tree for every agent and half the roster is on each side: a partition
+# that meant "yours" would offer one squad's agents to the agents of the
+# other squad. The facts say which squad the asker is on, so the model
+# can still tell its own side from the other.
+#
+# A branch with a single option is already the answer, so those branches
+# ask nothing twice: the tree costs one extra round trip only when the
+# line is for one agent in particular.
+[gates.decompose]
+instructions = "Who the line is for, in coarse terms? There are four kinds of addressee: your own squad as a whole, one agent of squad 0 in particular, one agent of squad 1 in particular, or everybody who can hear. The roster is: squad 0 is agents 0, 1, 2 and 3; squad 1 is agents 4, 5, 6 and 7. The facts tell you which squad is yours."
+
+[[gates.decompose.partitions]]
+key = "your_squad"
+description = "your squad as a whole (the doctrine's first branch: the whole squad has to act on it)"
+instructions = "You said the line is for your squad as a whole. There is one answer in this group."
+
+[[gates.decompose.partitions.options]]
+option = "squad"
+description = "your squad (the doctrine's first branch: the whole squad has to act on it)"
+
+[[gates.decompose.partitions]]
+key = "squad_0"
+description = "one agent of squad 0 in particular (agents 0, 1, 2 and 3)"
+instructions = "You said the line is for one agent of squad 0 in particular. Which agent?"
+
+[[gates.decompose.partitions.options]]
+option = "agent0"
+description = "agent 0 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions.options]]
+option = "agent1"
+description = "agent 1 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions.options]]
+option = "agent2"
+description = "agent 2 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions.options]]
+option = "agent3"
+description = "agent 3 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions]]
+key = "squad_1"
+description = "one agent of squad 1 in particular (agents 4, 5, 6 and 7)"
+instructions = "You said the line is for one agent of squad 1 in particular. Which agent?"
+
+[[gates.decompose.partitions.options]]
+option = "agent4"
+description = "agent 4 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions.options]]
+option = "agent5"
+description = "agent 5 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions.options]]
+option = "agent6"
+description = "agent 6 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions.options]]
+option = "agent7"
+description = "agent 7 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates.decompose.partitions]]
+key = "everybody"
+description = "everybody who can hear (the doctrine's third branch: the whole field must hear it)"
+instructions = "You said the line is for everybody who can hear. There is one answer in this group."
+
+[[gates.decompose.partitions.options]]
+option = "all"
+description = "everybody who can hear (the doctrine's third branch: the whole field must hear it)"
 [[gates]]
 id = "attention_present"
 type = "noul"

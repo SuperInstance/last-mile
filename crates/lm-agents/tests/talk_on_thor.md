@@ -825,3 +825,379 @@ opinion right.
   decision's margin follows the Thor's load: 31 of 137 on the quiet box this
   run caught, none on the busier runs above. A faster second model, or a
   longer lead, would let more of them fit, and the fence would fire less.
+
+# Decompose before you escalate: the attention gate, four ways
+
+The design note's first experiment (`docs/design/questions-as-experience.md`
+§5.1): the same choice asked four ways on the real Thor, and a neutral judge
+to say which answer was better. The note's claim is sharp — *decompose before
+you escalate*, because an unsure ten-option answer used to go to clef-flash
+(D71) and clef-flash is usually worse on ten-option gates (D75), while the
+same choice asked as two smaller questions to the **same fast model** should
+cost less and be easier to answer confidently.
+
+**What changed since this was measured.** The numbers below stand as they were
+measured. One thing around them has moved: **D75 narrowed the escalation to
+the move gate alone**, so the shipped harness no longer sends an unsure
+ten-option answer to clef-flash at all. The note's "arm A: today" was the
+answer to the question at the time the note was written, when every unsure
+gate below the threshold was escalated; since D75 the arm that is measured
+here is "the attention gate, escalated", not "the attention gate as the
+harness runs it". Everything else — the arms, the judge, the numbers — is as
+it was measured, and the tree and the ghost are still off by default.
+
+The measurement is `crates/lm-agents/tests/decompose_on_thor.rs`:
+
+```text
+cargo test --release -p lm-agents --test decompose_on_thor -- --ignored --nocapture
+```
+
+The evidence it leaves behind — one line per situation, every arm and the
+judge — is in [`evidence/decompose/`](../../../evidence/decompose/).
+
+**The short answer: the claim does not hold, and the reason is worth more
+than the claim.** The tree is cheaper and it is more confident, and it is much
+worse. The thing the note wanted to replace — escalating the unsure
+ten-option answer to clef-flash — is worse than the cheap model's own answer
+that the other arms keep: on this gate the escalation does not buy a better
+answer, it buys a worse one, at 1394 ms a time.
+
+## What was asked
+
+The **attention gate** is the widest question in the round: ten options (your
+squad, everybody, and eight agents by number), and the d1-2B answers it
+0.29-0.64, so it is unsure by nature. It was also the gate the escalation
+fired on most, before D75 narrowed the escalation to the move gate alone.
+
+The **arms** differ only in the shape of that one gate. Every other gate,
+and the rest of the round, is the shipped code:
+
+| arm | the attention gate is asked |
+|---|---|
+| **A, escalate** | the ten-option question; escalated to clef-flash below 0.5. The note called this arm "today", and the evidence file's key is still `A today` |
+| **B, tree** | the same gate as a two-step tree on the d1-2B alone: the coarse partition first, then the choice inside it |
+| **C, tree + escalate** | B, with the tree's **last** step escalated to clef-flash |
+| **D, ghost** | the ten-option question with its rarely-chosen options left out: only the options that have been winning are asked. The second opinion is asked the **ghosted** question too |
+
+The **judge** is the Thor's **d1-3B** (:8093), asked the full ten-option
+question with the same facts, as esctune did. It is a third model, not one of
+the two under test, and it never answers the round.
+
+The arms are asked over the **same situations**: the distinct facts texts the
+shipped round asked the attention gate in, every arm asked about every one of
+them, so the answers can be compared one against another. At most two requests
+are in flight at a time, so a decision is charged its own latency.
+
+## What changed in the code
+
+| what | where | why |
+|---|---|---|
+| The **shape** is a harness parameter, off by default: `shape.tree_gate`, `shape.prune_gate`, `shape.prune_k`, `shape.escalate_tree_step` | `crates/lm-agents/src/config.rs` | The tree is the harness's own (`gates.toml`); a parameter turns it on. Writing the tree in the harness is the harness **offering** it |
+| The round's backends are built through **one** function, `shape_backends`, which applies the escalation and the shape | `crates/lm-agents/src/decompose.rs` | The game and the measurement go through it, so an arm is the shipped code and not a re-implementation of it |
+| The gates a second opinion is bought for are the **harness's one setting**, in `policy.toml` (`escalate_gates`, D75), and `shape_backends` takes it as an argument | `crates/lm-agents/src/config.rs`, `crates/lm-agents/src/decompose.rs`, `crates/lm-host/src/main.rs` | The shape does not get a second `escalate_gates` of its own in `agents.toml`: the game and the measurement both read the policy's, so there is one setting and not two |
+| The game calls it | `crates/lm-host/src/main.rs` | The shape is harness-level: it changes how the round asks, not how the code is wired |
+| The escalation record keeps **both models' probabilities** | `crates/lm-agents/src/sysone.rs` | The Hodge decomposition is built from the option probabilities, and the log is where they have to be |
+| The **tree's own/other branches were swapped** and are now `squad_0` and `squad_1` | `assets/harness/default/gates.toml` | The tree is the same tree for every agent and half the roster is on each side: a branch that meant "your own squad" offered squad 0's agents to squad 1's agents. The earlier tree was measured doing exactly that — it named an agent of the **wrong squad** in every squad-1 situation |
+| The Hodge decomposition's **gradient basis** is the graph's **stars**, and its **curl basis** is the **boundaries of its triangles** | `crates/lm-agents/src/hodge.rs` | A scale is a number per node, so the flow it gives is the difference of two numbers: the stars are that space. What is left cannot be explained by any scale, and the part of it the triangles can explain is the curl |
+| The **tree's gate is excluded** from the escalation around it | `crates/lm-agents/src/sysone.rs`, `crates/lm-agents/src/decompose.rs` | The tree escalates its own last step, so the escalation around the tree must not buy a second opinion of the same gate as well — otherwise the second opinion is bought twice. The exclusion is kept apart from the filter, because "every gate but this one" is not a list of gates |
+| The **ghost's escalation is inside the ghost** | `crates/lm-agents/src/decompose.rs` | The second model is asked the question **as it was asked**, with the ghosted options left out. A second opinion of the full ten-option question would undo the ghosting, and arm D would not be measuring what it claims to measure |
+| **The second model is the one the configuration names**, not the backend being shaped | `crates/lm-agents/src/decompose.rs` | A model asked to second-guess itself agrees with itself, and the measurement then reads that as the second opinion buying nothing. See below — this was a live bug in this measurement, and it was found by checking the evidence against the Thor |
+| The **pack's latency** does not carry the second model's time | `crates/lm-agents/src/decompose.rs` | The pack's latency is what a call of this shape costs; the second opinion's time is the escalation's own, and the escalation record carries it |
+
+### The bug the evidence caught
+
+The first run of this measurement reported that the escalation on the
+attention gate "bought nothing": in every escalation the two models chose
+the same option. That was not a fact about the models. The shape was
+resolving the second model by the name of the backend it was shaping, so the
+"second opinion" was the **d1-2B asked a second time** — and the Thor
+answers the same question the same way.
+
+The evidence showed it without being told: in 70 of 71 escalations the two
+probability vectors were **bit-identical**, which no second model manages.
+Asking clef-flash the same question directly returns a different vector
+(`agent0` 0.076 against the d1-2B's 0.012), so the identical pair could only
+be one model. The wiring now names the escalate backend
+(`cfg.escalate_backend`) and a test pins it: `the_second_opinion_is_another_model`.
+
+With the wiring fixed, the escalation changes the answer in **33 of 58** cases
+on the same gate, and it changes it for the worse.
+
+## The rounds
+
+Three seeds, 3000 ticks each, the shipped harness, the arms wired in. The
+totals over the three rounds:
+
+| arm | lines | decisions | refusals | attention decisions | second opinions bought | of those, changed the answer |
+|---|---|---|---|---|---|---|
+| A escalate | 150 | 2115 | 48 | 152 | 97 | 69 |
+| B tree | 199 | 2157 | 48 | 201 | 0 | 0 |
+| C tree + escalate | 178 | 2162 | 48 | 179 | 63 | 9 |
+| D ghost | 188 | 2182 | 48 | 198 | 45 | 19 |
+
+**The tree makes more attention decisions than arm A** — 201 against
+152 — and arm A buys 97 second opinions to make 49 fewer. That is the
+first thing the escalation costs: it is not a better answer, it is a slower
+round.
+
+The box was shared while this ran (load average ~16 on 14 cores, another
+`rlspike` and two other jobs), so the absolute numbers sit a little under the
+unloaded baseline in the section above (50-58 lines and 733-766 decisions a
+round): arm A made 50 lines and 705 decisions a round. The four arms
+ran under the same load, so the comparison between them is fair; the
+absolute numbers are not the game's normal. The load is also why clef-flash
+cost 1394 ms a second opinion here, against the ~570 ms D74 measured on an
+unloaded Thor: the second opinion is the slowest thing in the measurement
+and it is the most load-sensitive.
+
+## The arms over the same situations
+
+75 situations, every arm asked about every one of them:
+
+| arm | decided | confidence p50 | p95 | unsure (<0.30) | ms p50 | ms p95 | model's own p50 | ms per decision | options asked | second opinions | agrees with the judge |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A escalate | 75 | 0.377 | 0.601 | 24/75 | 1476 | 2008 | 233 | 1280 | 17 | 58 | **38.7%** |
+| B tree | 75 | 0.506 | 0.651 | 0/75 | 387 | 484 | 386 | 396 | **8** | 0 | **5.3%** |
+| C tree + escalate | 75 | 0.615 | 0.770 | 0/75 | 440 | 1805 | 397 | 960 | 8 | 36 | 4.0% |
+| D ghost | 75 | **0.684** | **0.833** | 2/75 | **184** | 1622 | 174 | 491 | **3** | 22 | 37.3% |
+
+The confidence distribution, not only its middle:
+
+| arm | min | p25 | p50 | p75 | p95 | max | mean |
+|---|---|---|---|---|---|---|---|
+| A escalate | 0.112 | 0.257 | 0.377 | 0.520 | 0.601 | 0.615 | 0.386 |
+| B tree | 0.315 | 0.423 | 0.506 | 0.599 | 0.651 | 0.740 | 0.507 |
+| C tree + escalate | 0.366 | 0.534 | 0.615 | 0.689 | 0.770 | 0.827 | 0.617 |
+| D ghost | 0.266 | 0.552 | 0.684 | 0.798 | 0.833 | 0.855 | 0.657 |
+
+**"Options asked" is the attention gate's own options**, over the calls the
+decision took: the tree's two steps (4 + 4), the flat question's ten, plus
+the ten more a second opinion was asked between. It is not the whole pack's
+options, so it is not on the same scale as D70's "11 ms per option".
+
+Reading the table against the note's claim, three ways:
+
+- **Faster per decision: yes**, and by a lot — 396 ms against 1280. But the
+  whole difference is the escalation arm A buys: the tree asks the
+  cheap model twice and stops, and arm A asks clef-flash on 58 of the
+  75 decisions at **1394 ms** a time.
+- **More confident: yes.** The tree's median confidence is 0.506 against
+  arm A's 0.377, and the tree is never unsure (0 of 75 against 24 of 75).
+  Two smaller questions *are* easier to answer confidently than one wide
+  one — that part of the note holds.
+- **At least as accurate: no.** The tree agrees with the judge 5.3% of the
+  time and arm A 38.7%. Against the cheap model's own flat answer
+  (73.3%, below) the tree is 68 points behind.
+
+## How often the arms give the same answer
+
+| pair | same answer |
+|---|---|
+| A / B | 42.7% (32/75) |
+| A / C | 48.0% (36/75) |
+| A / D | 98.7% (74/75) |
+| B / C | 88.0% (66/75) |
+| B / D | 44.0% (33/75) |
+| C / D | 49.3% (37/75) |
+
+## The judge, model by model
+
+The d1-3B answered every one of the 75 situations. Counting whose answer it
+agrees with:
+
+| whose answer | agrees with the judge |
+|---|---|
+| the **d1-2B's** own flat answer, no escalation | **55/75 (73%)** |
+| arm A, as the round takes it (with the escalation) | 29/75 (39%) |
+| the **ghost's** | 28/75 (37%) |
+| the **second model's** (clef-flash) | 13/75 (17%) |
+| the **tree's** | 4/75 (5%) |
+
+**The escalation on this gate makes the answer worse.** The d1-2B's own flat
+answer agrees with the judge 55 times out of 75. clef-flash's answers agree
+13 times out of 75. Arm A takes clef-flash's answer whenever the cheap
+model is below 0.5, so the round acts on 29 — a **thirty-four point drop**
+for a second opinion that costs 1394 ms and changes the answer in 33 of the
+58 cases it is bought.
+
+D75 said clef-flash is usually worse on the ten-option talk gates, and
+measured it: "On attention, a neutral judge (d1-3B) sided with d1-2B 35/54
+vs clef-flash 12/54". This is the same measurement, larger, and it agrees:
+**55/75 against 13/75**.
+
+## Why the tree answers differently
+
+The judge is asked the **flat** question, so an arm that answers a different
+question is measured against a verdict about this one. That bias is real, and
+this says how much of it there is.
+
+Every option of the gate falls under exactly one of the tree's partitions, so
+the flat question's own probabilities can be projected onto them and read
+against the tree's first step:
+
+- the flat question's mass and the tree's first step fell on the **same**
+  partition in **45 of the 75** situations — so the coarse question did move
+  the model a quarter of the time;
+- the flat question's mass was on `your_squad` in **30** situations, on
+  `squad_1` in 29 and on `squad_0` in 16. **The tree's first step put 38 on
+  `squad_0` and 37 on `squad_1`, and `your_squad` 0 times**;
+- the judge's answer fell under the partition the tree took in only **8 of
+  75** situations, and under another one in 67. Where the judge and the tree
+  were in the same branch, the tree still disagreed with the judge in 4 of 8.
+
+So the tree is not broken and it is not a broken judge: **the tree cannot say
+"your squad"**. In 75 of 75 situations it named an individual agent; the
+cheap model alone said "squad" 55 times out of 75, arm A's escalated answer
+29 times, and the judge 67 times out of 75.
+
+The tree's partition is written by squad, and it has to be — the tree is the
+same tree for every agent and half the roster is on each side, so a branch
+that meant "yours" would offer squad 0's agents to the agents of squad 1
+(the earlier tree did exactly that, and named an agent of the wrong squad in
+every squad-1 situation). But the branch that survives the fix, "your own
+squad as a whole", is the one the model never picks once the question is
+phrased in absolute squads. Asking "squad 0 or squad 1" is not the same
+question as "your squad or one agent in particular", and the model reads it
+as a question about the agent rather than about the group.
+
+## The order of the options changes the answer
+
+The gate's criteria live in a sorted map, so the options reach the model in
+**alphabetical** order — `agent0 … agent7, all, squad` — and not in the
+doctrine's order the harness declares in `gates.toml` (`squad`, `all`, then
+the agents). The model reads the options in the order they arrive, and the
+answer follows the order: asked with the options in the order the harness
+declares them, **32 of the 75 situations changed answer** (the same question,
+the same facts, the same model). The measurement writes the body out by hand
+to ask it, because no code path can send them in any other order.
+
+So part of what the flat attention question "means" is an accident of how a
+sorted map serialises. The tree does not have that problem — its options are
+written out, in the order the harness declares — and it is still wrong, for
+the reason above.
+
+## The Hodge decomposition
+
+The flow on a pair of options is the **relative** margin — the difference of
+the two probabilities over their sum — and the question's preferences are
+decomposed into the three parts (HodgeRank, Jiang, Lim, Yao and Ye 2011):
+
+- **gradient**: the options lie on one scale — a single ordering explains
+  the whole flow;
+- **curl**: they do not — the preferences run in a cycle;
+- **harmonic**: the evidence is disconnected — it does not reach across the
+  options.
+
+The **relative margin** is the flow on purpose, and the reason matters: a
+plain difference `p_i − p_j` is additive, and an additive flow over one
+fixed set of options is *exactly* a gradient, so its curl is identically zero
+however the models disagree. A detector built on it could never say "curl".
+The relative margin is bounded and not additive, so the part of a flow that
+does not come from one scale is visible. (The decomposition's own test says
+it: a probability vector whose margins do not add up leaves a curl.)
+
+The views are the cheap model's option probabilities and, where the
+escalation record has them, clef-flash's.
+
+| | gradient | curl | harmonic |
+|---|---|---|---|
+| mean over the situations | **0.973** | 0.027 | 0.000 |
+
+The dominant part is the gradient in **every** situation (75 of 75, 0 curl,
+0 harmonic). **The attention gate's ten options lie on one scale**: the model
+ranks them consistently, and there is no cycle and no disconnected evidence
+to decompose. That is the detector's answer for this gate — *do not
+decompose it* — and the arms agree with it: the tree is cheaper in options
+and no better on the answer.
+
+The brief's question was whether the questions with curl are the ones where
+decomposing beats escalating. Splitting the 75 questions at the median curl
+(0.025):
+
+| half | questions | decompose minus escalate | the tree right | arm A right | both right |
+|---|---|---|---|---|---|
+| high curl | 38 | **−0.526** per question | 1 | 21 | 16 |
+| low curl | 37 | **−0.135** per question | 3 | 8 | 26 |
+
+**No.** Decomposing is behind escalating in both halves, and the sign is the
+finding: on this gate the tree does not beat the flat question anywhere. The
+difference *between* the halves is not settled at this sample size — the
+high-curl half is where the flat question is most ambiguous, and 38 questions
+cannot separate a real effect from noise — but it is certainly not the case
+that the high-curl questions are the ones where decomposition wins.
+
+Paired over all 75: the tree right and arm A wrong **4**, arm A
+right and the tree wrong **29**, both right **0**, neither right 42.
+
+## What the ghost costs and what it hides
+
+The ghosted arm is the **cheapest** arm: 3 options asked, 184 ms at the
+median, the most confident (0.684 at the median, and never unsure except
+twice), and within four points of arm A on the judge's verdict (37.3%
+against 38.7%).
+
+It also hides the answer. In every situation where the ghost left out an
+option at all, the option it left out **was** the judge's answer: **46 of
+46**. Pruning the attention gate keeps the options the model has been
+choosing and drops the ones it has not — and the ones it has not are where
+the judge's answer was. The ghost reaches arm A's accuracy only
+because arm A is itself at 38.7% after the escalation.
+
+## What this measurement does not say
+
+- **It is not a score.** The Thor's models answer the same pack the same way
+  every time, so the rounds are three samples of the same behaviour, not
+  three games.
+- **The judge is asked the flat question**, so it shares that question's
+  framing, and the arms that answer a different question are measured
+  against a verdict about this one. That is the esctune protocol, and it is
+  also a bias. The section above measures how much of it there is: the tree
+  and the judge were in the same branch in 8 of 75 situations, and the tree
+  still disagreed with the judge in 4 of those 8.
+- **The Hodge's threshold is a choice.** 0.20 on the relative margin keeps
+  about 35 of the 45 possible edges. A different threshold moves the curl
+  about, not the verdict: the gate's flow is gradient-dominated at every
+  threshold that keeps the graph connected.
+- **The curl is small because the options are ranked consistently.** A gate
+  that mixed kinds of choice — and the attention gate does mix a group, a
+  field and eight individuals — would show more of it. This one does not.
+- **This tree is the harness's own**, and its failure is specific: the
+  partition cannot express the answer the question is mostly about. Another
+  partition might read differently. What this measurement says is that *this*
+  decomposition of *this* gate is worse, not that no decomposition can ever
+  be better.
+- **The measurement says what to stop doing, not what to start.** The
+  evidence is that the escalation on the attention gate costs 1394 ms and
+  makes the answer worse; it is not evidence that any other shape is right
+  for it.
+
+## The verdict
+
+**The claim does not hold.** The note says the two-step tree should be
+*faster per decision*, *more confident*, and *at least as accurate* as
+escalating the unsure ten-option answer to clef-flash. Measured on the same
+75 situations, with the same facts and the same models:
+
+| the claim | measured | holds? |
+|---|---|---|
+| faster per decision | 396 ms against 1280 | **yes** — but the difference is the escalation arm A buys, not the tree's own speed |
+| more confident | 0.506 against 0.377, never unsure against 24 of 75 unsure | **yes** |
+| at least as accurate as escalating to clef-flash | 5.3% against 38.7% on the judge's verdict | **no** — and 68 points behind the cheap model's own flat answer |
+
+And the reason is not that decomposition is slow or hard to ask. It is that
+**the coarse question is not the same question**: the tree's first step never
+picks the "your squad" branch, so the tree cannot say "squad", and "squad"
+is what the judge says in 67 of the 75 situations. The Hodge says the same
+thing from the other side: this gate is gradient-dominated in every one of
+the 75 questions — its options lie on one scale, there is no cycle in them
+to decompose, and the questions with the most curl are not the ones where
+decomposing wins.
+
+What the measurement does say is actionable, and it is not about the tree.
+**The escalation on this gate is the thing to stop.** The d1-2B's own
+ten-option answer agrees with the judge 73% of the time; after clef-flash has
+had its say the round acts on 39%, at 1394 ms a second opinion, on a decision
+that changes in 33 of 58 cases. That is D75's reason for escalating only the
+move gate, measured again on a larger sample on the same gate (55/75 against
+13/75), and it is the opposite of what the note was reaching for: on this
+gate the answer is not to decompose the question, it is to leave it alone.
