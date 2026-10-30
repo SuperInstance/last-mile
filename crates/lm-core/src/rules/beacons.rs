@@ -4,22 +4,26 @@
 //! a procedural map, contact is a tag rather than a kill, and a squad scores
 //! for every tick it holds a beacon.
 //!
-//! The tick of the ruleset runs in four fixed phases, in this order:
+//! The tick of the ruleset runs in five fixed phases, in this order:
 //!
-//! 1. **Respawn.** Every stun that has ended puts its agent back on its
+//! 1. **The paint.** An agent standing in the other team's paint is slowed,
+//!    and the paint pushes it back every N-th tick of contact. The rule is
+//!    [`super::paint`], and it is off until a knob is turned: a round whose
+//!    paint rules are off is the round it always was.
+//! 2. **Respawn.** Every stun that has ended puts its agent back on its
 //!    squad's spawn and reports [`Event::Respawned`].
-//! 2. **Tagging.** The agents act in the tick's rotating order. An agent
+//! 3. **Tagging.** The agents act in the tick's rotating order. An agent
 //!    that is not stunned tags the first enemy that is not stunned, is within
 //!    `tag_range_units` and is in line of sight. The target is stunned for
 //!    `stun_ticks` ticks. A tag never comes back in the same tick, so two
 //!    agents that can see each other cannot trade tags. The tag also leaves
 //!    a splat of paint: the tagged agent's cell and the cells around it,
 //!    within `splat_radius_cells`, in the tagger's colour.
-//! 3. **Holding.** A beacon is held by the squad that has a living agent
+//! 4. **Holding.** A beacon is held by the squad that has a living agent
 //!    inside `beacon_radius_units` of it while no enemy is inside that
 //!    radius. A beacon two squads stand in is held by nobody. Every held
 //!    beacon is worth one point per tick.
-//! 4. **Ending.** The round ends when a squad reaches `win_score` or the
+//! 5. **Ending.** The round ends when a squad reaches `win_score` or the
 //!    tick limit runs out. The higher score wins; a tie is a tie.
 
 use super::{add_score, beacon_id, hash_rule_state, is_stunned, winner, Event, Outcome, Ruleset};
@@ -79,7 +83,40 @@ impl Ruleset for Beacons {
             return events;
         }
 
-        // 1. A stun that has ended puts its agent back on its spawn.
+        // 1. The paint: an agent standing in the other team's paint is
+        //    slowed, and the paint pushes it back every N-th tick of contact.
+        //
+        //    The paint is read at the start of the tick, before any splat of
+        //    this tick is written: a splat is felt from the next tick on. The
+        //    slow is written into the agent and the motor of the next tick
+        //    obeys it; the push-back is applied here, so an agent that steps
+        //    into the paint is pushed out at the end of this same tick.
+        //
+        //    With both knobs at zero the paint plays no rule at all, and the
+        //    round is the round it always was.
+        if super::paint::paint_rules_on(p) {
+            let period = super::paint::bounce_period(p.bounce_q8);
+            for agent in agents.iter_mut() {
+                let cell = world.grid.cell_of(agent.pos, world.cell_units);
+                let contact = super::paint::enemy_paint_under(&world.paint, cell, agent.squad);
+                if contact.is_none() {
+                    agent.paint_contact = 0;
+                    agent.paint_slow_q8 = 0;
+                    continue;
+                }
+                agent.paint_contact = agent.paint_contact.saturating_add(1);
+                agent.paint_slow_q8 = p.slow_q8;
+                // The push-back: on every N-th tick of contact the paint
+                // sends the agent back to the cell it came from.
+                if period > 0 && agent.paint_contact % u32::from(period) == 0 {
+                    if let Some(from) = agent.paint_from {
+                        agent.pos = world.grid.center(from, world.cell_units);
+                    }
+                }
+            }
+        }
+
+        // 2. A stun that has ended puts its agent back on its spawn.
         for agent in agents.iter_mut() {
             let Some(end) = agent.stunned_until else {
                 continue;
@@ -94,7 +131,7 @@ impl Ruleset for Beacons {
             events.push(Event::Respawned(agent.id));
         }
 
-        // 2. Tagging, in the tick's rotating order.
+        // 3. Tagging, in the tick's rotating order.
         //
         // `tagged` holds the agents that were tagged during this tick: a tag
         // never comes back in the same tick, so two agents that can see each
@@ -154,7 +191,7 @@ impl Ruleset for Beacons {
             }
         }
 
-        // 3. Holding: a beacon belongs to the squad that has a living agent
+        // 4. Holding: a beacon belongs to the squad that has a living agent
         //    inside the radius while no enemy is inside it.
         let radius2 = squared(p.beacon_radius_units);
         for (index, &beacon) in world.beacons.iter().enumerate() {
@@ -199,7 +236,7 @@ impl Ruleset for Beacons {
             }
         }
 
-        // 4. The round ends on the score or on the clock.
+        // 5. The round ends on the score or on the clock.
         let reached_score = self
             .scores
             .iter()
@@ -667,5 +704,137 @@ mod tests {
         let order = rotated(agents.len(), 0);
         rules.step(&mut world, &mut agents, 0, &order, &p);
         assert_ne!(before, rules.state_hash());
+    }
+
+    /// A world with one painted cell: squad 1's paint on `paint_cell`.
+    fn painted_world(paint_cell: CellXY) -> World {
+        let mut world = flat_world(
+            [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
+            vec![CellXY { x: 28, y: 28 }],
+        );
+        world.paint.splat(paint_cell, 1);
+        world
+    }
+
+    #[test]
+    fn the_other_teams_paint_slows_and_own_paint_does_not() {
+        let p = Params {
+            slow_q8: 128,
+            ..Params::default()
+        };
+        let mut world = painted_world(CellXY { x: 5, y: 4 });
+        // Squad 1's own paint on the cell its agent stands in.
+        world.paint.splat(CellXY { x: 20, y: 20 }, 1);
+        let mut agents = vec![
+            // In the other team's paint.
+            agent_at(&world, 0, 0, CellXY { x: 5, y: 4 }),
+            // In its own team's paint.
+            agent_at(&world, 4, 1, CellXY { x: 20, y: 20 }),
+            // On bare ground.
+            agent_at(&world, 1, 0, CellXY { x: 2, y: 2 }),
+        ];
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        rules.step(&mut world, &mut agents, 0, &order, &p);
+
+        assert_eq!(agents[0].paint_slow_q8, 128, "the enemy's paint slows");
+        assert_eq!(agents[1].paint_slow_q8, 0, "own paint does not");
+        assert_eq!(agents[2].paint_slow_q8, 0, "bare ground does not");
+    }
+
+    #[test]
+    fn the_contact_count_rises_while_the_paint_is_under_the_agent_and_falls_after() {
+        let p = Params {
+            slow_q8: 64,
+            ..Params::default()
+        };
+        let mut world = painted_world(CellXY { x: 5, y: 4 });
+        let mut agents = vec![agent_at(&world, 0, 0, CellXY { x: 5, y: 4 })];
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        rules.step(&mut world, &mut agents, 0, &order, &p);
+        assert_eq!(agents[0].paint_contact, 1);
+        rules.step(&mut world, &mut agents, 1, &order, &p);
+        assert_eq!(agents[0].paint_contact, 2);
+
+        // The agent steps out of the paint: the count is gone.
+        agents[0].pos = world.grid.center(CellXY { x: 2, y: 2 }, world.cell_units);
+        rules.step(&mut world, &mut agents, 2, &order, &p);
+        assert_eq!(
+            agents[0].paint_contact, 0,
+            "the count restarts off the paint"
+        );
+        assert_eq!(agents[0].paint_slow_q8, 0, "and the slow is off again");
+    }
+
+    #[test]
+    fn the_paint_pushes_the_agent_back_on_every_nth_tick_of_contact() {
+        // `bounce_q8 = 64` is a push-back every fourth tick of contact.
+        let p = Params {
+            slow_q8: 64,
+            bounce_q8: 64,
+            ..Params::default()
+        };
+        let mut world = painted_world(CellXY { x: 5, y: 4 });
+        let mut agents = vec![agent_at(&world, 0, 0, CellXY { x: 5, y: 4 })];
+        // The agent came from the cell next door.
+        agents[0].paint_from = Some(CellXY { x: 4, y: 4 });
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        for tick in 0..3u64 {
+            rules.step(&mut world, &mut agents, tick, &order, &p);
+            assert_eq!(
+                agents[0].pos,
+                world.grid.center(CellXY { x: 5, y: 4 }, world.cell_units),
+                "tick {tick}: the paint waits for the fourth tick of contact"
+            );
+        }
+        rules.step(&mut world, &mut agents, 3, &order, &p);
+        assert_eq!(
+            agents[0].pos,
+            world.grid.center(CellXY { x: 4, y: 4 }, world.cell_units),
+            "the fourth tick of contact pushes the agent back"
+        );
+    }
+
+    #[test]
+    fn a_paint_without_a_bounce_never_pushes_anybody_back() {
+        let p = Params {
+            slow_q8: 64,
+            bounce_q8: 0,
+            ..Params::default()
+        };
+        let mut world = painted_world(CellXY { x: 5, y: 4 });
+        let mut agents = vec![agent_at(&world, 0, 0, CellXY { x: 5, y: 4 })];
+        agents[0].paint_from = Some(CellXY { x: 4, y: 4 });
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        for tick in 0..8u64 {
+            rules.step(&mut world, &mut agents, tick, &order, &p);
+            assert_eq!(
+                agents[0].pos,
+                world.grid.center(CellXY { x: 5, y: 4 }, world.cell_units),
+                "tick {tick}: the paint never pushes"
+            );
+        }
+    }
+
+    #[test]
+    fn the_paint_rules_are_off_until_a_knob_is_turned() {
+        // With both knobs at zero the rules are inert: no count, no slow, and
+        // an agent that never moved is never pushed.
+        let p = Params::default();
+        let mut world = painted_world(CellXY { x: 5, y: 4 });
+        let mut agents = vec![agent_at(&world, 0, 0, CellXY { x: 5, y: 4 })];
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        rules.step(&mut world, &mut agents, 0, &order, &p);
+        assert_eq!(agents[0].paint_slow_q8, 0);
+        assert_eq!(agents[0].paint_contact, 0);
     }
 }

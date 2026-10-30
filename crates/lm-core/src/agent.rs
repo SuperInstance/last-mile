@@ -93,6 +93,29 @@ pub struct Agent {
     /// round that never talks hashes exactly as it always did (see
     /// `hash_into`).
     pub airtime_ticks: u32,
+    /// The slowdown the paint under this agent's feet applies, in Q8 (0 = the
+    /// paint does not slow it).
+    ///
+    /// The rules write it: an agent standing in the other team's paint is
+    /// slowed from its next step (see [`crate::rules::paint`]). It is game
+    /// state — it changes where the agent walks — so it is covered by the
+    /// state hash, and like the airtime counter it is hashed **only when it
+    /// is used**: a round whose paint rules are off has none of it.
+    pub paint_slow_q8: u16,
+    /// The ticks this agent has stood in the other team's paint, in a row (0
+    /// = it is not standing in any).
+    ///
+    /// The count is what the paint's push-back counts, and it is the agent's
+    /// own: it rises on every tick of contact and falls back to zero on the
+    /// first tick the agent is not in contact.
+    pub paint_contact: u32,
+    /// The cell this agent came from: the cell it stood in before it last
+    /// moved.
+    ///
+    /// The paint pushes an agent back to it, so the motor has to remember
+    /// it. It is `None` while the paint rules are off, and an agent that
+    /// has never moved has none either.
+    pub paint_from: Option<CellXY>,
 }
 
 impl Agent {
@@ -111,6 +134,9 @@ impl Agent {
             lane_cmd: None,
             route: None,
             airtime_ticks: 0,
+            paint_slow_q8: 0,
+            paint_contact: 0,
+            paint_from: None,
         }
     }
 
@@ -225,9 +251,24 @@ impl Agent {
             _ => return,
         };
 
+        // The cell the agent came from, for the paint to push it back to. It
+        // is remembered only when the agent actually moves, and only while
+        // the paint rules are on, so a round whose paint rules are off is the
+        // round it always was.
+        if crate::rules::paint::paint_rules_on(p) {
+            self.paint_from = Some(cell);
+        }
+
         let (tx, ty) = grid.center(target, world.cell_units).to_units();
         let (px, py) = self.pos.to_units();
+        // The step budget: the agent's speed, less what the paint takes
+        // away. The rules wrote the slow into the agent and the motor obeys
+        // it. Integer only, and floored: a slow never rounds a step up.
         let mut budget = i64::from(p.speed_upt.max(0));
+        if self.paint_slow_q8 > 0 {
+            budget = budget * i64::from(crate::rules::paint::speed_left_q8(self.paint_slow_q8))
+                / i64::from(crate::params::Q8_ONE);
+        }
         let (mut nx, mut ny) = (px, py);
         let dx = tx - nx;
         let dy = ty - ny;
@@ -384,6 +425,21 @@ impl StateHash for Agent {
         if self.airtime_ticks != 0 {
             h.u32(self.airtime_ticks);
         }
+        // The paint's state is game state too: the slow changes where the
+        // agent walks and the contact count is what the push-back counts,
+        // so both are hashed. They are hashed **only when they are used**,
+        // the way the airtime counter is: a round whose paint rules are off
+        // has none of them, and hashes as it always did.
+        if self.paint_slow_q8 != 0 {
+            h.u16(self.paint_slow_q8);
+        }
+        if self.paint_contact != 0 {
+            h.u32(self.paint_contact);
+        }
+        if let Some(cell) = self.paint_from {
+            h.write(&[1]);
+            cell.hash_into(h);
+        }
     }
 }
 
@@ -449,6 +505,64 @@ mod tests {
                 "t={t} goal={goal:?} cell={cell:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_paint_slows_the_step_down() {
+        // The rules write the slow into the agent; the motor obeys it.
+        let world = open_world();
+        let p = Params::default();
+        let start = CellXY { x: 1, y: 1 };
+        let goal = CellXY { x: 8, y: 8 };
+        let mut fast = agent_at(&world, start);
+        let mut slow = agent_at(&world, start);
+        slow.paint_slow_q8 = 128;
+        fast.move_step(MotorCmd::GoTo(goal), &world, &p, 0);
+        slow.move_step(MotorCmd::GoTo(goal), &world, &p, 0);
+
+        let from = world.grid.center(start, world.cell_units).to_units();
+        let fast_step = (fast.pos.to_units().0 - from.0).abs();
+        let slow_step = (slow.pos.to_units().0 - from.0).abs();
+        assert_eq!(fast_step, 136, "the whole speed");
+        assert_eq!(
+            slow_step,
+            136 * 127 / 255,
+            "half the speed, floored: the paint is not a float"
+        );
+    }
+
+    #[test]
+    fn a_full_slow_stops_the_agent_where_it_stands() {
+        let world = open_world();
+        let p = Params::default();
+        let start = CellXY { x: 1, y: 1 };
+        let mut a = agent_at(&world, start);
+        a.paint_slow_q8 = 255;
+        let before = a.pos;
+        a.move_step(MotorCmd::GoTo(CellXY { x: 8, y: 8 }), &world, &p, 0);
+        assert_eq!(a.pos, before, "the paint stops the agent dead");
+    }
+
+    #[test]
+    fn the_motor_remembers_the_cell_it_came_from() {
+        // The paint pushes an agent back to the cell it came from, so the
+        // motor has to remember it.
+        let world = open_world();
+        let p = Params {
+            slow_q8: 64,
+            ..Params::default()
+        };
+        let mut a = agent_at(&world, CellXY { x: 1, y: 1 });
+        assert_eq!(
+            a.paint_from, None,
+            "an agent that never moved came from nowhere"
+        );
+        a.move_step(MotorCmd::GoTo(CellXY { x: 8, y: 8 }), &world, &p, 0);
+        assert_eq!(
+            a.paint_from,
+            Some(CellXY { x: 1, y: 1 }),
+            "the cell the agent stood in before it moved"
+        );
     }
 
     #[test]

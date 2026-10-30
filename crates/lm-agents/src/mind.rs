@@ -2104,6 +2104,7 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
+                paint_slow_q8: 0,
             },
             squad: vec![lm_core::view::AgentSnap {
                 id,
@@ -2111,6 +2112,7 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
+                paint_slow_q8: 0,
             }],
             enemies: vec![],
             beacons: vec![lm_core::view::BeaconSnap {

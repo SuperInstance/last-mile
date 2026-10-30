@@ -151,13 +151,21 @@ pub struct Params {
     /// The wetness falls by a fixed Q8 step every tick, and the step is
     /// chosen so the paint is always dry within this many ticks.
     pub dry_ticks: u16,
-    /// How much a painted cell slows an agent down, in Q8 (255 = a full
-    /// stop). A placeholder: the Vibe blocks drive it, and it has no effect
-    /// yet.
+    /// How much the paint slows an agent down, in Q8 (255 = a full stop).
+    ///
+    /// The paint's rule: an agent standing in the *other* team's paint moves
+    /// at `speed_upt * (255 - slow_q8) / 255` units a tick instead of
+    /// `speed_upt`, and its own team's paint does nothing to it. The rule is
+    /// in [`crate::rules::paint`], and the motor obeys what the rules write
+    /// into the agent.
     pub slow_q8: u16,
-    /// How much of a splat bounces back off the tagged agent, in Q8 (255 =
-    /// all of it). A placeholder: the Vibe blocks drive it, and it has no
-    /// effect yet.
+    /// How often the paint pushes an agent back, in Q8 (0 = never).
+    ///
+    /// The paint's rule: every `256 / bounce_q8` ticks of contact the paint
+    /// pushes the agent back to the cell it came from. The knob is the
+    /// period, not a chance: 255 pushes on every tick of contact, 128 every
+    /// second, 64 every fourth. The rule is in
+    /// [`crate::rules::paint`].
     pub bounce_q8: u16,
 }
 

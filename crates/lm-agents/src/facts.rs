@@ -241,6 +241,30 @@ impl Facts {
             None => lines.push("You are not standing on a beacon.".to_owned()),
         }
 
+        // The paint under my feet. Standing in the other team's paint is
+        // contact: it slows me down, and it is why I am walking slowly. The
+        // sentence says so in one line, and only when it is true — the
+        // slowdown is the sim's own number, so the facts never promise a
+        // slowdown the round is not applying.
+        let paint_under = view.paint.iter().find(|p| p.cell == me).map(|p| p.owner);
+        if let Some(owner) = paint_under {
+            if owner != me_squad {
+                fields.insert("me.in_enemy_paint".to_string(), 1);
+                fields.insert(
+                    "me.paint_slow_q8".to_string(),
+                    i64::from(view.me.paint_slow_q8),
+                );
+                if view.me.paint_slow_q8 > 0 {
+                    lines.push(
+                        "You are standing in the other team's paint; it is slowing you down."
+                            .to_owned(),
+                    );
+                } else {
+                    lines.push("You are standing in the other team's paint.".to_owned());
+                }
+            }
+        }
+
         // The doctrine's target, named. When there is none the rule says
         // what to do instead, so the fact has to say why.
         if nearest_unheld.is_none() {
@@ -452,7 +476,7 @@ mod tests {
     use super::*;
     use crate::config::AgentsConfig;
     use lm_core::header::Role;
-    use lm_core::view::{AgentSnap, BeaconSnap, EnemySeen};
+    use lm_core::view::{AgentSnap, BeaconSnap, EnemySeen, PaintSnap};
     use lm_core::world::{jps, CellKind, CellXY, Grid};
 
     /// The facts of a squad-0 view under the default config.
@@ -474,6 +498,7 @@ mod tests {
             role,
             stunned: false,
             airtime_ticks: 0,
+            paint_slow_q8: 0,
         }
     }
 
@@ -549,6 +574,72 @@ mod tests {
         assert_eq!(a.fields, b.fields);
         assert_eq!(a.key, b.key);
         assert_eq!(a.key, situation_key(&a.fields));
+    }
+
+    #[test]
+    fn standing_in_the_other_teams_paint_is_stated() {
+        // The agent stands in the enemy's paint, and the paint is slowing
+        // it: the facts say so in one line.
+        let mut view = base_view();
+        view.paint = vec![PaintSnap {
+            cell: CellXY { x: 2, y: 2 },
+            owner: 1,
+            wet_q8: 255,
+            splats: 1,
+        }];
+        view.me.paint_slow_q8 = 128;
+        let f = facts(&view, &wall_world());
+        assert!(
+            f.text
+                .contains("You are standing in the other team's paint"),
+            "the paint is stated: {}",
+            f.text
+        );
+        assert!(
+            f.text.contains("it is slowing you down"),
+            "the slowdown is stated: {}",
+            f.text
+        );
+        assert_eq!(f.fields.get("me.in_enemy_paint"), Some(&1));
+        assert_eq!(f.fields.get("me.paint_slow_q8"), Some(&128));
+    }
+
+    #[test]
+    fn the_paint_of_your_own_squad_is_not_stated_as_the_enemys() {
+        let mut view = base_view();
+        view.paint = vec![PaintSnap {
+            cell: CellXY { x: 2, y: 2 },
+            owner: 0,
+            wet_q8: 255,
+            splats: 1,
+        }];
+        let f = facts(&view, &wall_world());
+        assert!(
+            !f.text.contains("other team's paint"),
+            "own paint is not the enemy's: {}",
+            f.text
+        );
+        assert!(!f.fields.contains_key("me.in_enemy_paint"));
+    }
+
+    #[test]
+    fn the_paint_is_stated_without_a_slowdown_when_there_is_none() {
+        // The paint rules can be off: the agent is in the enemy's paint,
+        // but nothing is slowing it, and the facts do not say it is.
+        let mut view = base_view();
+        view.paint = vec![PaintSnap {
+            cell: CellXY { x: 2, y: 2 },
+            owner: 1,
+            wet_q8: 255,
+            splats: 1,
+        }];
+        view.me.paint_slow_q8 = 0;
+        let f = facts(&view, &wall_world());
+        assert!(f
+            .text
+            .contains("You are standing in the other team's paint"));
+        assert!(!f.text.contains("slowing you down"));
+        assert_eq!(f.fields.get("me.paint_slow_q8"), Some(&0));
     }
 
     /// The facts under a shared-target rule.

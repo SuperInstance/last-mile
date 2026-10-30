@@ -235,6 +235,13 @@ pub struct AgentSnap {
     /// used of it. It is in the view because it is the agent's own state:
     /// the mind checks it before it speaks, and the sim is the authority.
     pub airtime_ticks: u32,
+    /// The slowdown the paint under this agent's feet applies, in Q8 (0 = the
+    /// paint does not slow it).
+    ///
+    /// It is the agent's own state, like the airtime: the rules write it and
+    /// the motor of the next tick obeys it. The mind is told, so it knows
+    /// why it is walking slowly and can step out of the paint.
+    pub paint_slow_q8: u16,
 }
 
 /// An enemy as the squad last saw it: where, and how many ticks ago.
@@ -332,6 +339,7 @@ impl ScoreView {
             role: a.role,
             stunned: a.stunned_until.is_some_and(|t| now < t),
             airtime_ticks: a.airtime_ticks,
+            paint_slow_q8: a.paint_slow_q8,
         };
         ScoreView {
             tick: now,
@@ -467,6 +475,7 @@ mod tests {
             role,
             stunned: false,
             airtime_ticks: 0,
+            paint_slow_q8: 0,
         }
     }
 
