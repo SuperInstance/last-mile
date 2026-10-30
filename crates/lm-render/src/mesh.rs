@@ -194,6 +194,7 @@ mod tests {
             beacons: Vec::new(),
             spawns: Vec::new(),
             cell_units: 2048,
+            paint: lm_core::world::Paint::new(),
         }
     }
 

@@ -8,6 +8,7 @@
 //! reachable from spawn 0, so no seed can wall the round off.
 
 use super::grid::{CellKind, CellXY, Grid};
+use super::paint::Paint;
 use super::World;
 use crate::fixed::UNITS_PER_M;
 use crate::params::Params;
@@ -42,6 +43,7 @@ pub fn generate(seed: u64, p: &Params) -> World {
             beacons: Vec::new(),
             spawns: Vec::new(),
             cell_units,
+            paint: Paint::new(),
         };
     }
 
@@ -179,6 +181,7 @@ pub fn generate(seed: u64, p: &Params) -> World {
         beacons,
         spawns,
         cell_units,
+        paint: Paint::new(),
     }
 }
 

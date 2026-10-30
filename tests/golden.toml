@@ -27,6 +27,30 @@
 # the seed picks (the old order handed the first tag of most rounds to the
 # same squad). The reflex is unchanged.
 #
+# **Not** re-pinned for the paint (M2a), and that is the point: the paint's
+# bytes join the state hash only when there is paint, the way a branch's
+# lineage joins the header's hash only when it is there. A round that never
+# painted is the world it was before the paint existed, and it hashes as it
+# did then — so the three numbers below still hold, and every log written
+# before the paint still verifies against the hashes it recorded. `lm golden`
+# says `OK 3/3` with these three numbers untouched.
+#
+# Measured, so the note is a fact and not a hope (the round played is the
+# pinned one: seed, 3000 ticks, the shipped reflex, the default parameters):
+#
+# * **Seed 1** tags exactly once, at tick 1845, and the tag splats 9 cells.
+#   The splat dries on its own (`dry_ticks` 150), so the paint is gone by
+#   tick 1973 — and the round's last hash is at tick 2429, on a dry map. The
+#   pinned hash therefore did not move, even though this seed painted.
+# * **Seeds 2 and 3** never tag in 3000 ticks, so they never paint, and
+#   their hashes are the hashes they were.
+#
+# A painted round's hashes *do* move: the paint is in them, and a round that
+# painted and a round that did not are different games. `lm golden` cannot
+# see that here, because the paint is dry by the time these three rounds
+# take their last hash — which is the point of measuring rather than
+# assuming.
+#
 # Regenerate with:
 #     cargo run --release --bin lm -- golden --write
 

@@ -404,6 +404,7 @@ mod tests {
             beacons: Vec::new(),
             spawns: Vec::new(),
             cell_units: 1024,
+            paint: crate::world::Paint::new(),
         }
     }
 

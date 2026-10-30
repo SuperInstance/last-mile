@@ -12,7 +12,9 @@
 //      is not stunned tags the first enemy that is not stunned, is within
 //      `tag_range_units` and is in line of sight. The target is stunned for
 //      `stun_ticks` ticks. A tag never comes back in the same tick, so two
-//      agents that can see each other cannot trade tags.
+//      agents that can see each other cannot trade tags. The tag also leaves
+//      a splat of paint: the tagged agent's cell and the cells around it,
+//      within `splat_radius_cells`, in the tagger's colour.
 //   3. Holding: a beacon is held by the squad that has a living agent inside
 //      `beacon_radius_units` of it while no enemy is inside that radius. A
 //      beacon two squads stand in is held by nobody. Every held beacon is
@@ -39,6 +41,26 @@ fn dist2(a, b) {
 /// A stun end of -1 is no stun at all.
 fn is_stunned(stun_end, now) {
     stun_end >= 0 && now < stun_end
+}
+
+/// The cells a splat covers: the centre and the cells around it.
+///
+/// The neighbourhood is a square of Chebyshev radius `radius` -- the metric
+/// the grid's sight uses -- clipped to the map, walked in row-major order.
+/// This is the same walk the native rules make, so both splat the same cells.
+fn splat_cells(cx, cy, radius, w, h) {
+    let cells = [];
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let x = cx + dx;
+            let y = cy + dy;
+            if x < 0 || y < 0 || x >= w || y >= h {
+                continue;
+            }
+            cells.push([x, y]);
+        }
+    }
+    cells
 }
 
 /// The rules of one tick: the effects the rules ask for.
@@ -118,6 +140,14 @@ fn rules(v) {
             effects.push(#{ kind: "stun_until", agent: v.agents[victim].id, "until": end });
             stun_end[victim] = end;
             tagged[victim] = true;
+            // The tag leaves a splat: the tagged agent's cell and the cells
+            // around it, in the tagger's colour. The cells are clipped to
+            // the map, the way the native rules clip theirs.
+            effects.push(#{ kind: "splat",
+                            cells: splat_cells(cell[victim][0], cell[victim][1],
+                                               v.params.splat_radius_cells,
+                                               v.grid[0], v.grid[1]),
+                            owner: squad });
         }
     }
 

@@ -438,6 +438,7 @@ mod tests {
             beacons: vec![CellXY { x: 4, y: 2 }, CellXY { x: 10, y: 2 }],
             spawns: vec![CellXY { x: 2, y: 2 }, CellXY { x: 10, y: 10 }],
             cell_units: 1024,
+            paint: lm_core::world::Paint::new(),
         }
     }
 
@@ -446,6 +447,7 @@ mod tests {
     /// stale memory of another, one ally in range and the leader far away.
     fn base_view() -> ScoreView {
         ScoreView {
+            paint: Vec::new(),
             heard: Vec::new(),
             tick: 100,
             me: snap(3, 2, 2, Role::Member),
@@ -506,6 +508,7 @@ mod tests {
     #[test]
     fn stale_enemies_omitted() {
         let view = ScoreView {
+            paint: Vec::new(),
             enemies: vec![
                 EnemySeen {
                     id: 7,
@@ -536,6 +539,7 @@ mod tests {
 
         // One step south is a different situation.
         let moved = ScoreView {
+            paint: Vec::new(),
             me: snap(3, 2, 3, Role::Member),
             squad: vec![
                 snap(0, 12, 12, Role::Leader),
@@ -551,6 +555,7 @@ mod tests {
         // A later tick, the same situation: the key addresses the
         // situation, not the clock (Task 5 detects novelty through it).
         let later = ScoreView {
+            paint: Vec::new(),
             tick: 200,
             ..base_view()
         };
@@ -695,6 +700,7 @@ mod tests {
     #[test]
     fn empty_situations_say_so() {
         let view = ScoreView {
+            paint: Vec::new(),
             me: snap(0, 2, 2, Role::Leader),
             squad: vec![snap(0, 2, 2, Role::Leader)],
             enemies: vec![],
@@ -725,6 +731,7 @@ mod tests {
             beacons: vec![CellXY { x: 4, y: 2 }],
             spawns: vec![CellXY { x: 0, y: 0 }],
             cell_units: 1024,
+            paint: lm_core::world::Paint::new(),
         };
         let mut view = base_view();
         view.beacons = vec![BeaconSnap {

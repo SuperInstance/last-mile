@@ -12,7 +12,9 @@
 //!    that is not stunned tags the first enemy that is not stunned, is within
 //!    `tag_range_units` and is in line of sight. The target is stunned for
 //!    `stun_ticks` ticks. A tag never comes back in the same tick, so two
-//!    agents that can see each other cannot trade tags.
+//!    agents that can see each other cannot trade tags. The tag also leaves
+//!    a splat of paint: the tagged agent's cell and the cells around it,
+//!    within `splat_radius_cells`, in the tagger's colour.
 //! 3. **Holding.** A beacon is held by the squad that has a living agent
 //!    inside `beacon_radius_units` of it while no enemy is inside that
 //!    radius. A beacon two squads stand in is held by nobody. Every held
@@ -26,7 +28,7 @@ use crate::decision::Tick;
 use crate::fixed::dist2;
 use crate::hash::{Fnv64, StateHash};
 use crate::params::Params;
-use crate::world::{los, World};
+use crate::world::{los, splat_cells, World};
 use std::collections::BTreeSet;
 
 /// The Beacons ruleset.
@@ -65,7 +67,7 @@ impl Beacons {
 impl Ruleset for Beacons {
     fn step(
         &mut self,
-        world: &World,
+        world: &mut World,
         agents: &mut [Agent],
         now: Tick,
         order: &[usize],
@@ -138,6 +140,13 @@ impl Ruleset for Beacons {
                 let target_id = agents[j].id;
                 agents[j].stunned_until = Some(now.saturating_add(u64::from(p.stun_ticks)));
                 tagged.insert(j);
+                // The tag leaves a splat: the tagged agent's cell and the
+                // cells around it, in the tagger's colour. The splat is the
+                // readable consequence of the tag, and it is world state.
+                let target_cell = world.grid.cell_of(agents[j].pos, world.cell_units);
+                for cell in splat_cells(&world.grid, target_cell, p.splat_radius_cells) {
+                    world.paint.splat(cell, tagger_squad);
+                }
                 events.push(Event::Tagged {
                     by: tagger_id,
                     target: target_id,
@@ -247,6 +256,7 @@ mod tests {
             beacons,
             spawns: spawns.to_vec(),
             cell_units: 1024,
+            paint: crate::world::Paint::new(),
         }
     }
 
@@ -282,7 +292,7 @@ mod tests {
     #[test]
     fn tag_stuns_and_respawns() {
         let p = Params::default();
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 28, y: 28 }],
         );
@@ -293,7 +303,7 @@ mod tests {
         let mut rules = Beacons::new(&world, &p);
         let order = rotated(agents.len(), 0);
 
-        let events = rules.step(&world, &mut agents, 0, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 0, &order, &p);
         assert!(
             events.contains(&Event::Tagged { by: 0, target: 4 }),
             "{events:?}"
@@ -302,13 +312,101 @@ mod tests {
 
         // Ninety ticks later the stun is over: the agent is back on its
         // squad's spawn and the rules say so.
-        let events = rules.step(&world, &mut agents, 90, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 90, &order, &p);
         assert!(events.contains(&Event::Respawned(4)), "{events:?}");
         assert_eq!(
             agents[1].pos,
             world.grid.center(world.spawns[1], world.cell_units)
         );
         assert_eq!(agents[1].stunned_until, None);
+    }
+
+    #[test]
+    fn a_tag_leaves_a_splat() {
+        let p = Params::default();
+        let mut world = flat_world(
+            [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
+            vec![CellXY { x: 28, y: 28 }],
+        );
+        let mut agents = vec![
+            agent_at(&world, 0, 0, CellXY { x: 4, y: 4 }),
+            agent_at(&world, 4, 1, CellXY { x: 5, y: 4 }),
+        ];
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        let events = rules.step(&mut world, &mut agents, 0, &order, &p);
+        assert!(
+            events.contains(&Event::Tagged { by: 0, target: 4 }),
+            "{events:?}"
+        );
+
+        // The splat is the tagged cell and its neighbours, in the tagger's
+        // colour: the tag reads as paint on the ground.
+        assert_eq!(world.paint.len(), 9);
+        for x in 4..=6u16 {
+            for y in 3..=5u16 {
+                let cell = CellXY { x, y };
+                let paint = world.paint.get(cell).expect("the cell carries paint");
+                assert_eq!(paint.owner, 0, "the tagger's colour at {cell:?}");
+                assert_eq!(paint.wet_q8, crate::world::paint::WET_Q8_MAX);
+                assert_eq!(paint.splats, 1);
+            }
+        }
+        // And nowhere else.
+        assert!(world.paint.get(CellXY { x: 7, y: 4 }).is_none());
+        assert!(world.paint.get(CellXY { x: 5, y: 6 }).is_none());
+    }
+
+    #[test]
+    fn a_splat_follows_the_radius() {
+        let p = Params {
+            splat_radius_cells: 0,
+            ..Params::default()
+        };
+        let mut world = flat_world(
+            [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
+            vec![CellXY { x: 28, y: 28 }],
+        );
+        let mut agents = vec![
+            agent_at(&world, 0, 0, CellXY { x: 4, y: 4 }),
+            agent_at(&world, 4, 1, CellXY { x: 5, y: 4 }),
+        ];
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        rules.step(&mut world, &mut agents, 0, &order, &p);
+        assert_eq!(world.paint.len(), 1);
+        assert!(world.paint.get(CellXY { x: 5, y: 4 }).is_some());
+    }
+
+    #[test]
+    fn a_splat_is_clipped_at_the_edge_of_the_map() {
+        let p = Params::default();
+        let mut world = flat_world(
+            [CellXY { x: 0, y: 0 }, CellXY { x: 20, y: 20 }],
+            vec![CellXY { x: 28, y: 28 }],
+        );
+        // The tagger stands next to the corner, and the tagged agent stands
+        // in it: the splat is cut off at the edge of the map.
+        let mut agents = vec![
+            agent_at(&world, 0, 0, CellXY { x: 1, y: 0 }),
+            agent_at(&world, 4, 1, CellXY { x: 0, y: 0 }),
+        ];
+        let mut rules = Beacons::new(&world, &p);
+        let order = rotated(agents.len(), 0);
+
+        rules.step(&mut world, &mut agents, 0, &order, &p);
+        // The corner of the map: the splat is cut off at the edge.
+        assert_eq!(world.paint.len(), 4);
+        for cell in [
+            CellXY { x: 0, y: 0 },
+            CellXY { x: 1, y: 0 },
+            CellXY { x: 0, y: 1 },
+            CellXY { x: 1, y: 1 },
+        ] {
+            assert!(world.paint.get(cell).is_some(), "no paint at {cell:?}");
+        }
     }
 
     #[test]
@@ -327,7 +425,7 @@ mod tests {
         let mut rules = Beacons::new(&world, &p);
         let order = rotated(agents.len(), 0);
 
-        let events = rules.step(&world, &mut agents, 0, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 0, &order, &p);
         assert!(taggers(&events).is_empty(), "{events:?}");
         assert_eq!(agents[1].stunned_until, None);
     }
@@ -338,7 +436,7 @@ mod tests {
             stun_ticks: 1,
             ..Params::default()
         };
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 5, y: 4 }],
             vec![CellXY { x: 28, y: 28 }],
         );
@@ -350,7 +448,7 @@ mod tests {
 
         for tick in 0..4u64 {
             let order = rotated(agents.len(), tick);
-            let events = rules.step(&world, &mut agents, tick, &order, &p);
+            let events = rules.step(&mut world, &mut agents, tick, &order, &p);
             let expected = if tick % 2 == 0 { 0 } else { 4 };
             assert_eq!(taggers(&events), vec![expected], "tick {tick}: {events:?}");
         }
@@ -359,7 +457,7 @@ mod tests {
     #[test]
     fn contested_beacon_scores_nobody() {
         let p = Params::default();
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 10, y: 4 }],
         );
@@ -372,7 +470,7 @@ mod tests {
         let mut rules = Beacons::new(&world, &p);
         let order = rotated(agents.len(), 0);
 
-        let events = rules.step(&world, &mut agents, 0, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 0, &order, &p);
         assert!(
             !events.iter().any(|e| matches!(e, Event::BeaconHeld { .. })),
             "{events:?}"
@@ -386,7 +484,7 @@ mod tests {
             win_score: 10,
             ..Params::default()
         };
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 10, y: 4 }],
         );
@@ -395,7 +493,7 @@ mod tests {
         let order = rotated(agents.len(), 0);
 
         for tick in 0..10u64 {
-            let events = rules.step(&world, &mut agents, tick, &order, &p);
+            let events = rules.step(&mut world, &mut agents, tick, &order, &p);
             if tick == 0 {
                 assert!(
                     events.contains(&Event::BeaconHeld {
@@ -419,7 +517,7 @@ mod tests {
             time_limit_ticks: 5,
             ..Params::default()
         };
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 28, y: 28 }],
         );
@@ -428,13 +526,13 @@ mod tests {
         let order = rotated(agents.len(), 0);
 
         for tick in 0..5u64 {
-            let events = rules.step(&world, &mut agents, tick, &order, &p);
+            let events = rules.step(&mut world, &mut agents, tick, &order, &p);
             assert!(
                 !events.iter().any(|e| matches!(e, Event::RoundOver(_))),
                 "tick {tick}: {events:?}"
             );
         }
-        let events = rules.step(&world, &mut agents, 5, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 5, &order, &p);
         let outcome = events
             .iter()
             .find_map(|e| match e {
@@ -457,7 +555,7 @@ mod tests {
             stun_ticks: 0,
             ..Params::default()
         };
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 5, y: 4 }],
             vec![CellXY { x: 28, y: 28 }],
         );
@@ -468,14 +566,14 @@ mod tests {
         let mut rules = Beacons::new(&world, &p);
         let order = rotated(agents.len(), 0);
 
-        let events = rules.step(&world, &mut agents, 0, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 0, &order, &p);
         assert_eq!(taggers(&events), vec![0], "{events:?}");
     }
 
     #[test]
     fn beacon_is_lost_when_the_holder_leaves() {
         let p = Params::default();
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 10, y: 4 }],
         );
@@ -486,7 +584,7 @@ mod tests {
         let mut rules = Beacons::new(&world, &p);
         let order = rotated(agents.len(), 0);
 
-        let events = rules.step(&world, &mut agents, 0, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 0, &order, &p);
         assert!(
             events.contains(&Event::BeaconHeld {
                 beacon: 0,
@@ -498,7 +596,7 @@ mod tests {
 
         // The holder walks away: the beacon is lost and stops scoring.
         agents[0].pos = world.grid.center(CellXY { x: 4, y: 4 }, world.cell_units);
-        let events = rules.step(&world, &mut agents, 1, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 1, &order, &p);
         assert!(
             events.contains(&Event::BeaconLost { beacon: 0 }),
             "{events:?}"
@@ -512,7 +610,7 @@ mod tests {
             time_limit_ticks: 3,
             ..Params::default()
         };
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 10, y: 4 }],
         );
@@ -524,7 +622,7 @@ mod tests {
         let order = rotated(agents.len(), 0);
 
         for tick in 0..=3u64 {
-            rules.step(&world, &mut agents, tick, &order, &p);
+            rules.step(&mut world, &mut agents, tick, &order, &p);
         }
         // The beacon scored on the tick the round ended as well.
         assert_eq!(rules.scores(), &[4, 0]);
@@ -539,7 +637,7 @@ mod tests {
             time_limit_ticks: 2,
             ..Params::default()
         };
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 28, y: 28 }],
         );
@@ -547,17 +645,17 @@ mod tests {
         let mut rules = Beacons::new(&world, &p);
         let order = rotated(agents.len(), 0);
 
-        rules.step(&world, &mut agents, 2, &order, &p);
+        rules.step(&mut world, &mut agents, 2, &order, &p);
         assert!(rules.outcome().is_some());
         // After the round is over the rules are inert.
-        let events = rules.step(&world, &mut agents, 3, &order, &p);
+        let events = rules.step(&mut world, &mut agents, 3, &order, &p);
         assert!(events.is_empty(), "{events:?}");
     }
 
     #[test]
     fn rules_hash_is_stable_and_sensitive() {
         let p = Params::default();
-        let world = flat_world(
+        let mut world = flat_world(
             [CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
             vec![CellXY { x: 10, y: 4 }],
         );
@@ -567,7 +665,7 @@ mod tests {
         assert_eq!(before, Beacons::new(&world, &p).state_hash());
 
         let order = rotated(agents.len(), 0);
-        rules.step(&world, &mut agents, 0, &order, &p);
+        rules.step(&mut world, &mut agents, 0, &order, &p);
         assert_ne!(before, rules.state_hash());
     }
 }

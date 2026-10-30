@@ -28,6 +28,15 @@ impl ParamError {
 /// Upper bound on grid cells (2048 x 2048) so a hostile header can't crash worldgen.
 pub const MAX_GRID_CELLS: u64 = 4_194_304;
 
+/// The furthest a tag's splat may reach, in cells from the tagged cell.
+pub const MAX_SPLAT_RADIUS_CELLS: u8 = 8;
+
+/// The longest a splat may last, in ticks.
+pub const MAX_DRY_TICKS: u16 = 600;
+
+/// The largest a Q8 fraction may be: 255 is 1.0.
+pub const Q8_ONE: u16 = 255;
+
 /// The parameter fields a branch may change mid-round (`lm branch`).
 ///
 /// These fields change how the round plays, not what the round is: the
@@ -131,6 +140,25 @@ pub struct Params {
     pub wall_density_pct: u8,
     /// Percentage of cells scattered with cover.
     pub cover_density_pct: u8,
+    // Paint.
+    /// How far a tag's splat reaches, in cells from the tagged agent's cell.
+    ///
+    /// A radius of 0 is the cell itself; a radius of 1 is the cell and its
+    /// eight neighbours. The splat is clipped at the map's edge.
+    pub splat_radius_cells: u8,
+    /// How many ticks a splat lasts before it is dry.
+    ///
+    /// The wetness falls by a fixed Q8 step every tick, and the step is
+    /// chosen so the paint is always dry within this many ticks.
+    pub dry_ticks: u16,
+    /// How much a painted cell slows an agent down, in Q8 (255 = a full
+    /// stop). A placeholder: the Vibe blocks drive it, and it has no effect
+    /// yet.
+    pub slow_q8: u16,
+    /// How much of a splat bounces back off the tagged agent, in Q8 (255 =
+    /// all of it). A placeholder: the Vibe blocks drive it, and it has no
+    /// effect yet.
+    pub bounce_q8: u16,
 }
 
 impl Default for Params {
@@ -166,6 +194,147 @@ impl Default for Params {
             axis_swap_ticks: 1,
             wall_density_pct: 18,
             cover_density_pct: 6,
+            splat_radius_cells: 1,
+            dry_ticks: 150,
+            slow_q8: 0,
+            bounce_q8: 0,
+        }
+    }
+}
+
+/// The params of a round before the paint joined them.
+///
+/// The paint's four knobs were **appended** to the params in protocol
+/// version 4, and a postcard blob is read positionally: a header written
+/// before them is short by four fields and cannot be read as the current
+/// params. This is the shape those logs carry, so they decode through it and
+/// migrate into the current params — the paint takes its defaults, and the
+/// round is read as it was written.
+///
+/// The fields are the params of version 3, in the same order and with the
+/// same types, so a version-3 params blob decodes through this shim exactly
+/// as it decoded then — and hashes exactly as it hashed then.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ParamsV3 {
+    pub tick_hz: u16,
+    pub min_lead_ticks: u16,
+    pub max_lead_ticks: u16,
+    pub lead_margin_ms: u32,
+    pub stale_window_ticks: u16,
+    pub hash_interval_ticks: u16,
+    pub segment_ticks: u32,
+    pub world_chunks: (u8, u8),
+    pub chunk_m: u8,
+    pub cell_m: u8,
+    pub beacons: u8,
+    pub win_score: u32,
+    pub time_limit_ticks: u32,
+    pub squads: u8,
+    pub squad_size: u8,
+    pub speed_upt: i32,
+    pub view_range_cells: u16,
+    pub view_update_ticks: u16,
+    pub tag_range_units: i32,
+    pub stun_ticks: u32,
+    pub beacon_radius_units: i32,
+    pub lane_alpha_shift: u8,
+    pub lane_deadband_q16: u32,
+    pub script_fuel: u64,
+    pub intent_ttl_ticks: u16,
+    pub repath_ticks: u16,
+    pub explore_temp_q16: u32,
+    pub axis_swap_ticks: u16,
+    pub wall_density_pct: u8,
+    pub cover_density_pct: u8,
+}
+
+impl ParamsV3 {
+    /// The params as the current build reads them.
+    ///
+    /// The paint's knobs take their defaults: a round that was played before
+    /// the paint existed is read with the paint the current build ships.
+    pub fn migrate(self) -> Params {
+        Params::from(self)
+    }
+}
+
+impl From<&Params> for ParamsV3 {
+    /// The params of a version-3 round, read out of the current ones: the
+    /// paint's knobs are dropped, because they were not there.
+    fn from(p: &Params) -> ParamsV3 {
+        ParamsV3 {
+            tick_hz: p.tick_hz,
+            min_lead_ticks: p.min_lead_ticks,
+            max_lead_ticks: p.max_lead_ticks,
+            lead_margin_ms: p.lead_margin_ms,
+            stale_window_ticks: p.stale_window_ticks,
+            hash_interval_ticks: p.hash_interval_ticks,
+            segment_ticks: p.segment_ticks,
+            world_chunks: p.world_chunks,
+            chunk_m: p.chunk_m,
+            cell_m: p.cell_m,
+            beacons: p.beacons,
+            win_score: p.win_score,
+            time_limit_ticks: p.time_limit_ticks,
+            squads: p.squads,
+            squad_size: p.squad_size,
+            speed_upt: p.speed_upt,
+            view_range_cells: p.view_range_cells,
+            view_update_ticks: p.view_update_ticks,
+            tag_range_units: p.tag_range_units,
+            stun_ticks: p.stun_ticks,
+            beacon_radius_units: p.beacon_radius_units,
+            lane_alpha_shift: p.lane_alpha_shift,
+            lane_deadband_q16: p.lane_deadband_q16,
+            script_fuel: p.script_fuel,
+            intent_ttl_ticks: p.intent_ttl_ticks,
+            repath_ticks: p.repath_ticks,
+            explore_temp_q16: p.explore_temp_q16,
+            axis_swap_ticks: p.axis_swap_ticks,
+            wall_density_pct: p.wall_density_pct,
+            cover_density_pct: p.cover_density_pct,
+        }
+    }
+}
+
+impl From<ParamsV3> for Params {
+    fn from(v: ParamsV3) -> Params {
+        let d = Params::default();
+        Params {
+            tick_hz: v.tick_hz,
+            min_lead_ticks: v.min_lead_ticks,
+            max_lead_ticks: v.max_lead_ticks,
+            lead_margin_ms: v.lead_margin_ms,
+            stale_window_ticks: v.stale_window_ticks,
+            hash_interval_ticks: v.hash_interval_ticks,
+            segment_ticks: v.segment_ticks,
+            world_chunks: v.world_chunks,
+            chunk_m: v.chunk_m,
+            cell_m: v.cell_m,
+            beacons: v.beacons,
+            win_score: v.win_score,
+            time_limit_ticks: v.time_limit_ticks,
+            squads: v.squads,
+            squad_size: v.squad_size,
+            speed_upt: v.speed_upt,
+            view_range_cells: v.view_range_cells,
+            view_update_ticks: v.view_update_ticks,
+            tag_range_units: v.tag_range_units,
+            stun_ticks: v.stun_ticks,
+            beacon_radius_units: v.beacon_radius_units,
+            lane_alpha_shift: v.lane_alpha_shift,
+            lane_deadband_q16: v.lane_deadband_q16,
+            script_fuel: v.script_fuel,
+            intent_ttl_ticks: v.intent_ttl_ticks,
+            repath_ticks: v.repath_ticks,
+            explore_temp_q16: v.explore_temp_q16,
+            axis_swap_ticks: v.axis_swap_ticks,
+            wall_density_pct: v.wall_density_pct,
+            cover_density_pct: v.cover_density_pct,
+            splat_radius_cells: d.splat_radius_cells,
+            dry_ticks: d.dry_ticks,
+            slow_q8: d.slow_q8,
+            bounce_q8: d.bounce_q8,
         }
     }
 }
@@ -276,6 +445,33 @@ impl Params {
                 "deadband is Q16; it must be at most 65 535",
             ));
         }
+        // The paint's bounds. A splat has to reach somewhere and a splat has
+        // to dry: a round that never dries its paint would fill the map, and
+        // a round that dries it in no ticks would never show any.
+        if self.splat_radius_cells > MAX_SPLAT_RADIUS_CELLS {
+            return Err(ParamError::new(
+                "splat_radius_cells",
+                "a splat may reach at most 8 cells",
+            ));
+        }
+        if self.dry_ticks == 0 || self.dry_ticks > MAX_DRY_TICKS {
+            return Err(ParamError::new(
+                "dry_ticks",
+                "paint must dry in at least 1 tick and at most 600",
+            ));
+        }
+        if self.slow_q8 > Q8_ONE {
+            return Err(ParamError::new(
+                "slow_q8",
+                "slow is Q8; it must be at most 255",
+            ));
+        }
+        if self.bounce_q8 > Q8_ONE {
+            return Err(ParamError::new(
+                "bounce_q8",
+                "bounce is Q8; it must be at most 255",
+            ));
+        }
         Ok(())
     }
 
@@ -362,6 +558,43 @@ impl StateHash for Params {
         h.u32(self.explore_temp_q16);
         h.u16(self.axis_swap_ticks);
         h.write(&[self.wall_density_pct, self.cover_density_pct]);
+        h.write(&[self.splat_radius_cells]);
+        h.u16(self.dry_ticks);
+        h.u16(self.slow_q8);
+        h.u16(self.bounce_q8);
+    }
+}
+
+impl StateHash for ParamsV3 {
+    fn hash_into(&self, h: &mut Fnv64) {
+        // The version-3 params hash as they hashed then: the paint's knobs
+        // were not there to hash.
+        h.u16(self.tick_hz);
+        h.u16(self.min_lead_ticks);
+        h.u16(self.max_lead_ticks);
+        h.u32(self.lead_margin_ms);
+        h.u16(self.stale_window_ticks);
+        h.u16(self.hash_interval_ticks);
+        h.u32(self.segment_ticks);
+        h.write(&[self.world_chunks.0, self.world_chunks.1]);
+        h.write(&[self.chunk_m, self.cell_m, self.beacons]);
+        h.u32(self.win_score);
+        h.u32(self.time_limit_ticks);
+        h.write(&[self.squads, self.squad_size]);
+        h.i32(self.speed_upt);
+        h.u16(self.view_range_cells);
+        h.u16(self.view_update_ticks);
+        h.i32(self.tag_range_units);
+        h.u32(self.stun_ticks);
+        h.i32(self.beacon_radius_units);
+        h.write(&[self.lane_alpha_shift]);
+        h.u32(self.lane_deadband_q16);
+        h.u64(self.script_fuel);
+        h.u16(self.intent_ttl_ticks);
+        h.u16(self.repath_ticks);
+        h.u32(self.explore_temp_q16);
+        h.u16(self.axis_swap_ticks);
+        h.write(&[self.wall_density_pct, self.cover_density_pct]);
     }
 }
 
@@ -401,7 +634,7 @@ mod tests {
     #[test]
     #[allow(clippy::type_complexity)] // the case table is copied verbatim from the plan
     fn validate_rejects_each_bad_field() {
-        let cases: [(&str, fn(&mut Params)); 7] = [
+        let cases: [(&str, fn(&mut Params)); 11] = [
             ("tick_hz", |p| p.tick_hz = 0),
             ("squads", |p| p.squads = 0),
             ("world_chunks", |p| p.world_chunks = (0, 8)),
@@ -412,11 +645,60 @@ mod tests {
             ("lane_deadband_q16", |p| p.lane_deadband_q16 = 70_000),
             ("cell_m", |p| p.cell_m = 3),   /* must divide chunk_m */
             ("beacons", |p| p.beacons = 3), /* must pair up */
+            ("splat_radius_cells", |p| p.splat_radius_cells = 9),
+            ("dry_ticks", |p| p.dry_ticks = 0),
+            ("slow_q8", |p| p.slow_q8 = 256),
+            ("bounce_q8", |p| p.bounce_q8 = 256),
         ];
         for (field, f) in cases {
             let mut p = Params::default();
             f(&mut p);
             assert_eq!(p.validate().unwrap_err().field, field);
+        }
+    }
+
+    #[test]
+    fn the_paint_params_are_bounded() {
+        // A splat reaches at most eight cells, a splat dries in at least one
+        // tick and at most six hundred, and the two placeholders are Q8
+        // fractions: at most 255.
+        let p = Params {
+            splat_radius_cells: MAX_SPLAT_RADIUS_CELLS,
+            dry_ticks: MAX_DRY_TICKS,
+            slow_q8: Q8_ONE,
+            bounce_q8: Q8_ONE,
+            ..Params::default()
+        };
+        assert!(p.validate().is_ok());
+
+        let p = Params {
+            splat_radius_cells: MAX_SPLAT_RADIUS_CELLS + 1,
+            ..Params::default()
+        };
+        assert_eq!(p.validate().unwrap_err().field, "splat_radius_cells");
+
+        let p = Params {
+            dry_ticks: MAX_DRY_TICKS + 1,
+            ..Params::default()
+        };
+        assert_eq!(p.validate().unwrap_err().field, "dry_ticks");
+    }
+
+    #[test]
+    fn the_paint_params_are_hashed() {
+        // Two rounds that differ only in the paint rules are different
+        // rounds: the parameters travel in the header, and the header is
+        // hashed.
+        let base = Params::default();
+        for f in [
+            (|p: &mut Params| p.splat_radius_cells = 2) as fn(&mut Params),
+            |p: &mut Params| p.dry_ticks = 300,
+            |p: &mut Params| p.slow_q8 = 64,
+            |p: &mut Params| p.bounce_q8 = 64,
+        ] {
+            let mut other = Params::default();
+            f(&mut other);
+            assert_ne!(base.state_hash(), other.state_hash());
         }
     }
 

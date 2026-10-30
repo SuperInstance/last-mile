@@ -30,16 +30,20 @@
 //! [`PROTO_VERSION`]; anything else is refused, by name.
 //!
 //! A version-1 log is read through the [`HeaderV1`] shim and **migrated**:
-//! the talk params take their defaults and the version becomes the current
-//! one. The migration changes the *header*, so the chain is **re-rooted**
-//! over the migrated header: every segment's `prev` and `hash` is recomputed.
-//! The state hashes inside the segments are not touched — the world the log
-//! records did not change, so the round still replays to the hashes it
-//! recorded.
+//! the talk params take their defaults, the paint takes its defaults, and
+//! the version becomes the current one. The migration changes the *header*,
+//! so the chain is **re-rooted** over the migrated header: every segment's
+//! `prev` and `hash` is recomputed. The state hashes inside the segments are
+//! not touched — the world the log records did not change, so the round
+//! still replays to the hashes it recorded.
 //!
 //! A version-2 log is read through the [`SegmentV2`] shim and migrated the
 //! same way: the segments gain no refusals (a version-2 log recorded none)
 //! and the version becomes the current one.
+//!
+//! A version-3 log is the last one written before the paint: it is read
+//! through the [`HeaderV3`] shim, whose params are the shape of that
+//! version, and migrated the same way — the paint takes its defaults.
 //!
 //! ## The refusals are in the record
 //!
@@ -56,7 +60,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::decision::{Stamped, Tick};
 use crate::hash::Fnv64;
-use crate::header::{Header, HeaderV1, PROTO_VERSION};
+use crate::header::{Header, HeaderV1, HeaderV3, PROTO_VERSION};
 use crate::refusal::{RefusalCounts, Refused};
 
 /// The bytes that start every log file.
@@ -320,7 +324,8 @@ impl RoundLog {
     /// length-prefixed postcard blobs.
     ///
     /// The version is the header's own, not the build's constant: a log that
-    /// was migrated from version 1 writes back as a valid version-3 log.
+    /// was migrated from an older version writes back as a log of the current
+    /// version.
     pub fn write(&self, w: &mut impl Write) -> io::Result<()> {
         w.write_all(&MAGIC)?;
         w.write_all(&self.header.proto_version.to_le_bytes())?;
@@ -348,7 +353,8 @@ impl RoundLog {
         let log = match blobs.version {
             MIN_READABLE_VERSION => decode_v1(&blobs)?.migrate(),
             2 => decode_v2(&blobs)?.migrate(),
-            _ => decode_v3(&blobs)?,
+            3 => decode_v3(&blobs)?.migrate(),
+            _ => decode_v4(&blobs)?,
         };
         log.verify()?;
         Ok(log)
@@ -524,11 +530,11 @@ fn decode_v1(blobs: &Blobs) -> Result<RoundLogV1, LogError> {
     Ok(RoundLogV1 { header, segments })
 }
 
-/// A version-2 log: the current header shape and the segments without the
+/// A version-2 log: the version-3 header shape and the segments without the
 /// refusals.
 struct RoundLogV2 {
     /// The header as it was written.
-    header: Header,
+    header: HeaderV3,
     /// The segments as they were written.
     segments: Vec<SegmentV2>,
 }
@@ -536,12 +542,12 @@ struct RoundLogV2 {
 impl RoundLogV2 {
     /// Migrate the log to the current version.
     ///
-    /// The segments gain no refusals — a version-2 log recorded none — and
-    /// the version moves, so the chain is re-rooted over the new header.
-    /// The state hashes inside the segments stay exactly as they were.
+    /// The segments gain no refusals — a version-2 log recorded none — the
+    /// paint takes its defaults and the version moves, so the chain is
+    /// re-rooted over the new header. The state hashes inside the segments
+    /// stay exactly as they were.
     fn migrate(self) -> RoundLog {
-        let mut header = self.header;
-        header.proto_version = PROTO_VERSION;
+        let header = self.header.migrate();
         let mut log = RoundLog {
             header,
             segments: self.segments.into_iter().map(SegmentV2::migrate).collect(),
@@ -551,16 +557,50 @@ impl RoundLogV2 {
     }
 }
 
+/// A version-3 log: the version-3 header shape and the segments with the
+/// refusals.
+struct RoundLogV3 {
+    /// The header as it was written.
+    header: HeaderV3,
+    /// The segments as they were written.
+    segments: Vec<Segment>,
+}
+
+impl RoundLogV3 {
+    /// Migrate the log to the current version.
+    ///
+    /// The paint takes its defaults and the version moves, so the chain is
+    /// re-rooted over the new header. The state hashes inside the segments
+    /// stay exactly as they were.
+    fn migrate(self) -> RoundLog {
+        let header = self.header.migrate();
+        let mut log = RoundLog {
+            header,
+            segments: self.segments,
+        };
+        log.reroot_chain();
+        log
+    }
+}
+
 /// Decode a version-2 log's blobs.
 fn decode_v2(blobs: &Blobs) -> Result<RoundLogV2, LogError> {
-    let header: Header =
+    let header: HeaderV3 =
         postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
     let segments = decode_segments_v2(&blobs.segments)?;
     Ok(RoundLogV2 { header, segments })
 }
 
+/// Decode a version-3 log's blobs.
+fn decode_v3(blobs: &Blobs) -> Result<RoundLogV3, LogError> {
+    let header: HeaderV3 =
+        postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
+    let segments = decode_segments(&blobs.segments)?;
+    Ok(RoundLogV3 { header, segments })
+}
+
 /// Decode a current-version log's blobs.
-fn decode_v3(blobs: &Blobs) -> Result<RoundLog, LogError> {
+fn decode_v4(blobs: &Blobs) -> Result<RoundLog, LogError> {
     let header: Header =
         postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
     let segments = decode_segments(&blobs.segments)?;
@@ -751,6 +791,7 @@ mod tests {
     use super::*;
     use crate::decision::{Action, Decision, Kind, Provenance, Source};
     use crate::hash::StateHash;
+    use crate::params::ParamsV3;
     use crate::refusal::RefusalKind;
     use crate::talk::TalkParams;
 
@@ -806,12 +847,28 @@ mod tests {
         HeaderV1 {
             proto_version: MIN_READABLE_VERSION,
             seed: header.seed,
-            params: header.params,
+            params: ParamsV3::from(&header.params),
             ruleset: header.ruleset.clone(),
             roster: header.roster.clone(),
             scripts: header.scripts.clone(),
             start_tick: header.start_tick,
             lineage: header.lineage.clone(),
+        }
+    }
+
+    /// The version-3 header of a header: the same round, with the params of
+    /// version 3 — the paint's knobs were not there yet.
+    fn header_v3(header: &Header) -> HeaderV3 {
+        HeaderV3 {
+            proto_version: 3,
+            seed: header.seed,
+            params: ParamsV3::from(&header.params),
+            ruleset: header.ruleset.clone(),
+            roster: header.roster.clone(),
+            scripts: header.scripts.clone(),
+            start_tick: header.start_tick,
+            lineage: header.lineage.clone(),
+            talk: header.talk.clone(),
         }
     }
 
@@ -851,9 +908,8 @@ mod tests {
     /// The bytes of a version-2 log: the current header with the old version,
     /// and the segments without the refusals.
     fn to_v2_bytes(log: &RoundLog) -> Vec<u8> {
-        let mut header = log.header.clone();
-        header.proto_version = 2;
-        let mut prev = header.hash();
+        let header = header_v3(&log.header);
+        let mut prev = header.state_hash();
         let mut out = Vec::new();
         out.extend_from_slice(&MAGIC);
         out.extend_from_slice(&2u16.to_le_bytes());
@@ -1108,6 +1164,25 @@ mod tests {
         assert_eq!(err, LogError::ChainBroken { segment: 1 });
     }
 
+    /// The bytes of a version-3 log: the round written before the paint,
+    /// with the version-3 header and the segments with the refusals.
+    fn to_v3_bytes(log: &RoundLog) -> Vec<u8> {
+        let header = header_v3(&log.header);
+        let mut prev = header.state_hash();
+        let mut out = Vec::new();
+        out.extend_from_slice(&MAGIC);
+        out.extend_from_slice(&3u16.to_le_bytes());
+        write_blob(&mut out, &header).unwrap();
+        for segment in &log.segments {
+            let mut segment = segment.clone();
+            segment.prev = prev;
+            segment.hash = segment.compute_hash();
+            prev = segment.hash;
+            write_blob(&mut out, &segment).unwrap();
+        }
+        out
+    }
+
     /// A round with a refusal in it: one refusal every 100 ticks.
     fn recorded_with_refusals(ticks: u64, per_segment: u32) -> RoundLog {
         let mut rec = Recorder::new(header(), per_segment);
@@ -1157,6 +1232,25 @@ mod tests {
         assert_eq!(log.segments[0].first_tick, 5);
         assert_eq!(log.segments[0].refusals.len(), 1);
         assert!(log.verify().is_ok());
+    }
+
+    #[test]
+    fn a_v3_log_reads_and_migrates() {
+        // A version-3 log is the last one written before the paint: it has
+        // the refusals in its segments and the params of version 3. It reads,
+        // it migrates, and the paint takes its defaults.
+        let log = recorded_with_refusals(900, 300);
+        let bytes = to_v3_bytes(&log);
+
+        let read = RoundLog::read(&mut io::Cursor::new(bytes)).expect("the v3 log reads");
+        assert_eq!(read.header.proto_version, PROTO_VERSION);
+        assert_eq!(read.header.params, log.header.params);
+        assert!(!read.refusals().is_empty(), "the refusals are kept");
+        // The state hashes are the ones the log recorded.
+        assert_eq!(read.hashes(), log.hashes());
+        // The chain is re-rooted over the migrated header.
+        assert_eq!(read.segments[0].prev, read.header.hash());
+        assert!(read.verify().is_ok());
     }
 
     #[test]
