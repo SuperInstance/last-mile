@@ -1,0 +1,41 @@
+{
+  "Mia": {
+    "attack_ms": 79.819,
+    "centroid_hz": 1635.5,
+    "clip_count": 120,
+    "decay_median_ms": 59.864,
+    "level_median_db": -32.75,
+    "level_peak_db": -21.552,
+    "pitch_range_cents": 1449.769,
+    "reference_hz": 234.058,
+    "release_median_ms": 119.728,
+    "sustain_median_db": -35.751,
+    "tempo_syl_per_s": 4.6961
+  },
+  "Jason": {
+    "attack_ms": 89.796,
+    "centroid_hz": 1625.136,
+    "clip_count": 100,
+    "decay_median_ms": 89.796,
+    "level_median_db": -29.7,
+    "level_peak_db": -20.935,
+    "pitch_range_cents": 2166.088,
+    "reference_hz": 126.667,
+    "release_median_ms": 359.183,
+    "sustain_median_db": -33.479,
+    "tempo_syl_per_s": 4.3179
+  },
+  "Aria": {
+    "attack_ms": 84.808,
+    "centroid_hz": 1628.574,
+    "clip_count": 120,
+    "decay_median_ms": 69.841,
+    "level_median_db": -29.573,
+    "level_peak_db": -20.314,
+    "pitch_range_cents": 1574.996,
+    "reference_hz": 213.751,
+    "release_median_ms": 139.683,
+    "sustain_median_db": -32.393,
+    "tempo_syl_per_s": 4.7087
+  }
+}
