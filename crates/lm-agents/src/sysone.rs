@@ -28,7 +28,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -49,7 +49,11 @@ pub const JEV_MODEL: &str = "jev-latest";
 
 /// The confidence floor for a Thor backend, in the spirit of the
 /// `thor-d1-2b` default in `AgentsConfig`.
-pub const THOR_MIN_CONFIDENCE: f32 = 0.55;
+///
+/// Every backend the round builds carries its configured floor
+/// (`AgentsConfig::min_confidence`); this is only the bare constructor's
+/// fallback.
+pub const THOR_MIN_CONFIDENCE: f32 = 0.30;
 
 /// The confidence floor for the cloud backend, in the spirit of the `jev`
 /// default in `AgentsConfig`.
@@ -161,8 +165,18 @@ pub struct Escalation {
     pub gate: String,
     /// The cheap model's confidence on the gate.
     pub primary_confidence: f32,
+    /// The option the cheap model's own distribution favoured.
+    ///
+    /// The second opinion may change the answer or keep it, and the two
+    /// choices are the difference between the two: an escalation that never
+    /// changes the answer buys latency and nothing else.
+    #[serde(default)]
+    pub primary_choice: Option<String>,
     /// The second model's confidence, when it answered.
     pub second_confidence: Option<f32>,
+    /// The option the second model's distribution favoured, when it answered.
+    #[serde(default)]
+    pub second_choice: Option<String>,
     /// The second model's round trip, in milliseconds.
     pub latency_ms: u32,
     /// What the second opinion came to.
@@ -465,6 +479,15 @@ pub struct EscalatingBackend {
     second: Box<dyn SysOne + Send + Sync>,
     /// Below this confidence the cheap answer is not acted on alone.
     escalate_below: f32,
+    /// The gates that may be escalated: `None` is every gate below the
+    /// threshold (D71 as it shipped); `Some(set)` is only the named gates,
+    /// and an empty set is none of them — the escalation off.
+    ///
+    /// Which gates are worth a second opinion is a harness question (the
+    /// gates are the harness's), so the set comes from `policy.toml`
+    /// (`escalate_gates`); the threshold stays with the model's calibration
+    /// (`AgentsConfig::escalate_below`).
+    gates: Option<BTreeSet<String>>,
     /// The escalations so far, for the telemetry.
     escalations: Mutex<Vec<Escalation>>,
 }
@@ -473,7 +496,8 @@ impl EscalatingBackend {
     /// A backend that asks `second` when `primary` is not sure.
     ///
     /// The threshold is the cheap model's own: a gate it answers below
-    /// `escalate_below` is not acted on alone.
+    /// `escalate_below` is not acted on alone. Every gate below the
+    /// threshold may be escalated; narrow it with [`EscalatingBackend::with_gates`].
     pub fn new(
         primary: Box<dyn SysOne + Send + Sync>,
         second: Box<dyn SysOne + Send + Sync>,
@@ -483,8 +507,18 @@ impl EscalatingBackend {
             primary,
             second,
             escalate_below,
+            gates: None,
             escalations: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Set the gates that may be escalated.
+    ///
+    /// `None` is every gate below the threshold; `Some(set)` is only the
+    /// named gates, and an empty set turns the escalation off.
+    pub fn with_gates(mut self, gates: Option<BTreeSet<String>>) -> Self {
+        self.gates = gates;
+        self
     }
 
     /// The threshold below which a gate is escalated.
@@ -525,7 +559,18 @@ impl SysOne for EscalatingBackend {
         // The gates the cheap model was not sure about: their own numbers
         // are in `per_gate` (above its floor) or in `unsure` (below it).
         for gate in gates_below(&answers, self.escalate_below) {
+            // Only the gates the harness named: a gate outside the set keeps
+            // the cheap model's answer (or its unsure) as it is.
+            if let Some(gates) = &self.gates {
+                if !gates.contains(&gate) {
+                    continue;
+                }
+            }
             let primary_confidence = confidence_of(&answers, &gate);
+            let primary_choice = answers
+                .per_gate
+                .get(&gate)
+                .and_then(|answer| top_option(answer).cloned());
             // The second model is asked this gate **alone**: one question in
             // one call, so its pack always fits.
             let one = one_question(questions, &gate);
@@ -545,6 +590,7 @@ impl SysOne for EscalatingBackend {
             };
             let latency_ms = ms(started.elapsed());
             let second_confidence = second_answer.as_ref().and_then(answer_confidence);
+            let second_choice = second_answer.as_ref().and_then(|a| top_option(a).cloned());
             // The second opinion is the gate's answer, or the gate stays
             // unsure: the cheap model's own answer was not trusted alone.
             match second_answer {
@@ -560,7 +606,9 @@ impl SysOne for EscalatingBackend {
             let escalation = Escalation {
                 gate: gate.clone(),
                 primary_confidence,
+                primary_choice,
                 second_confidence,
+                second_choice,
                 latency_ms,
                 outcome,
             };
@@ -597,6 +645,24 @@ fn confidence_of(answers: &Answers, gate: &str) -> f32 {
         return answer_confidence(answer).unwrap_or(0.0);
     }
     answers.unsure.get(gate).copied().unwrap_or(0.0)
+}
+
+/// The option a distribution favoured: the key of its largest probability.
+///
+/// A tie goes to the first key in map order, so the same answer always names
+/// the same option. A noul has no options: `None`.
+fn top_option(answer: &Answer) -> Option<&String> {
+    let probs = match answer {
+        Answer::Choice { probs, .. } | Answer::Score { probs, .. } => probs,
+        Answer::Noul(_) => return None,
+    };
+    let mut best: Option<(&String, &f32)> = None;
+    for (key, p) in probs {
+        if best.is_none_or(|(_, bp)| p > bp) {
+            best = Some((key, p));
+        }
+    }
+    best.map(|(key, _)| key)
 }
 
 /// The gates whose confidence is below `threshold`.
@@ -638,10 +704,15 @@ fn one_question(questions: &Value, gate: &str) -> Value {
 /// `second` builds the second model for a primary backend's name, and is
 /// called once per wrapped backend: each gets a connection of its own
 /// (D50). A backend that has no second model is left as it is.
+///
+/// `gates` is the set of gates that may be escalated (the harness's
+/// `escalate_gates`): `None` is every gate below the threshold, and an
+/// empty set turns the escalation off.
 pub fn with_escalation(
     backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
     escalate_below: f32,
     escalate_backend: &str,
+    gates: Option<BTreeSet<String>>,
     second: impl Fn(&str) -> Option<Box<dyn SysOne + Send + Sync>>,
 ) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
     let mut out = BTreeMap::new();
@@ -655,8 +726,10 @@ pub fn with_escalation(
             Some(second) => {
                 out.insert(
                     name,
-                    Box::new(EscalatingBackend::new(backend, second, escalate_below))
-                        as Box<dyn SysOne + Send + Sync>,
+                    Box::new(
+                        EscalatingBackend::new(backend, second, escalate_below)
+                            .with_gates(gates.clone()),
+                    ) as Box<dyn SysOne + Send + Sync>,
                 );
             }
             None => {
@@ -2258,11 +2331,14 @@ mod tests {
             }
             other => panic!("got {other:?}"),
         }
-        // The escalation is logged: the gate, both confidences, the latency.
+        // The escalation is logged: the gate, both confidences, the latency
+        // and both models' own choices.
         let escalation = answers.escalated.get("move").expect("the escalation");
         assert_eq!(escalation.gate, "move");
         assert!((escalation.primary_confidence - 0.2).abs() < 0.01);
         assert_eq!(escalation.second_confidence, Some(0.9));
+        assert_eq!(escalation.primary_choice.as_deref(), Some("opt0"));
+        assert_eq!(escalation.second_choice.as_deref(), Some("opt0"));
         assert_eq!(escalation.outcome, EscalationOutcome::Taken);
         assert_eq!(backend.escalation_count(), 1);
         // The cheap model was asked once: the escalation does not ask it
@@ -2310,6 +2386,57 @@ mod tests {
         let escalation = answers.escalated.get("move").expect("the escalation");
         assert_eq!(escalation.outcome, EscalationOutcome::Timeout);
         assert_eq!(escalation.second_confidence, None);
+    }
+
+    #[test]
+    fn a_gate_outside_the_set_is_not_escalated() {
+        // The harness names the gates a second opinion is bought for; a gate
+        // outside the set keeps the cheap model's answer (or its unsure)
+        // even below the threshold. An empty set turns the escalation off.
+        let two_gate_pack = json!({
+            "move": {
+                "type": "choice",
+                "instructions": "Pick one.",
+                "criteria": {"opt0": "go", "opt1": "hold"},
+            },
+            "attention": {
+                "type": "choice",
+                "instructions": "Who for?",
+                "criteria": {"squad": "the squad", "all": "everyone"},
+            }
+        });
+        let gates = BTreeSet::from(["move".to_owned()]);
+        for gates in [Some(gates), Some(BTreeSet::new())] {
+            let primary = CountingBackend::new(0.2);
+            let second = CountingBackend::new(0.9);
+            let second_calls = Arc::clone(&second.calls);
+            let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5)
+                .with_gates(gates.clone());
+            let answers = backend
+                .ask(
+                    "the facts",
+                    &two_gate_pack,
+                    Instant::now() + Duration::from_secs(5),
+                )
+                .expect("the answer comes back");
+            if gates.as_ref().is_some_and(|g| g.contains("move")) {
+                // The named gate was escalated; the unnamed one was not.
+                assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+                assert!(answers.escalated.contains_key("move"));
+                assert!(!answers.escalated.contains_key("attention"));
+                // The unnamed gate keeps the cheap model's answer exactly as
+                // the cheap model gave it: the second opinion never touches
+                // a gate it was not asked about.
+                assert!(answers.per_gate.contains_key("attention"));
+                assert!(!answers.unsure.contains_key("attention"));
+            } else {
+                // The empty set: the escalation is off, and the cheap
+                // model's answers all stand as the cheap model gave them.
+                assert_eq!(second_calls.load(Ordering::SeqCst), 0);
+                assert!(answers.escalated.is_empty());
+                assert_eq!(answers.per_gate.len(), 2);
+            }
+        }
     }
 
     #[test]

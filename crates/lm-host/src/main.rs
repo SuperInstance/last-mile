@@ -646,10 +646,15 @@ fn backends(
                 });
             }
             // The escalation (D71) is modelled by the stub too, so the gate
-            // tests cover it without the Thor.
-            with_escalation(out, cfg.escalate_below, &cfg.escalate_backend, |_| {
-                Some(Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>)
-            })
+            // tests cover it without the Thor. The harness names the gates
+            // that may be escalated (policy.toml's `escalate_gates`).
+            with_escalation(
+                out,
+                cfg.escalate_below,
+                &cfg.escalate_backend,
+                policy.escalate_gates.clone(),
+                |_| Some(Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>),
+            )
         }
         AgentChoice::Thor => {
             // The Thor's models: one port each.
@@ -664,10 +669,17 @@ fn backends(
                 out.insert(name, Box::new(backend));
             }
             // The escalation (D71): a gate the cheap model is unsure about
-            // is asked of the second model, that one question alone.
-            let thor = with_escalation(out, cfg.escalate_below, &cfg.escalate_backend, |_| {
-                thor_backend(cfg, &cfg.escalate_backend)
-            });
+            // is asked of the second model, that one question alone. Which
+            // gates may be escalated is the harness's to say
+            // (policy.toml's `escalate_gates`).
+            let policy = Policy::for_harness(&harness.policy_toml);
+            let thor = with_escalation(
+                out,
+                cfg.escalate_below,
+                &cfg.escalate_backend,
+                policy.escalate_gates.clone(),
+                |_| thor_backend(cfg, &cfg.escalate_backend),
+            );
             out = thor;
             // The cloud tier, when its key is there. That key only ever goes
             // to api.typesafe.ai -- never to the Thor.
