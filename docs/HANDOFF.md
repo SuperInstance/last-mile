@@ -2,6 +2,8 @@
 
 For whoever directs the team next, whether Claude in a fresh session or a person. It covers the state of the work, the machines, the running jobs, the decisions waiting on Casey, the plan, and how to operate. Read it top to bottom once; after that, §6 is the daily loop.
 
+> **Update 2026-10-30 ~05:00:** see docs/MORNING-2026-10-30.md for the overnight state. zcode is out until 2026-10-31 14:38 and mcode hit its plan limit; the unfinished jobs and their worktrees are listed there. New lessons: never run two merges at once (they share `lm-wt/merge`); after a Thor reboot, re-mount the cold shelf with sudo (`sudo mount -o uid,gid /dev/sda1 "/media/caseydigennaro/TOSHIBA EXT"`), restart lm-realizer and lm-sysone-batched, recreate tmux, and push Thor branches through the ProArt (its keyring locks).
+
 ## 1. Where the project is
 
 **The trunk is `m1-integration`** (origin, tip ~`0a0994d` plus later merges). `main` has only the PR #1 docs. **Milestone 1 is functionally complete; Casey's hands-on acceptance has not happened yet.**
