@@ -325,6 +325,9 @@ pub fn refusal_kind(refusal: &Refusal) -> String {
         Refusal::OffPlan(_) => "off plan".to_owned(),
         Refusal::Superseded => "superseded".to_owned(),
         Refusal::Panicked(_) => "panicked".to_owned(),
+        // The name N2 reserved for this rule, and the one the log and the
+        // telemetry write: `escalation_late` (N3).
+        Refusal::EscalationLate => "escalation_late".to_owned(),
     }
 }
 

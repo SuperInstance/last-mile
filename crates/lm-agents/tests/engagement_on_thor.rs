@@ -392,7 +392,24 @@ impl Watcher {
 
 impl SysOne for Watcher {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
-        let answers = self.inner.ask(state, questions, deadline)?;
+        self.ask_with_escalation(state, questions, deadline, deadline)
+    }
+
+    /// The watcher forwards the escalation's deadline (N3).
+    ///
+    /// It wraps the escalating backend, so the fence behind it has to
+    /// survive the wrap: a wrapper that dropped it would let a second
+    /// opinion outlive the decision it serves.
+    fn ask_with_escalation(
+        &self,
+        state: &str,
+        questions: &Value,
+        deadline: Instant,
+        escalation_deadline: Instant,
+    ) -> Result<Answers, Refusal> {
+        let answers =
+            self.inner
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)?;
 
         let pack = if questions.get("move").is_some() {
             Pack::Move
@@ -459,10 +476,27 @@ struct Split {
 
 impl SysOne for Split {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        self.ask_with_escalation(state, questions, deadline, deadline)
+    }
+
+    /// The split forwards the escalation's deadline (N3).
+    ///
+    /// The talk pack's backend escalates, so the fence has to survive the
+    /// split: a router that dropped it would let a second opinion outlive
+    /// the decision it serves.
+    fn ask_with_escalation(
+        &self,
+        state: &str,
+        questions: &Value,
+        deadline: Instant,
+        escalation_deadline: Instant,
+    ) -> Result<Answers, Refusal> {
         if questions.get("move").is_some() {
-            self.move_pack.ask(state, questions, deadline)
+            self.move_pack
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)
         } else {
-            self.talk_pack.ask(state, questions, deadline)
+            self.talk_pack
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)
         }
     }
 

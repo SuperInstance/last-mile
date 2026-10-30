@@ -348,6 +348,21 @@ impl Watcher {
 
 impl SysOne for Watcher {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        self.ask_with_escalation(state, questions, deadline, deadline)
+    }
+
+    /// The watcher forwards the escalation's deadline (N3).
+    ///
+    /// It wraps the escalating backend, so the fence behind it has to
+    /// survive the wrap: a wrapper that dropped it would let a second
+    /// opinion outlive the decision it serves.
+    fn ask_with_escalation(
+        &self,
+        state: &str,
+        questions: &Value,
+        deadline: Instant,
+        escalation_deadline: Instant,
+    ) -> Result<Answers, Refusal> {
         // The game state at the moment of the **question**: the main loop
         // writes the moments of the round, and the newest one is the state
         // the question was asked over. It is read before the ask, not after:
@@ -362,7 +377,9 @@ impl SysOne for Watcher {
                 .unwrap_or_default()
         };
 
-        let answers = self.inner.ask(state, questions, deadline)?;
+        let answers =
+            self.inner
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)?;
 
         let intention = match answers.per_gate.get("intention") {
             Some(Answer::Score {
@@ -411,10 +428,27 @@ struct Split {
 
 impl SysOne for Split {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        self.ask_with_escalation(state, questions, deadline, deadline)
+    }
+
+    /// The split forwards the escalation's deadline (N3).
+    ///
+    /// The talk pack's backend escalates, so the fence has to survive the
+    /// split: a router that dropped it would let a second opinion outlive
+    /// the decision it serves.
+    fn ask_with_escalation(
+        &self,
+        state: &str,
+        questions: &Value,
+        deadline: Instant,
+        escalation_deadline: Instant,
+    ) -> Result<Answers, Refusal> {
         if questions.get("move").is_some() {
-            self.move_pack.ask(state, questions, deadline)
+            self.move_pack
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)
         } else {
-            self.talk_pack.ask(state, questions, deadline)
+            self.talk_pack
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)
         }
     }
 

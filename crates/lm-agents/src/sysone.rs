@@ -91,6 +91,32 @@ pub trait SysOne {
     /// and an answer that arrives later is dropped by the sequencer.
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal>;
 
+    /// Ask the model about `state`, with the decision's apply tick as the
+    /// **escalation's** deadline (N3).
+    ///
+    /// A decision has two deadlines: the tick it is applied on, and the
+    /// request's own deadline. A second opinion that is bounded by the second
+    /// one can outlive the first — the decision is applied and the opinion
+    /// arrives afterwards, into a round that has moved on. So the second
+    /// opinion is bounded by the decision's own apply tick: an opinion that
+    /// would land after it is no opinion at all, the gate takes the safe
+    /// branch, and the round records `escalation_late`.
+    ///
+    /// The default ignores the second deadline: a backend that does not
+    /// escalate has no second opinion to fence. A backend that **wraps**
+    /// another one must forward it — otherwise the second opinion behind the
+    /// wrapper loses its fence.
+    fn ask_with_escalation(
+        &self,
+        state: &str,
+        questions: &Value,
+        deadline: Instant,
+        escalation_deadline: Instant,
+    ) -> Result<Answers, Refusal> {
+        let _ = escalation_deadline;
+        self.ask(state, questions, deadline)
+    }
+
     /// The backend's name: `thor-<model>` for the Thor, `jev` for the cloud.
     ///
     /// It is the key `AgentsConfig` uses for the backend's confidence
@@ -204,6 +230,13 @@ pub enum EscalationOutcome {
     Timeout,
     /// The second model could not be reached.
     Unavailable,
+    /// The second opinion would have landed after the decision's apply tick
+    /// (N3).
+    ///
+    /// The decision the second opinion serves is applied before the opinion
+    /// arrives, so the opinion is no opinion at all: the gate takes the safe
+    /// branch and the round says why.
+    Late,
 }
 
 impl fmt::Display for EscalationOutcome {
@@ -213,6 +246,9 @@ impl fmt::Display for EscalationOutcome {
             EscalationOutcome::Unsure => f.write_str("the second model was unsure too"),
             EscalationOutcome::Timeout => f.write_str("the second model did not answer in time"),
             EscalationOutcome::Unavailable => f.write_str("the second model could not be reached"),
+            EscalationOutcome::Late => {
+                f.write_str("the second opinion landed after the decision's apply tick")
+            }
         }
     }
 }
@@ -266,6 +302,17 @@ pub enum Refusal {
     /// panic, names it here and keeps serving, so one crashing answer does
     /// not take the lane down with it.
     Panicked(String),
+    /// The second opinion would have landed after the decision's apply tick
+    /// (N3).
+    ///
+    /// The decision the second opinion serves is applied on its own tick, and
+    /// the opinion missed it: the gate is unsure, so the safe branch plays
+    /// (the reflex moves, the line stays unsaid), and the round says why.
+    ///
+    /// The name this refusal is recorded under is the one N2 reserved,
+    /// `escalation_late`: the record's kind is `RefusalKind::EscalationLate`,
+    /// and there is no second kind for the same rule.
+    EscalationLate,
 }
 
 impl Refusal {
@@ -308,6 +355,9 @@ impl From<&Refusal> for RefusalKind {
             Refusal::OffPlan(_) => RefusalKind::OffPlan,
             Refusal::Superseded => RefusalKind::Superseded,
             Refusal::Panicked(_) => RefusalKind::Panicked,
+            // The name N2 reserved for this rule: the record writes
+            // `escalation_late`, and there is no second kind for it.
+            Refusal::EscalationLate => RefusalKind::EscalationLate,
         }
     }
 }
@@ -328,6 +378,9 @@ impl fmt::Display for Refusal {
             Refusal::OffPlan(why) => write!(f, "the wording did not follow the plan: {why}"),
             Refusal::Superseded => f.write_str("a newer question replaced this one"),
             Refusal::Panicked(why) => write!(f, "the backend crashed: {why}"),
+            Refusal::EscalationLate => {
+                f.write_str("the second opinion would have landed after the decision's apply tick")
+            }
         }
     }
 }
@@ -548,6 +601,13 @@ impl SysOne for ThorBackend {
 /// second opinion that cannot arrive in time is no opinion at all. A gate
 /// whose second opinion fails stays unsure: the cheap model was not
 /// trusted on its own, and the second model did not take its place (D26).
+///
+/// The escalation is bounded by a **second** deadline as well (N3): the
+/// decision's own apply tick. The decision is applied on that tick whatever
+/// the second model says, so an opinion that lands after it is no opinion at
+/// all — the gate takes the safe branch (the reflex plays it) and the round
+/// records `escalation_late`, instead of the opinion arriving into a round
+/// that has already moved on.
 pub struct EscalatingBackend {
     /// The cheap model, which answers first.
     primary: Box<dyn SysOne + Send + Sync>,
@@ -631,7 +691,26 @@ impl fmt::Debug for EscalatingBackend {
 
 impl SysOne for EscalatingBackend {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
+        // With no fence of its own, the second opinion is bounded by the
+        // call's own deadline — the behaviour before the fence (N3).
+        self.ask_with_escalation(state, questions, deadline, deadline)
+    }
+
+    fn ask_with_escalation(
+        &self,
+        state: &str,
+        questions: &Value,
+        deadline: Instant,
+        escalation_deadline: Instant,
+    ) -> Result<Answers, Refusal> {
         let mut answers = self.primary.ask(state, questions, deadline)?;
+        // The fence (N3): the second opinion must be in hand by the decision's
+        // apply tick. The decision is applied on that tick whatever the
+        // second model says, so an opinion that lands after it is no opinion
+        // at all — the gate takes the safe branch and the round records
+        // `escalation_late`.
+        let fence = escalation_deadline.min(deadline);
+        let fenced = fence < deadline;
         // The gates the cheap model was not sure about: their own numbers
         // are in `per_gate` (above its floor) or in `unsure` (below it).
         for gate in gates_below(&answers, self.escalate_below) {
@@ -651,21 +730,36 @@ impl SysOne for EscalatingBackend {
             // one call, so its pack always fits.
             let one = one_question(questions, &gate);
             let started = Instant::now();
-            let (second_answer, outcome, refusal) = match self.second.ask(state, &one, deadline) {
-                Ok(second) => {
-                    let answer = second.per_gate.get(&gate).cloned();
-                    let outcome = if answer.is_some() {
-                        EscalationOutcome::Taken
-                    } else {
-                        EscalationOutcome::Unsure
-                    };
-                    (answer, outcome, None)
+            let (second_answer, outcome, refusal) = if Instant::now() >= fence {
+                // The decision's apply tick has passed already: the call is
+                // not made at all. Nothing waits for an opinion that cannot
+                // be applied (N3).
+                (None, EscalationOutcome::Late, None)
+            } else {
+                match self.second.ask(state, &one, fence) {
+                    Ok(second) => {
+                        let answer = second.per_gate.get(&gate).cloned();
+                        let outcome = if answer.is_some() {
+                            EscalationOutcome::Taken
+                        } else {
+                            EscalationOutcome::Unsure
+                        };
+                        (answer, outcome, None)
+                    }
+                    // A call that ran out of time at the fence missed the
+                    // decision's apply tick (N3). A call that ran out of time
+                    // at the request's own deadline did not.
+                    Err(Refusal::Timeout) if fenced => {
+                        (None, EscalationOutcome::Late, Some(Refusal::Timeout))
+                    }
+                    Err(Refusal::Timeout) => {
+                        (None, EscalationOutcome::Timeout, Some(Refusal::Timeout))
+                    }
+                    // The second model could not answer, and the refusal
+                    // keeps the reason: an endpoint that answered 503 and a
+                    // call that never reached one are two different problems.
+                    Err(refusal) => (None, EscalationOutcome::Unavailable, Some(refusal)),
                 }
-                Err(Refusal::Timeout) => (None, EscalationOutcome::Timeout, Some(Refusal::Timeout)),
-                // The second model could not answer, and the refusal keeps
-                // the reason: an endpoint that answered 503 and a call that
-                // never reached one are two different problems.
-                Err(refusal) => (None, EscalationOutcome::Unavailable, Some(refusal)),
             };
             let latency_ms = ms(started.elapsed());
             let second_confidence = second_answer.as_ref().and_then(answer_confidence);
@@ -2517,6 +2611,114 @@ mod tests {
                 assert_eq!(answers.per_gate.len(), 2);
             }
         }
+    }
+
+    #[test]
+    fn a_late_escalation_is_fenced_out() {
+        // N3: the decision is applied on its own tick whatever the second
+        // model says, so a second opinion that would land after that tick is
+        // no opinion at all. The call is not even made: nothing waits for an
+        // opinion that cannot be applied.
+        let primary = CountingBackend::new(0.2);
+        let second = CountingBackend::new(0.9);
+        let second_calls = Arc::clone(&second.calls);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        // The fence is already behind us: the decision's apply tick has
+        // passed by the time the cheap model has answered.
+        let answers = backend
+            .ask_with_escalation(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+                Instant::now() - Duration::from_millis(1),
+            )
+            .expect("the pack is answered");
+        // The second model was not asked at all.
+        assert_eq!(second_calls.load(Ordering::SeqCst), 0);
+        // The gate decides nothing: the safe branch plays.
+        assert!(answers.per_gate.is_empty(), "the gate decides nothing");
+        assert_eq!(answers.unsure.get("move"), Some(&0.2));
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert_eq!(escalation.outcome, EscalationOutcome::Late);
+        assert_eq!(escalation.second_confidence, None);
+    }
+
+    #[test]
+    fn an_escalation_that_misses_the_fence_is_late() {
+        // N3: the second opinion is bounded by the decision's apply tick, not
+        // only by the request's own deadline. A second model that cannot
+        // answer inside the fence missed the decision, and the round says so
+        // by name — not "it timed out".
+        let primary = CountingBackend::new(0.2);
+        let second = CountingBackend::slow(0.9, Duration::from_millis(500));
+        let second_calls = Arc::clone(&second.calls);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask_with_escalation(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+                Instant::now() + Duration::from_millis(20),
+            )
+            .expect("the pack is answered");
+        // The second model was asked, and it could not answer in time.
+        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+        assert!(answers.per_gate.is_empty(), "the gate decides nothing");
+        assert_eq!(answers.unsure.get("move"), Some(&0.2));
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert_eq!(escalation.outcome, EscalationOutcome::Late);
+        assert_eq!(escalation.second_confidence, None);
+    }
+
+    #[test]
+    fn an_escalation_on_time_is_taken() {
+        // N3: the fence is a deadline, not a veto. A second opinion that is
+        // in hand before the decision's apply tick is taken, exactly as it
+        // was before the fence existed.
+        let primary = CountingBackend::new(0.2);
+        let second = CountingBackend::new(0.9);
+        let second_calls = Arc::clone(&second.calls);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask_with_escalation(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+                Instant::now() + Duration::from_secs(2),
+            )
+            .expect("the pack is answered");
+        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
+        // The second model's answer is the gate's answer.
+        match answers.per_gate.get("move") {
+            Some(Answer::Choice { confidence, .. }) => {
+                assert!((confidence - 0.9).abs() < 0.01, "got {confidence}");
+            }
+            other => panic!("got {other:?}"),
+        }
+        assert!(!answers.unsure.contains_key("move"));
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert_eq!(escalation.outcome, EscalationOutcome::Taken);
+        assert_eq!(escalation.second_confidence, Some(0.9));
+    }
+
+    #[test]
+    fn a_backend_without_a_fence_keeps_its_own_deadline() {
+        // N3: `ask` is the call with no fence of its own, so the second
+        // opinion is bounded by the request's deadline — the behaviour before
+        // the fence. A backend that escalates has to be asked through
+        // `ask_with_escalation` to be fenced.
+        let primary = CountingBackend::new(0.2);
+        let second = CountingBackend::slow(0.9, Duration::from_millis(500));
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_millis(50),
+            )
+            .expect("the pack is answered");
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert_eq!(escalation.outcome, EscalationOutcome::Timeout);
     }
 
     #[test]

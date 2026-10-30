@@ -225,6 +225,10 @@ pub enum HollowKind {
     /// A newer question replaced this one before it was sent.
     Superseded,
     /// The second opinion did not answer before the decision's tick.
+    ///
+    /// The name N2 reserved for this kind is `escalation_late`, and the
+    /// record writes it under that name: the score view draws the same
+    /// refusal the log keeps, under the same name (N3).
     EscalationLate,
     /// The backend crashed answering the question.
     Panicked,
@@ -244,6 +248,10 @@ impl HollowKind {
             HollowKind::OffPlan => "off-plan",
             HollowKind::Expired => "expired",
             HollowKind::Superseded => "superseded",
+            // The mark's own word, in the score view's own hyphenated
+            // vocabulary. The *record's* name for this refusal is
+            // `escalation_late`, the one N2 reserved: the log and the
+            // telemetry write that, and this mark is drawn from the record.
             HollowKind::EscalationLate => "escalation-late",
             HollowKind::Panicked => "panicked",
         }
@@ -290,6 +298,12 @@ impl From<&RefusalKind> for HollowKind {
 
 impl From<&Refusal> for HollowKind {
     fn from(refusal: &Refusal) -> HollowKind {
+        // The total mapping goes through the record's own name for the
+        // refusal (N2's `RefusalKind`), so the view can never lose one and
+        // never invents a second vocabulary for the same rule. The
+        // escalation that missed the decision's apply tick (N3) is the
+        // record's `escalation_late`, and it is drawn as the one mark for
+        // it.
         HollowKind::from(&RefusalKind::from(refusal))
     }
 }

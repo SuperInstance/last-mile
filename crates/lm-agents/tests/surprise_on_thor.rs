@@ -108,12 +108,29 @@ impl SysOne for Split {
         questions: &Value,
         deadline: std::time::Instant,
     ) -> Result<lm_agents::sysone::Answers, lm_agents::sysone::Refusal> {
+        self.ask_with_escalation(state, questions, deadline, deadline)
+    }
+
+    /// The split forwards the escalation's deadline (N3).
+    ///
+    /// The talk pack's backend escalates, so the fence has to survive the
+    /// split: a router that dropped it would let a second opinion outlive
+    /// the decision it serves.
+    fn ask_with_escalation(
+        &self,
+        state: &str,
+        questions: &Value,
+        deadline: std::time::Instant,
+        escalation_deadline: std::time::Instant,
+    ) -> Result<lm_agents::sysone::Answers, lm_agents::sysone::Refusal> {
         // The pack is told by the questions it carried (D70): the move pack
         // holds the move gate, the talk pack the gates a line is chosen by.
         if questions.get("move").is_some() {
-            self.move_pack.ask(state, questions, deadline)
+            self.move_pack
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)
         } else {
-            self.talk_pack.ask(state, questions, deadline)
+            self.talk_pack
+                .ask_with_escalation(state, questions, deadline, escalation_deadline)
         }
     }
 

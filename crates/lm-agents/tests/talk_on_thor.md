@@ -136,6 +136,11 @@ Three rounds, 3000 ticks each, seeds 1-3:
 | 2 | 55 | 118 | 8 | 71 | 71 |
 | 3 | 62 | 124 | 8 | 70 | 70 |
 
+These lines were measured before the pack split (D70) and before the fence
+(N3). With the fence on, how much the same harness speaks follows the Thor's
+load — two lines in three rounds on a busy box, 42 on a quiet one — see
+"The fence (N3)" below.
+
 The soak itself — the shipped test, the stub half and the Thor half — says the
 same thing. Its CSV line is `backend, seed, utterances, airtime_ticks,
 utterances_per_1k_ticks, decisions, refusals, scores`:
@@ -306,6 +311,13 @@ column). The stub is the model that answers at once, so it is the one that
 shows what the split does to the game itself.
 
 ## The escalation (D71)
+
+**This section was measured before the fence (N3).** The fence changes what an
+escalation is: the second opinion now has the decision's apply tick as its
+deadline, and most such opinions no longer arrive in time (all of them on a
+busy Thor, 77% on a quiet one). What the escalation does under the fence is in
+"The fence (N3)" below; the numbers here are the measurement that decided the
+fence was needed.
 
 | | |
 |---|---|
@@ -548,3 +560,268 @@ old failure in miniature: it silenced every line of every talk round, 82 of
 - **The subject-gate result is 7 situations deep.** clef-flash won it 6-0,
   but 7 distinct situations do not carry a default; they carry a comment,
   and the parameter is there the day a harness wants it.
+
+---
+
+# The wait we could not see, and the fence (N1, N3)
+
+Two items from the design review, measured on the same three rounds against
+the Thor's d1-2B (seeds 1-3, 3000 ticks each).
+
+**These numbers are from before D75/D76.** The harness has since changed under
+them: the escalation is now bought for the move gate only (`escalate_gates`),
+and the d1-3B's floor is 0.15. See "Tuning the second opinion (D71) and the
+d1-3B's floor" above for the measurement on the harness as it ships now, and
+"The fence after D75, on this tree" below for the fence and the split
+re-measured on this tree. The split below is still the shape of a think — the
+queue, the wire, the model, the apply — but the escalation share of it has
+moved with the arm.
+
+## What was measured
+
+- **N1: where a think's milliseconds go.** D74's 164 ms p50 for the move pack
+  is one number taken around the HTTP call in `post_pack`
+  (`crates/lm-agents/src/sysone.rs`). It covers the Thor's scoring, the LAN
+  and our own queueing together, and this takes it apart.
+- **N3: what happens to a second opinion that cannot arrive before the
+  decision it serves.**
+
+Every ask is stamped on a monotonic clock outside the sim: **asked** (the mind
+decided to ask), **sent** (the ask left the least-use-first queue), **picked
+up** (the worker took it off its channel), **answered** (the answer came
+home), and the tick the decision was applied on (`lm_agents::AskTiming`). The
+stamps are telemetry: they never enter the sim's state, and the sim still only
+ever sees decisions through the applied-decision path.
+
+## The split of a think (N1)
+
+| part | move pack p50 | move pack p95 | talk pack p50 | talk pack p95 |
+|---|---|---|---|---|
+| our queue: the least-use-first wait | 0 ms | 0 ms | 0 ms | 0 ms |
+| the worker's own queue: the call before this one | 1110 ms | 3030 ms | 1703 ms | 9932 ms |
+| the wire | 6 ms | 14 ms | 6 ms | 14 ms |
+| the model | 151 ms | 574 ms | 1170 ms | 2061 ms |
+| the apply: the lead before the decision lands | 300 ms | 330 ms | 0 ms | 327 ms |
+| the whole think | 1558 ms | 3764 ms | 2799 ms | 10561 ms |
+
+- the split covers 617 move pack thinks and 145 talk pack thinks, over 773
+  watched asks and 821 timings
+- 48 asks went to another backend (the shipped policy's deep tier names the
+  cloud) and are not in the split: they never reached the Thor
+
+The parts are:
+
+- **our queue** — the ask's wait in the least-use-first queue
+  (`crates/lm-agents/src/queue.rs`), which used to be counted in sim ticks and
+  never in milliseconds. It is the time between the mind asking and the ask
+  leaving the queue.
+- **the worker's own queue** — the time between the ask leaving the queue and
+  the thinker taking it off its channel. It is the wait for **the call before
+  this one**: there is one worker thread per pack (D70), so every ask to the
+  Thor queues up behind the ask before it.
+- **the wire** — a TCP handshake to the Thor on the same route the pack takes,
+  timed on its own thread while the pack is in flight, so the measurement
+  never delays the thing it measures. The handshake is the kernel's, so it is
+  not queued behind the model's own work: it is the wire, not the Thor's
+  queue.
+- **the model** — the round trip the pack took, less the wire.
+- **the apply** — from the answer landing to the decision being applied: the
+  decision's own lead (the margin the host buys for the model's latency) plus
+  the wait for the answer to be drained.
+
+## What the split says
+
+**Our own least-use-first queue is not where the wait is. It is 0 ms.** Not at
+the median and not at p95, for either pack. The queue is a scheduler and not a
+queue: `pop_batch` takes up to two requests per mind every tick, and a round
+of eight minds asks at most sixteen, so every ask leaves the queue in the tick
+it was put in it. There is no backlog there to measure.
+
+**The wait is the Thor's own queue, and it is the largest single part of the
+think.** At the median a move pack think is 1558 ms, of which 1110 ms is spent
+waiting for the previous call to the Thor to come back, 151 ms is the model
+itself, 300 ms is the decision's lead and 6 ms is the wire. The model's own
+answer is a tenth of the think. The talk pack's model time is larger (1170 ms
+— the pack carries ten questions), but its wait for the call before it is
+larger too (1703 ms at the median, 9932 ms at p95), so the shape is the same.
+
+**The wire is not worth optimising.** 6 ms at the median and 14 ms at p95, for
+both packs, against a model that takes 151 ms and 1170 ms. The 5-8 ms Wi-Fi
+round trip is in there, and it is the smallest part of the smallest pack.
+
+**The lead is paid on every think.** 300 ms at the median for the move pack —
+9 ticks at 30 Hz, the round's maximum lead (D44) — and it is a fifth of the
+whole think on this run. It is the margin the host buys for the model's
+latency, spent whether the model is fast or slow.
+
+**The talk pack's apply is 0 ms at the median because the median talk think
+made no decision.** A line is rare — the three rounds spoke 42 of them — so
+most talk pack answers became no line at all, and a think that made no
+decision has no apply wait to measure. The p95, 327 ms, is the thinks whose
+line was applied, one lead out.
+
+### The Thor moves
+
+The split is a measurement of one box, and the box moves. Two more runs of
+the same harness, hours apart from this one, measured:
+
+- a busier box: the move pack's model at 659 ms p50 and the worker's wait at
+  6289 ms, with 179 watched asks;
+- a busier box again: the model at 367 ms p50 and the worker's wait at
+  2930 ms, with 402 watched asks — and not one of that run's 36 second
+  opinions arrived before its decision's apply tick (see the fence below).
+
+This run caught the Thor quiet: 773 watched asks, the model at 151 ms p50 and
+the worker's wait at 1110 ms. The quieter the box, the more the minds ask and
+the more of the think is the model rather than the wait. The shape of the
+split did not move — the queue in `queue.rs` is 0 ms every time, and the
+worker's wait is the largest single part every time — but the numbers do, and
+with them the fence's verdict (below).
+
+## The fence (N3)
+
+A decision has two deadlines: the request's own deadline, and the tick the
+decision is applied on. The second opinion was bounded by the first one only,
+so it could outlive the decision it served: the pack was on time, the second
+opinion was not, and the move was lost with nothing recorded.
+
+**The fence.** The escalation is now bounded by the decision's apply tick as
+well. The mind commits to that tick when it asks — the tick the answer lands
+on when the model is on time, plus the decision's lead — and the escalation's
+deadline is that instant. A second opinion that would land after it is no
+opinion at all: the gate stays unsure, the safe branch plays (the reflex
+moves the agent, a talk gate takes the line with it), and the round records
+the refusal by name, `escalation_late`.
+
+**What the run measured.** 137 escalations, and **106 of them late**: on a
+quiet Thor, 31 second opinions arrived before their decision's apply tick and
+were taken — and 106 did not.
+
+| | |
+|---|---|
+| escalations | 137 |
+| late: the second opinion would have landed after the apply tick | 106 |
+| taken: the second opinion was in hand before the apply tick | 31 |
+| the gate: `attention` / `subject` / `intention` / `move` | 97 / 37 / 2 / 1 |
+| the added latency | 0 ms at the median, 592 ms at p95, 1185 ms at the max |
+| the first model's confidence on the escalated gate | 0.31-0.50, 0.39 at the median |
+| the second model's confidence, when it was taken | 0.17-0.64, 0.43 at the median |
+
+The added latency is 0 at the median because most of the late escalations
+never made the call: the fence was already behind them when the pack came
+home, so the second model was not asked at all, and nothing waited for an
+opinion that could no longer be applied. The p95 and the max are the second
+model's own time on the opinions that were asked for — the taken ones and the
+ones that were asked and missed.
+
+**Why most of them are late.** The fence is the pack's own expected landing
+(its measured p99, in ticks) plus the decision's lead — 3-9 ticks, 300 ms at
+this round's clamp — counted from the moment the mind asked. Everything
+between that moment and the second model's call eats the budget: the wait for
+the calls before this one, and the cheap model's own round trip. What is left
+— a few hundred milliseconds when the box is busy, a second or so when it is
+quiet — has to cover clef-flash, which needs about that much of its own for
+one question. So on a quiet box some opinions fit (31 here) and most do not
+(106); on the busier runs above, none fit. The other way to be late is the
+pack itself: when the answer lands after the committed apply tick, the fence
+has passed and no second opinion can help, because the decision it was for
+has already gone.
+
+**What it costs.** A late escalation leaves the gate unsure, and an unsure
+`attention` or `subject` gate takes the line with it: this run lost 106 of
+its 137 escalated gates that way, and the three rounds still spoke **42
+lines** — the quiet box gave back with faster packs what the fence took with
+refused opinions. The busy runs were not so lucky: theirs spoke two. That is
+the answer to the review's question — *how many moves are lost to a missed
+escalation today?* — with the fence in place: **77% of the escalated gates on
+a quiet box, all of them on a busy one**, and every one of them is recorded
+by name instead of lost.
+
+**The two deadlines now agree.** Before the fence the escalation was bounded
+by the request's deadline, so the answer could land long after the decision
+it was for. Now the answer lands by the decision's apply tick or the second
+opinion is refused, and the round says which.
+
+**Where the cost lands, and who decides it.** In the run above the escalation
+covered every gate the cheap model was unsure about, and the talk gates are
+where it fired: 97 of the 137 escalations were the `attention` gate, and an
+unsure attention gate takes the line with it. The move gate was escalated
+once in three rounds.
+
+D75 — the escalation narrowed to the move gate, `escalate_gates = ["move"]` —
+**is in this tree now**. The fence therefore guards the move gate's second
+opinion instead of every line's, which is the shape N3 describes: the
+escalation is bounded by the decision it serves, and the decision it serves
+is the one that moves the game.
+
+## The fence after D75, on this tree
+
+The measurement above was taken before D75 landed. Re-measured on this tree
+(2026-10-30, the Thor at 192.168.0.78, seeds 1-3, 3000 ticks each, the three
+arms, the harness as it ships here), the **move-only** arm — the default now
+— reads:
+
+| | |
+|---|---|
+| asks | 487 |
+| decisions | 498 |
+| refusals | 99 |
+| escalations | 17 |
+| the gate they were all on | `move` (17) |
+| taken: the second opinion was in hand before the apply tick | 5 |
+| late: the second opinion landed after the decision's apply tick | 12 |
+| the rate | 3.5% of the gates answered, 3.5% of the asks, 3.4% of the decisions |
+
+**The fence fired on 12 of the 17 escalations (71%)** — the same shape as
+before, on a third as many escalations, because D75 narrowed the set. The
+`off` arm on the same seeds: 553 asks, 573 decisions, 88 refusals, 0
+escalations.
+
+The split of a think, move pack, p50 / p95:
+
+| part | p50 | p95 |
+|---|---|---|
+| our queue: the least-use-first wait | 0 ms | 0 ms |
+| the worker's own queue: the call before this one | 1817 ms | 6590 ms |
+| the wire | 6 ms | 15 ms |
+| the model | 340 ms | 1453 ms |
+| the apply: the lead before the decision lands | 312 ms | 331 ms |
+| the whole think | 2514 ms | 7550 ms |
+
+48 of the asks went to the policy's deep tier (the cloud), so they never
+reached the Thor and are not in the split.
+
+**How it was measured.** `cargo test --release -p lm-agents --test talk_on_thor
+-- --ignored --nocapture`, three arms of three seeds of 3000 ticks, against
+the Thor's d1-2B with clef-flash as the second opinion. The Thor's own index
+reported its services answering in 1-26 ms while it ran, so the box was idle;
+the **measuring** box was running another job at the time, so the
+client-side rows (our queue, the worker's own queue) carry that load and are
+an upper bound.
+
+**What the judge said about the 22 escalated questions** (the d1-3B on the
+full facts, each escalated question asked alone): on the `move` gate the two
+models differed in 20 of 21 situations, and the d1-2B agreed with the judge 4
+times, clef-flash 0, neither 17. That is a question about the escalation's
+worth on the move gate, and it belongs to D75's own section — the fence
+makes the second opinion's deadline honest, it does not make the second
+opinion right.
+
+## What this measurement does not say
+
+- **It is not a score.** The Thor's model answers the same pack the same way
+  every time, so the three rounds are three samples of the same behaviour, not
+  three games.
+- **The split covers the asks that reached the Thor.** 48 of the 821 asks went
+  to the policy's deep tier, which names the cloud; they never reached the
+  Thor and they are not in the split.
+- **The wire is a handshake, not a round trip.** The pack reuses one
+  connection (D50), so its per-call wire cost is smaller than the handshake
+  the probe measures. The probe is the upper bound.
+- **The worker's wait is the Thor's queue, seen from our side.** It is one
+  thread per pack, so it is the Thor's own serialisation plus our one-at-a-
+  time call. It is not the queue in `queue.rs`, which is 0 ms.
+- **The fence's cost is this box's.** How many second opinions fit inside the
+  decision's margin follows the Thor's load: 31 of 137 on the quiet box this
+  run caught, none on the busier runs above. A faster second model, or a
+  longer lead, would let more of them fit, and the fence would fire less.
