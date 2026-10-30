@@ -14,7 +14,7 @@
 //! only as logged decisions. See docs/superpowers/plans/2026-10-28-m1-phase3-agents.md.
 
 pub mod agents;
-pub use agents::{AgentStats, Agents, WordCounts};
+pub use agents::{AgentStats, Agents, AskTiming, WordCounts};
 pub mod config;
 pub use config::AgentsConfig;
 pub mod facts;

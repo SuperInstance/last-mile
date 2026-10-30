@@ -209,6 +209,9 @@ pub enum HollowKind {
     MenuChanged,
     /// The agent's budget for the round was spent.
     Budget,
+    /// The second opinion would have landed after the decision's apply tick
+    /// (N3): the gate took the safe branch.
+    LateEscalation,
 }
 
 impl HollowKind {
@@ -221,6 +224,7 @@ impl HollowKind {
             HollowKind::Unsure => "unsure",
             HollowKind::MenuChanged => "menu",
             HollowKind::Budget => "budget",
+            HollowKind::LateEscalation => "escalation_late",
         }
     }
 }
@@ -244,6 +248,7 @@ impl From<&Refusal> for HollowKind {
             Refusal::LowConfidence(_) => HollowKind::Unsure,
             Refusal::MenuChanged => HollowKind::MenuChanged,
             Refusal::Budget => HollowKind::Budget,
+            Refusal::EscalationLate => HollowKind::LateEscalation,
         }
     }
 }

@@ -18,6 +18,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::time::Instant;
 
 use lm_core::decision::{Decision, Tick};
 use lm_core::header::Header;
@@ -25,6 +26,7 @@ use lm_core::sim::Sim;
 use lm_core::view::menu;
 
 use crate::config::AgentsConfig;
+use crate::gates::Pack;
 use crate::harness::Harness;
 use crate::mind::{Mind, Thinker, ThoughtRecord};
 use crate::queue::{Budgets, LeastUseQueue};
@@ -41,6 +43,7 @@ pub struct Agents {
     thinker: Thinker,
     sink: Option<Box<dyn DecisionSink>>,
     stats: AgentStats,
+    timings: Vec<AskTiming>,
 }
 
 impl Agents {
@@ -79,6 +82,7 @@ impl Agents {
             thinker: Thinker::new(backends),
             sink: None,
             stats: AgentStats::default(),
+            timings: Vec::new(),
         }
     }
 
@@ -165,6 +169,7 @@ impl Agents {
         }
 
         // 3. The answers that came home become decisions.
+        let landed_at = Instant::now();
         let thoughts = self.thinker.drain();
         self.stats.answered += thoughts.len() as u64;
         let mut decisions: Vec<Decision> = Vec::new();
@@ -174,12 +179,40 @@ impl Agents {
             }
             // The escalations (D71): every gate that was asked of a second
             // model, counted next to the refusals.
-            if let Ok(answers) = &thought.result {
-                self.stats.escalations += answers.escalated.len() as u64;
-            }
-            if let Some(mind) = self.minds.get_mut(&thought.ask.req.agent) {
-                decisions.extend(mind.on_answer(thought.ask, thought.result));
-            }
+            let latency_ms = match &thought.result {
+                Ok(answers) => {
+                    self.stats.escalations += answers.escalated.len() as u64;
+                    answers.latency_ms
+                }
+                Err(_) => 0,
+            };
+            // The life of the ask (N1): asked, sent, taken by the worker,
+            // answered, and the tick the decision was applied on.
+            let pack = thought.ask.pack;
+            let agent = thought.ask.req.agent;
+            let backend = thought.ask.backend.clone();
+            let asked = thought.ask.asked_at;
+            let sent = thought.ask.sent_at.unwrap_or(thought.ask.asked_at);
+            let picked_up = thought.picked_up;
+            let answered = thought.answered_at;
+            let Some(mind) = self.minds.get_mut(&agent) else {
+                continue;
+            };
+            let made = mind.on_answer(thought.ask, thought.result);
+            self.timings.push(AskTiming {
+                pack,
+                agent,
+                backend,
+                asked,
+                sent,
+                picked_up,
+                answered,
+                landed: now,
+                landed_at,
+                applied: made.iter().map(|decision| decision.apply_tick).min(),
+                latency_ms,
+            });
+            decisions.extend(made);
         }
         // 4. And so do the decisions that needed no model (the verdict cache).
         for mind in self.minds.values_mut() {
@@ -225,6 +258,94 @@ impl Agents {
             .map(|(agent, mind)| (*agent, mind.thoughts().to_vec()))
             .collect()
     }
+
+    /// The life of every ask of the round, on the monotonic clock (N1).
+    ///
+    /// The stamps are outside the sim: they are telemetry, and they never
+    /// enter the sim's state — the sim only ever sees the decisions. They
+    /// add up to the split of a think: the wait in our own queue, the
+    /// worker's own wait, the wire, the model, and the wait for the
+    /// decision to be applied.
+    pub fn timings(&self) -> &[AskTiming] {
+        &self.timings
+    }
+}
+
+/// The life of one ask, on the monotonic clock (N1).
+///
+/// The four stamps the split is made of: **asked** (the mind decided to
+/// ask), **sent** (the ask left the least-use-first queue), **picked up**
+/// (the worker took it off its channel) and **answered** (the answer came
+/// home), plus the tick the decision was applied on.
+#[derive(Clone, Debug)]
+pub struct AskTiming {
+    /// Which pack the ask carried (D70).
+    pub pack: Pack,
+    /// The agent that asked.
+    pub agent: u16,
+    /// The backend the ask went to (a tier's backend name).
+    ///
+    /// The name is what joins a timing to the log of the call that made it:
+    /// a round may ask several backends, and only one of them may be the one
+    /// the measurement watches.
+    pub backend: String,
+    /// When the mind asked.
+    pub asked: Instant,
+    /// When the ask left the least-use-first queue.
+    pub sent: Instant,
+    /// When the worker took the ask off its channel.
+    pub picked_up: Instant,
+    /// When the answer came home.
+    pub answered: Instant,
+    /// The tick the answer landed on.
+    pub landed: Tick,
+    /// The wall clock when the answer was picked up, at the tick it landed
+    /// on.
+    pub landed_at: Instant,
+    /// The tick the decision was applied on; `None` when it made none.
+    pub applied: Option<Tick>,
+    /// The round trip the backend measured, in milliseconds.
+    pub latency_ms: u32,
+}
+
+impl AskTiming {
+    /// The wait in our own least-use-first queue, in milliseconds.
+    pub fn queue_ms(&self) -> u64 {
+        ms_between(self.asked, self.sent)
+    }
+
+    /// The wait in the worker's own channel, in milliseconds.
+    ///
+    /// The worker takes one ask at a time, so an ask waits for the call
+    /// before it. This is our own queue too, and it is the one the model's
+    /// round trip does not see.
+    pub fn worker_ms(&self) -> u64 {
+        ms_between(self.sent, self.picked_up)
+    }
+
+    /// The flight: the moment the worker had the ask to the moment the
+    /// answer came home, in milliseconds.
+    pub fn flight_ms(&self) -> u64 {
+        ms_between(self.picked_up, self.answered)
+    }
+
+    /// The wait from the answer landing to the decision being applied, in
+    /// milliseconds.
+    ///
+    /// The decision's lead is the scheduling slack; the rest is what was
+    /// left of the tick the answer landed in.
+    pub fn apply_ms(&self, tick_hz: u16) -> u64 {
+        let Some(applied) = self.applied else {
+            return 0;
+        };
+        let lead_ms = applied.saturating_sub(self.landed) * 1000 / u64::from(tick_hz);
+        lead_ms.saturating_add(ms_between(self.answered, self.landed_at))
+    }
+}
+
+/// The milliseconds between two instants on the monotonic clock.
+fn ms_between(from: Instant, to: Instant) -> u64 {
+    u64::try_from(to.saturating_duration_since(from).as_millis()).unwrap_or(u64::MAX)
 }
 
 impl fmt::Debug for Agents {

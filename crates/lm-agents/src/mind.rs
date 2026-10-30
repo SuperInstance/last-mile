@@ -63,7 +63,7 @@ pub use crate::gates::Pack;
 use crate::harness::Harness;
 use crate::phrasebook::Phrasebook;
 use crate::queue::ThinkReq;
-use crate::sysone::{Answers, Escalation, Refusal, SysOne};
+use crate::sysone::{Answers, Escalation, EscalationOutcome, Refusal, SysOne};
 use crate::utter::{
     pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
     WordSource, GATE_GESTURE, UTTERANCE_GATES,
@@ -637,6 +637,25 @@ pub struct Ask {
     pub timeout: Duration,
     /// The `pay_priority` lever's verdict for this ask.
     pub pay_priority: bool,
+    /// When the mind asked, on the monotonic clock (N1).
+    ///
+    /// The stamp is outside the sim: it is telemetry for the split, and it
+    /// never enters the sim's state — the sim only ever sees the decisions.
+    pub asked_at: Instant,
+    /// When the ask left the least-use-first queue (N1).
+    pub sent_at: Option<Instant>,
+    /// The tick this ask's decision is scheduled for (N3).
+    ///
+    /// The mind commits to it when it asks: the tick the answer lands on
+    /// when the model is on time, plus the decision's lead. A second opinion
+    /// that would land after it is no opinion at all.
+    pub apply_tick: Tick,
+    /// The decision's apply tick, as a wall-clock instant (N3).
+    ///
+    /// This is the escalation's deadline: the second opinion must be in
+    /// hand by then, or the gate takes the safe branch and the round records
+    /// `escalation_late`.
+    pub apply_deadline: Instant,
 }
 
 /// An ask that came home: the ask, the outcome, and the measured round trip.
@@ -648,6 +667,14 @@ pub struct Thought {
     pub result: Result<Answers, Refusal>,
     /// The wall-clock round trip the thinker measured, in milliseconds.
     pub rtt_ms: u32,
+    /// When the worker took the ask off its channel (N1).
+    ///
+    /// The time between the ask leaving the queue and the worker picking it
+    /// up is the worker's own wait: the worker was still busy with the
+    /// previous call.
+    pub picked_up: Instant,
+    /// When the answer came home (N1).
+    pub answered_at: Instant,
 }
 
 // ----------------------------------------------------------------- the worker
@@ -697,10 +724,18 @@ impl Thinker {
                     // connection per backend (D50). The loop ends when the
                     // thinker is dropped.
                     for ask in worker_rx {
-                        let started = Instant::now();
+                        // When the worker takes the ask off its channel: the
+                        // wait before this is the worker's own queue (N1).
+                        let picked_up = Instant::now();
+                        let started = picked_up;
                         let deadline = started + ask.timeout;
                         let result = match worker_backends.get(&ask.backend) {
-                            Some(backend) => backend.ask(&ask.state, &ask.questions, deadline),
+                            Some(backend) => backend.ask_with_escalation(
+                                &ask.state,
+                                &ask.questions,
+                                deadline,
+                                ask.apply_deadline,
+                            ),
                             None => Err(Refusal::Malformed(format!(
                                 "no backend named {}",
                                 ask.backend
@@ -708,11 +743,15 @@ impl Thinker {
                         };
                         let rtt_ms =
                             u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+                        // When the answer came home (N1).
+                        let answered_at = Instant::now();
                         if worker_tx
                             .send(Thought {
                                 ask,
                                 result,
                                 rtt_ms,
+                                picked_up,
+                                answered_at,
                             })
                             .is_err()
                         {
@@ -743,7 +782,12 @@ impl Thinker {
     ///
     /// The ask goes to its pack's worker (D70), so a talk pack in flight
     /// never delays the move pack.
-    pub fn send(&self, ask: Ask) {
+    ///
+    /// The ask is stamped here: this is the moment it leaves the
+    /// least-use-first queue, and the wait before it is the queue's own
+    /// (N1).
+    pub fn send(&self, mut ask: Ask) {
+        ask.sent_at = Some(Instant::now());
         if let Some(lane) = self.lanes.get(&ask.pack) {
             if let Some(sender) = &lane.to_worker {
                 if sender.send(ask).is_ok() {
@@ -1225,6 +1269,9 @@ impl Mind {
             deadline: now.saturating_add(u64::from(self.params.stale_window_ticks)),
             situation_key: facts.key,
         };
+        let asked_at = Instant::now();
+        let (apply_tick, apply_deadline) =
+            self.commit_apply(now, expected_land, tier.p99_ms(Pack::Move), asked_at);
         let ask = Ask {
             req: req.clone(),
             pack: Pack::Move,
@@ -1234,6 +1281,10 @@ impl Mind {
             questions_n,
             timeout: Duration::from_millis(u64::from(self.cfg.request_timeout_ms)),
             pay_priority: self.policy.pay_priority && fresh_threat,
+            asked_at,
+            sent_at: None,
+            apply_tick,
+            apply_deadline,
         };
         let flight = Flight {
             req: req.clone(),
@@ -1332,6 +1383,9 @@ impl Mind {
             deadline: now.saturating_add(u64::from(self.params.stale_window_ticks)),
             situation_key: facts.key,
         };
+        let asked_at = Instant::now();
+        let (apply_tick, apply_deadline) =
+            self.commit_apply(now, expected_land, tier.p99_ms(Pack::Talk), asked_at);
         let ask = Ask {
             req: req.clone(),
             pack: Pack::Talk,
@@ -1341,6 +1395,10 @@ impl Mind {
             questions_n,
             timeout: Duration::from_millis(u64::from(self.cfg.request_timeout_ms)),
             pay_priority: self.policy.pay_priority && fresh_threat,
+            asked_at,
+            sent_at: None,
+            apply_tick,
+            apply_deadline,
         };
         let flight = Flight {
             req: req.clone(),
@@ -1446,9 +1504,23 @@ impl Mind {
                 // that chose a move refuses the move and leaves the line
                 // alone (D26/D49). Every one of them is a refusal, and a
                 // refusal is logged.
-                for confidence in answers.unsure.values() {
-                    self.refusals
-                        .push((now, Refusal::LowConfidence(*confidence)));
+                //
+                // A gate whose second opinion missed the decision's apply
+                // tick (N3) is a refusal of its own name: the gate takes
+                // the safe branch, and the round says why.
+                let late: Vec<&str> = answers
+                    .escalated
+                    .values()
+                    .filter(|escalation| escalation.outcome == EscalationOutcome::Late)
+                    .map(|escalation| escalation.gate.as_str())
+                    .collect();
+                for (gate, confidence) in &answers.unsure {
+                    if late.contains(&gate.as_str()) {
+                        self.refusals.push((now, Refusal::EscalationLate));
+                    } else {
+                        self.refusals
+                            .push((now, Refusal::LowConfidence(*confidence)));
+                    }
                 }
                 // The escalations (D71): the gate, both confidences and the
                 // latency of every second opinion that was asked for.
@@ -1716,6 +1788,29 @@ impl Mind {
             d.seq = self.seq_counter;
         }
     }
+
+    /// The tick this ask's decision is scheduled for, and the wall-clock
+    /// instant it falls on (N1/N3).
+    ///
+    /// The mind commits to the tick when it asks: the tick the answer lands
+    /// on when the model is on time (`expected_land`), plus the decision's
+    /// lead. The second opinion that may serve that decision is fenced by
+    /// it (N3), so a wait in the queue eats the second opinion's budget
+    /// instead of the round's.
+    fn commit_apply(
+        &self,
+        asked: Tick,
+        expected_land: Tick,
+        p99_ms: u32,
+        asked_at: Instant,
+    ) -> (Tick, Instant) {
+        let lead = u64::from(lead_ticks(&self.params, p99_ms));
+        let apply_tick = expected_land.saturating_add(lead);
+        // The budget between the ask and the tick the decision is applied on,
+        // in wall-clock milliseconds: the sim's ticks are wall-clock ticks.
+        let budget_ms = apply_tick.saturating_sub(asked) * 1000 / u64::from(self.params.tick_hz);
+        (apply_tick, asked_at + Duration::from_millis(budget_ms))
+    }
 }
 
 // -------------------------------------------------------------------- the tests
@@ -1725,7 +1820,7 @@ mod tests {
     use super::*;
     use crate::config::AgentsConfig;
     use crate::queue::{Budgets, LeastUseQueue};
-    use crate::sysone::{Answer, StubBackend};
+    use crate::sysone::{Answer, Escalation, EscalationOutcome, StubBackend};
     use crate::utter::{AutoRealizer, LlmRealizer, StubLlm, TemplateRealizer};
     use lm_core::decision::{Kind, Source};
     use lm_core::log::{Recorder, RoundLog};
@@ -2426,6 +2521,123 @@ mod tests {
             .on_tick(8, &view_a, &world, &menu_a)
             .expect("prethink asks about the quiet situation");
         assert_eq!(req.situation_key, key_a);
+    }
+
+    // ---------------------------------------------------------- the fence (N3)
+
+    /// The move gate's answer, with the second opinion's outcome.
+    ///
+    /// The second opinion is the one the fence is about: `Late` means it
+    /// would have landed after the decision's apply tick, so it is no
+    /// opinion at all and the gate stays unsure.
+    fn escalated_move(menu: &Menu, outcome: EscalationOutcome) -> Answers {
+        let mut answers = lane_answers(menu, 0);
+        let second = match outcome {
+            EscalationOutcome::Taken => {
+                // The second model answered, and its answer is the gate's.
+                let probs = match answers.per_gate.get("move") {
+                    Some(Answer::Choice { probs, .. }) => probs.clone(),
+                    _ => BTreeMap::new(),
+                };
+                answers.per_gate.insert(
+                    "move".to_owned(),
+                    Answer::Choice {
+                        probs,
+                        confidence: 0.9,
+                    },
+                );
+                Some(0.9)
+            }
+            _ => {
+                // No opinion: the gate is unsure, and the cheap model's own
+                // number is what is left of it.
+                answers.per_gate.remove("move");
+                answers.unsure.insert("move".to_owned(), 0.2);
+                None
+            }
+        };
+        answers.escalated.insert(
+            "move".to_owned(),
+            Escalation {
+                gate: "move".to_owned(),
+                primary_confidence: 0.2,
+                second_confidence: second,
+                latency_ms: 500,
+                outcome,
+            },
+        );
+        answers
+    }
+
+    #[test]
+    fn a_late_escalation_takes_the_safe_branch() {
+        // N3: a second opinion that missed the decision's apply tick is no
+        // opinion at all. The move is not taken — the safe branch plays, the
+        // reflex moves the agent — and the round records the refusal by
+        // name, so the loss is visible.
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let view = view_at(1, 2, 2);
+        let menu = menu(&view);
+        let mut m = speaking_mind(1, &cfg);
+
+        let req = m.on_tick(0, &view, &world, &menu).expect("the mind asks");
+        let ask = m.take_flight(&req).expect("the ask flies");
+        let answers = escalated_move(&menu, EscalationOutcome::Late);
+        let decisions = m.on_answer(ask, Ok(answers));
+
+        // The move was not taken.
+        assert!(
+            !decisions.iter().any(|d| matches!(d.kind, Kind::Lane(_))),
+            "the safe branch plays: {decisions:?}"
+        );
+        // And the round says why, by name.
+        assert!(
+            m.refusals()
+                .iter()
+                .any(|(_, r)| *r == Refusal::EscalationLate),
+            "the round named the late escalation: {:?}",
+            m.refusals()
+        );
+        // And the escalation itself is on the record, with its outcome.
+        assert!(
+            m.escalations()
+                .iter()
+                .any(|(_, e)| e.outcome == EscalationOutcome::Late),
+            "the escalation is logged: {:?}",
+            m.escalations()
+        );
+    }
+
+    #[test]
+    fn an_escalation_on_time_is_taken() {
+        // N3: the fence is a deadline, not a veto. A second opinion that is
+        // in hand before the decision's apply tick is taken, and the move is
+        // made on the second model's word.
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let view = view_at(1, 2, 2);
+        let menu = menu(&view);
+        let mut m = speaking_mind(1, &cfg);
+
+        let req = m.on_tick(0, &view, &world, &menu).expect("the mind asks");
+        let ask = m.take_flight(&req).expect("the ask flies");
+        let answers = escalated_move(&menu, EscalationOutcome::Taken);
+        let decisions = m.on_answer(ask, Ok(answers));
+
+        // The move was taken.
+        assert!(
+            decisions.iter().any(|d| matches!(d.kind, Kind::Lane(_))),
+            "the model decided the move: {decisions:?}"
+        );
+        // And the fence did not fire.
+        assert!(
+            !m.refusals()
+                .iter()
+                .any(|(_, r)| *r == Refusal::EscalationLate),
+            "the fence did not fire: {:?}",
+            m.refusals()
+        );
     }
 
     // ------------------------------------------------------------- the host
