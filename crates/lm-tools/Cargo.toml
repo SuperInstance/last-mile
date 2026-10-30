@@ -29,6 +29,8 @@ lm-learn = { path = "../lm-learn" }
 # The voice lane: the skald client, the bank and the prefetch queue the
 # `voice` subcommand reports on.
 lm-voice = { path = "../lm-voice" }
+# The vox subcommand: the performance protocol's analyzer and renderer.
+lm-vox = { path = "../lm-vox" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 toml = "1.1.8"

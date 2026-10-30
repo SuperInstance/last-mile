@@ -465,3 +465,85 @@ fn a_run_cannot_write_into_a_directory_that_is_not_there() {
         run.said()
     );
 }
+
+/// `lm vox analyze` reads the performance out of a WAV as one L2 line and
+/// the stream's cost in bytes per second; `lm vox render` round-trips the
+/// WAV through the LPC/formant voice.
+#[test]
+fn vox_reads_and_plays_back_a_performance() {
+    let scratch = Scratch::new("vox");
+
+    // A small performance to read: a falling-tone vowel with pauses.
+    let wav = scratch.join("line.wav");
+    let pcm = lm_vox::wav::Pcm {
+        samples: vox_test_samples(22_050),
+        rate: 22_050,
+    };
+    pcm.to_wav_file(&wav).expect("the test WAV is written");
+
+    let analyze = lm(scratch.path(), &["vox", "analyze", wav.to_str().unwrap()]);
+    assert_eq!(analyze.code, 0, "analyze runs: {}", analyze.said());
+    assert!(
+        analyze.stdout.starts_with("vox: "),
+        "the L2 line comes first: {}",
+        analyze.said()
+    );
+    assert!(
+        analyze.stdout.contains("B/s"),
+        "the stream's cost is named: {}",
+        analyze.said()
+    );
+
+    let out = scratch.join("rendered.wav");
+    let render = lm(
+        scratch.path(),
+        &[
+            "vox",
+            "render",
+            wav.to_str().unwrap(),
+            out.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(render.code, 0, "render runs: {}", render.said());
+    assert!(out.exists(), "the render wrote a WAV");
+    let back = lm_vox::wav::Pcm::from_wav_file(&out).expect("the render's WAV reads back");
+    assert_eq!(back.rate, 22_050);
+    assert!(!back.samples.is_empty());
+}
+
+/// A WAV the tests can make without a network: silence, then a falling
+/// 120-tone vowel island, then silence.
+fn vox_test_samples(rate: u32) -> Vec<i16> {
+    let n = rate as usize;
+    let mut x = vec![0.0f64; 2 * n];
+    let period = f64::from(rate) / 120.0;
+    let mut phase = 0.0f64;
+    for v in x.iter_mut().skip(n / 2).take(n / 2) {
+        phase += 1.0 / period;
+        if phase >= 1.0 {
+            phase -= 1.0;
+        }
+        *v = if phase < 0.3 {
+            (std::f64::consts::PI * phase / 0.3).sin() * 8_000.0
+        } else {
+            0.0
+        };
+    }
+    x.iter().map(|&v| v as i16).collect()
+}
+
+/// A WAV the analyzer cannot read is named, not crashed on.
+#[test]
+fn vox_names_a_wav_it_cannot_read() {
+    let scratch = Scratch::new("vox-bad");
+    let bad = scratch.join("not-a-wav.bin");
+    std::fs::write(&bad, b"definitely not audio").expect("the junk file is written");
+
+    let analyze = lm(scratch.path(), &["vox", "analyze", bad.to_str().unwrap()]);
+    assert_ne!(analyze.code, 0, "analyze fails: {}", analyze.said());
+    assert!(
+        analyze.stderr.contains("not a RIFF/WAVE file"),
+        "the message names the problem: {}",
+        analyze.said()
+    );
+}

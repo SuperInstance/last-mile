@@ -181,6 +181,31 @@ enum Command {
         #[arg(long, default_value_t = 8)]
         sample: usize,
     },
+    /// The Vox Score tools (design §6, §10): the performance in a WAV as
+    /// one L2 line and its encoded cost, and the round trip through the
+    /// LPC/formant voice.
+    Vox {
+        /// The subcommand to run.
+        #[command(subcommand)]
+        command: VoxCommand,
+    },
+}
+
+/// The `lm vox` subcommands.
+#[derive(Subcommand, Debug)]
+enum VoxCommand {
+    /// Analyze a WAV: print the L2 line and the L0 stream's bytes/s.
+    Analyze {
+        /// The mono PCM16 WAV to read (16 kHz or 22.05 kHz).
+        wav: PathBuf,
+    },
+    /// Round-trip a WAV through the LPC/formant voice.
+    Render {
+        /// The mono PCM16 WAV to read.
+        input: PathBuf,
+        /// Where the rendered mono PCM16 WAV is written.
+        output: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -238,6 +263,65 @@ fn main() -> ExitCode {
             voice_toml,
             sample,
         }),
+        Command::Vox { command } => cmd_vox(command),
+    }
+}
+
+/// The `lm vox` commands: read a performance out, or play one back.
+fn cmd_vox(command: VoxCommand) -> ExitCode {
+    match command {
+        VoxCommand::Analyze { wav } => {
+            let pcm = match lm_vox::wav::Pcm::from_wav_file(&wav) {
+                Ok(pcm) => pcm,
+                Err(err) => {
+                    eprintln!("lm: {}: {err}", wav.display());
+                    return ExitCode::FAILURE;
+                }
+            };
+            let analysis = lm_vox::analyze(&pcm);
+            let gestures =
+                lm_vox::segment_gestures(&analysis.frames, &lm_vox::SpeakerProfile::default());
+            let phrase = lm_vox::phrase_summary(
+                &analysis.frames,
+                &gestures,
+                &lm_vox::SpeakerProfile::default(),
+            );
+            println!("{}", lm_vox::l2_line(&phrase));
+            println!(
+                "frames {} gestures {} raw {} B/s encoded {:.0} B/s",
+                analysis.frames.len(),
+                gestures.len(),
+                lm_vox::encode::RAW_BYTES_PER_S,
+                lm_vox::encode::encoded_bytes_per_frame(&analysis.frames) * 100.0
+            );
+            ExitCode::SUCCESS
+        }
+        VoxCommand::Render { input, output } => {
+            let pcm = match lm_vox::wav::Pcm::from_wav_file(&input) {
+                Ok(pcm) => pcm,
+                Err(err) => {
+                    eprintln!("lm: {}: {err}", input.display());
+                    return ExitCode::FAILURE;
+                }
+            };
+            let analysis = lm_vox::analyze(&pcm);
+            let rendered = lm_vox::render_l0(
+                &analysis.frames,
+                &lm_vox::SpeakerProfile::default(),
+                &lm_vox::render::RenderConfig::new(pcm.rate),
+            );
+            if let Err(err) = rendered.to_wav_file(&output) {
+                eprintln!("lm: {}: {err}", output.display());
+                return ExitCode::FAILURE;
+            }
+            println!(
+                "{}: {} frames rendered to {} samples",
+                output.display(),
+                analysis.frames.len(),
+                rendered.samples.len()
+            );
+            ExitCode::SUCCESS
+        }
     }
 }
 
