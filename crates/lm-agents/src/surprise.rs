@@ -322,6 +322,9 @@ pub fn refusal_kind(refusal: &Refusal) -> String {
         Refusal::LowConfidence(_) => "low confidence".to_owned(),
         Refusal::MenuChanged => "menu changed".to_owned(),
         Refusal::Budget => "budget".to_owned(),
+        Refusal::OffPlan(_) => "off plan".to_owned(),
+        Refusal::Superseded => "superseded".to_owned(),
+        Refusal::Panicked(_) => "panicked".to_owned(),
     }
 }
 
@@ -706,6 +709,7 @@ mod tests {
                             second_confidence: Some(0.9),
                             latency_ms: 1,
                             outcome: EscalationOutcome::Taken,
+                            refusal: None,
                         },
                     )
                 })
