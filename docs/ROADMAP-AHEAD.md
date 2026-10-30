@@ -91,6 +91,8 @@ struct Ghost { at: Cell, kind: GhostKind /* Attract | Repel | Slow | Hot */, str
 ```
 Fields are fixed-point and part of the hashed state when they touch the sim. facts.rs reports them as facts ("pulled toward beacon 2, strong"), so System One reads intent instead of taking orders. Uses: the shared target (a recurring hot zone), directors and Bench steering by placing fields, Vibe blocks and Bolt's scoped offers as temporal ghosts, "where" questions answered by reading a field, the learning flow proposing ghost placements, and belief fields (a rumoured enemy, urgency spreading from a shout). Viewers may see them drawn faintly.
 
+**The second face of ghosts: earned presence** (after SuperInstance/cuda-ghost-tiles, plato-ghostable). Things exist logically but are *computed* only when they have earned it: weights strengthen with use, decay without it, prune to a budget, revive on demand. Applied: **questions** decay to ghosts when they rarely change a decision (D70's talk triggers, learned); **options** of a big question are pruned to the ones that win (a third alternative to decomposition and escalation); the **world** gets detail where the action is. Lifetimes follow plato-ghostable's persistence classes: **Eternal** (core rules), **Persistent** (adopted questions, the player profile), **Ephemeral** (Bolt's one-round offer, a kid's experiment).
+
 ## 3. Open questions, each with its research track
 
 | # | Question | Track (seat or job) | The answer unblocks |
