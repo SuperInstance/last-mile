@@ -16,11 +16,20 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 | 1. Core | Done: headless, fixed-point, deterministic rounds replay bit-exact, on x86-64 and on the Thor's aarch64 (D69). `lm branch` rewinds, changes one thing and re-runs |
 | 2. Host | Done (Casey's hands-on acceptance pending): the Bevy map, piano roll, HUD and replay on the ProArt |
 | 3. Agents | Done: agents think on the Thor's d1 models in the host. d1-2B is the default fast tier (D62), and members think at 1 Hz, sized to the Thor's measured supply (D68) |
-| 4. Talk | Done: utterances, notation, hearing physics, agents speaking, the voice crate, push-to-talk, the half-duplex gate, talk metrics, and talk in the host (`--talk off\|stub\|on\|riva`: `on` speaks the agents' lines in skald voices from the bank, D73). In progress: agents barely speak on the real model, and that's being tuned |
+| 4. Talk | Done: utterances, notation, hearing physics, agents speaking, the voice crate, push-to-talk, the half-duplex gate, talk metrics, and talk in the host (`--talk off\|stub\|on\|riva`: `on` speaks the agents' lines in skald voices from the bank, D73). Agents speak on the real Thor (D72) and sound urgent in fights |
 | 5. Learning | Done: metrics, router, sealed ledger, review, held-out eval, deposits, Rhai rulesets, `lm learn`, and the between-round screen (human overrides are carried out). Open: the D63 tie-break call |
-| 6. 3D + archive | Done: the 3D view (`--view 2d\|3d\|both`, `V` switches), integer upscale, shared fog, and the Orin archive |
+| 6. 3D + archive | Done: the 3D view (`--view 2d\|3d\|both`, `B` switches), integer upscale, shared fog, and the Orin archive |
 
 Measured facts that shape the design live in [`docs/design/decisions.md`](docs/design/decisions.md) (D1–D69), for example: draws are mirror ties, not timeouts (D63), and the Thor serves about 9 decisions/s on d1-2B, roughly one thought per agent per second (decision-daw x5).
+
+## Start here
+
+- [docs/GRAND-PLAN.md](docs/GRAND-PLAN.md): where this is going (vision, pillars, milestones)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it works end to end
+- [docs/CONCEPTS.md](docs/CONCEPTS.md): the vocabulary
+- [AGENTS.md](AGENTS.md): how coding agents work here
+- [docs/HANDOFF.md](docs/HANDOFF.md) and [docs/ROADMAP-AHEAD.md](docs/ROADMAP-AHEAD.md): the state now, schemas ahead, open questions
+- [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): play it by hand
 
 ## Core ideas (one line each)
 - **The game is the score.** As with MIDI, a tiny stream of decisions is the whole game. Renderers are instruments: a better one sounds richer but never changes the rhythm.
