@@ -25,7 +25,12 @@ use lm_vox::wav::Pcm;
 /// fails after an intentional analyzer change, re-pin it by running
 /// `GOLDEN_PRINT=1 cargo test -p lm-vox --test golden -- --nocapture` and
 /// pasting the printed hash — and say so in the commit.
-const PINNED: u64 = 0x6bf5_f852_1844_c847;
+///
+/// Re-pinned for E10's gesture floor: `MIN_GESTURE_FRAMES` rose from 3 to
+/// 8 frames (80 ms, the floor of a performed syllable), so sub-80 ms
+/// ripple spans — grain joins from time-scale modification, smooth slow
+/// speech — fold into their neighbor instead of counting as notes.
+const PINNED: u64 = 0x0d71_75f0_9556_8fa5;
 
 /// The golden utterance, built from whole numbers: a pulse train with a
 /// falling pitch contour, noise bursts, pauses, and a formant sweep —
