@@ -35,6 +35,17 @@
 //! ```
 //!
 //! The write-up of the numbers is `tests/realizer_on_thor.md`.
+//!
+//! ## The A/B arm
+//!
+//! The wording model is configuration (`[utter]` `llm_model` / `llm_port`),
+//! so the same harness can word with any model on the LAN:
+//! `UTTER_LLM_MODEL` and `UTTER_LLM_PORT` override the `[utter]` defaults
+//! for the whole measurement, everything else -- the prompt, the deadline,
+//! the seeds, the ticks -- staying the shipped ones. `UTTER_DUMP` names a
+//! file every spoken line is written to, so two arms' wordings can be
+//! paired over the same plans afterwards (the A/B section of
+//! `tests/realizer_on_thor.md`).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -52,6 +63,7 @@ use lm_core::header::Header;
 use lm_core::opal::{self, TalkContext};
 use lm_core::utterance::Subject;
 use lm_host_model::HostLoop;
+use serde_json::json;
 
 /// The shipped harness: the gates, the policy and the phrasebook the default
 /// round thinks with.
@@ -173,6 +185,44 @@ fn default_harness() -> Harness {
     }
 }
 
+/// The wording arm of an A/B: the shipped config, with the `[utter]` model
+/// and port overridden from the environment when the measurement names
+/// them (`UTTER_LLM_MODEL`, `UTTER_LLM_PORT`) and the defaults otherwise.
+///
+/// Everything else is the shipped round's own, so the two arms of an A/B
+/// differ in the wording model and nothing else.
+fn arm_config() -> AgentsConfig {
+    let mut cfg = AgentsConfig::default();
+    if let Ok(model) = std::env::var("UTTER_LLM_MODEL") {
+        cfg.utter.llm_model = model;
+    }
+    if let Ok(port) = std::env::var("UTTER_LLM_PORT") {
+        cfg.utter.llm_port = port.parse().expect("UTTER_LLM_PORT is a port");
+    }
+    cfg
+}
+
+/// A plan in plain words, the same words in the samples and the dump.
+fn describe(plan: &UtterPlan) -> String {
+    format!(
+        "{} to {}, {}, {}, about {}",
+        lm_agents::phrasebook::act_name(plan.act),
+        match plan.addressee {
+            lm_core::utterance::Addressee::Squad => "the squad".to_owned(),
+            lm_core::utterance::Addressee::All => "everybody".to_owned(),
+            lm_core::utterance::Addressee::Agent(agent) => format!("agent {agent}"),
+        },
+        lm_agents::phrasebook::intent_name(plan.intent),
+        lm_agents::phrasebook::affect_name(plan.affect),
+        match plan.subject {
+            Subject::Beacon(beacon) => format!("beacon {beacon}"),
+            Subject::Enemy(enemy) => format!("enemy {enemy}"),
+            Subject::Direction(direction) => format!("direction {direction}"),
+            Subject::None => "nothing".to_owned(),
+        },
+    )
+}
+
 /// What one round did.
 #[derive(Clone, Debug, Default)]
 struct Round {
@@ -194,7 +244,7 @@ struct Round {
 fn play(seed: u64) -> (Round, Vec<Line>, Vec<u64>) {
     let header = Header::default_round(seed, DEFAULT_REFLEX);
     let harness = default_harness();
-    let cfg = AgentsConfig::default();
+    let cfg = arm_config();
 
     let backend = ThorBackend::new(&cfg.thor_base, cfg.ports["d1-2b"], "d1-2b")
         .with_min_confidence(0.30)
@@ -306,6 +356,11 @@ fn realizer_on_thor() {
     println!();
     println!("# the realizer on the real Thor");
     println!();
+    let arm = arm_config();
+    println!(
+        "- the wording model: {} on :{}",
+        arm.utter.llm_model, arm.utter.llm_port
+    );
     println!("- rounds: {}", rounds.len());
     println!("- lines: {utterances}");
     println!("- words llm {llm} / phrasebook {phrasebook} / late {late}");
@@ -409,24 +464,39 @@ fn realizer_on_thor() {
         println!("{}", line.phrasebook.as_deref().unwrap_or("(none)"));
         println!("```");
         println!();
-        println!(
-            "- plan: {} to {}, {}, {}, about {}",
-            lm_agents::phrasebook::act_name(line.plan.act),
-            match line.plan.addressee {
-                lm_core::utterance::Addressee::Squad => "the squad".to_owned(),
-                lm_core::utterance::Addressee::All => "everybody".to_owned(),
-                lm_core::utterance::Addressee::Agent(agent) => format!("agent {agent}"),
-            },
-            lm_agents::phrasebook::intent_name(line.plan.intent),
-            lm_agents::phrasebook::affect_name(line.plan.affect),
-            match line.plan.subject {
-                Subject::Beacon(beacon) => format!("beacon {beacon}"),
-                Subject::Enemy(enemy) => format!("enemy {enemy}"),
-                Subject::Direction(direction) => format!("direction {direction}"),
-                Subject::None => "nothing".to_owned(),
-            },
-        );
+        println!("- plan: {}", describe(&line.plan));
         println!();
+    }
+
+    // The record of every line, as JSON, for the pairing of two arms'
+    // wordings over the same plans: the plan, where the words came from,
+    // the deadline the model met or missed, the wording's own latency,
+    // the line, and the line the phrasebook would have worded.
+    if let Ok(path) = std::env::var("UTTER_DUMP") {
+        let path = std::path::Path::new(&path);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).expect("the dump's directory is made");
+        }
+        let mut records = String::new();
+        for line in &lines {
+            let record = json!({
+                "plan": describe(&line.plan),
+                "plan_debug": format!("{:?}", line.plan),
+                "source": match line.source {
+                    WordSource::Llm => "llm",
+                    WordSource::Phrasebook => "phrasebook",
+                },
+                "late": line.late,
+                "micros": line.micros,
+                "text": line.text,
+                "phrasebook": line.phrasebook,
+            });
+            records.push_str(&record.to_string());
+            records.push('\n');
+        }
+        std::fs::write(path, records).expect("the dump is written");
+        println!();
+        println!("## the dump: {} lines to {}", lines.len(), path.display());
     }
 
     // The acceptance: the model was asked, and the rounds say so.

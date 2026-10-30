@@ -825,3 +825,177 @@ bash scripts/live.sh
 # the d1-2B's latency, with and without the realizer
 python3 ~/lm-services/realizer/ab-d1-2b.sh
 ```
+
+---
+
+## 7. The A/B: could Qwen3-Coder-30B-A3B word the lines better or faster?
+
+The box serves another model that suggested itself for the wording:
+Qwen3-Coder-30B-A3B-Instruct, a MoE with about 3B active parameters, at
+`:8001`. The A/B played the same harness both ways -- the same prompt
+(the plan and not the facts, plain words), the same 1000 ms deadline,
+seeds 1, 2 and 3 of three thousand ticks per arm -- with only the
+`[utter]` `llm_model` / `llm_port` of the config changed between the
+arms.
+
+### The door needed no adapter
+
+`:8001` is llama.cpp too, the same shape of server that carries the d
+models: OpenAI `/v1/chat/completions`, and it takes the `grammar` field
+the client already sends. The request `ThorLlm` has been posting to
+`:8092` is exactly what `:8001` serves, so the smallest adapter was no
+adapter: the config alone carries the arm. The harness reads the arm
+from the environment (`UTTER_LLM_MODEL`, `UTTER_LLM_PORT`) and, when
+`UTTER_DUMP` names a file, writes every spoken line there for the
+pairing of the two arms' wordings over the same plans.
+
+| what | arm a | arm b |
+|---|---|---|
+| the model | LFM2-1.2B, Q8_0 | Qwen3-Coder-30B-A3B-Instruct, Q4_K_M |
+| the door | `:8092` | `:8001`, two slots, shared with the pi task runner |
+| the GPU bill | 1,476 MiB | 24,015 MiB |
+
+### The numbers
+
+Two complete A/Bs were played, about an hour apart, because the box is
+shared and its load moves: the first run's arms were back to back under
+the same backdrop (a Glimmer-30B pi task on the GPU, load average 6-9),
+and the second run is the replicate. The first run's arms finished their
+measurement before a dump-path bug (since fixed) stopped the test after
+the numbers were printed; the second run is the green run of record.
+
+| run | arm | lines | by the model | fell back | p50 | p95 | refusals |
+|---|---|---|---|---|---|---|---|
+| 1 | LFM2-1.2B | 71 | 30 | 57.7% | 592.8 ms | 656.3 ms | 63 |
+| 1 | Qwen3-Coder | 110 | 44 | 60.0% | 853.8 ms | 918.1 ms | 57 |
+| 2 | LFM2-1.2B | 83 | 37 | 55.4% | 563.4 ms | 638.4 ms | 62 |
+| 2 | Qwen3-Coder | 28 | 12 | 57.1% | 779.2 ms | 850.0 ms | 67 |
+
+**The wording's own latency is the one clear difference.** LFM2 answers
+a line in 563-593 ms at p50 in both runs; Qwen needs 779-854 ms -- about
+250 ms more, p95 to match. LFM2's slowest banked answer was 663 ms;
+Qwen's was 980 ms, under the 1000 ms deadline with twenty milliseconds
+to spare. That margin is the whole story of the busy box below.
+
+**The fallback rate did not move.** Both arms of both runs fell back on
+55-60% of lines, within the run-to-run spread of either arm. The
+fallback is mostly structural, not a deadline missed: the bank's ask
+starts when the first line of a kind is due, so that line is always
+worded by the phrasebook, and the model's speed moves the rate only at
+the margin. (The 47.5% of the first measurement is today's 55-60% for
+the same reason the d1-2B's idle p50 is 1.1 s and not 0.6 s: the box is
+busier than it was then.)
+
+**The checks passed for both.** Every line the models worded carried its
+plan -- 30/30, 44/44, 37/37 and 12/12 on-plan, none naming another
+target, none answered-in-time-and-wrong -- and the game's wait for a
+wording stayed under a millisecond either way (max 636 us for LFM2, 78
+us for Qwen).
+
+### What a busy box does to each arm
+
+The second run's Qwen arm started as a soak test and two more GPU
+processes landed on the box. Its first two rounds worded **zero and one
+lines** -- the agents had no lines due, so the wording model was never
+asked, while the decision tier refused 24 and 23 packs of its own under
+the load -- and the third round recovered (twelve model-worded lines,
+p50 779 ms). LFM2's arm of the same run played under the higher load
+average (median 10.6 against 8.3) and still answered every ask in about
+600 ms. LFM2 has ~400 ms of headroom under the deadline; Qwen has ~150,
+and a busy box eats it.
+
+The two slots of `:8001` are shared with the pi task runner. No pi job
+used `:8001` during the measurement -- the one that ran used Glimmer at
+`:8005` -- so the slots were the A/B's own. But a pi task on `:8001` is
+the same class of risk as the soak test, one queue away.
+
+### The d1-2B while each model works
+
+The eleven-question pack was posted to `:8094` in a loop for as long as
+each arm's rounds ran, plus three idle references:
+
+| when | p50 of the pack |
+|---|---|
+| idle, before / between / after | 1134 / 1786 / 1306 ms |
+| during the LFM2 arm's rounds | 1534 ms (four runs, 1257-2170) |
+| during the Qwen arm's rounds | 1715 ms (four runs, 1223-2029) |
+
+**No measurable differential from the wording model.** The spread within
+either arm is as large as the difference between the arms -- the LFM2
+arm ran under the higher load and benched the faster -- and what the
+d1-2B pays is the rounds themselves plus the box, as section 5 found.
+The refusals signal agrees: on today's box both arms refuse about twenty
+packs a round (57-67 over three rounds each), where the quiet box of the
+first measurement refused eight. That is the box, not the wording model.
+
+### The samples, side by side, for the same plans
+
+Twenty lines, the plans the rounds actually produced. The bank keeps one
+wording per kind of line and the models answer at temperature 0, so a
+plan's wording is constant and the twenty lines cover the five distinct
+plans both models worded -- the same convention as section 3's thirty
+samples over eight plans.
+
+| # | the plan | LFM2-1.2B | Qwen3-Coder | the phrasebook |
+|---|---|---|---|---|
+| 0 | Callout to the squad, Report, calm, about beacon 2 | move to beacon 2 now | Beacon 2 is secure and holding | beacon 2 is ours |
+| 1 | Callout to the squad, Report, calm, about beacon 0 | hold at beacon 0 | Beacon 0 is secure and holding | we hold beacon 0 |
+| 2 | Callout to agent 5, Report, uncertain, about beacon 3 | move to beacon 3 now | beacon 3 report uncertain | we hold beacon 3 |
+| 3 | Callout to agent 6, Report, calm, about beacon 3 | beacon 3 in range | Beacon 3 is secure and holding | we hold beacon 3 |
+| 4 | Callout to the squad, Report, calm, about beacon 3 | move to beacon 3 now | Beacon 3 is secure and holding | we hold beacon 3 |
+| 5 | Callout to the squad, Report, calm, about beacon 2 | move to beacon 2 now | Beacon 2 is secure and holding | we hold beacon 2 |
+| 6 | Callout to the squad, Report, calm, about beacon 0 | hold at beacon 0 | Beacon 0 is secure and holding | beacon 0 is ours |
+| 7 | Callout to agent 5, Report, uncertain, about beacon 3 | move to beacon 3 now | beacon 3 report uncertain | we hold beacon 3 |
+| 8 | Callout to agent 6, Report, calm, about beacon 3 | beacon 3 in range | Beacon 3 is secure and holding | we hold beacon 3 |
+| 9 | Callout to the squad, Report, calm, about beacon 3 | move to beacon 3 now | Beacon 3 is secure and holding | we hold beacon 3 |
+| 10 | Callout to the squad, Report, calm, about beacon 2 | move to beacon 2 now | Beacon 2 is secure and holding | beacon 2 is ours |
+| 11 | Callout to the squad, Report, calm, about beacon 0 | hold at beacon 0 | Beacon 0 is secure and holding | we hold beacon 0 |
+| 12 | Callout to agent 5, Report, uncertain, about beacon 3 | move to beacon 3 now | beacon 3 report uncertain | we hold beacon 3 |
+| 13 | Callout to agent 6, Report, calm, about beacon 3 | beacon 3 in range | Beacon 3 is secure and holding | we hold beacon 3 |
+| 14 | Callout to the squad, Report, calm, about beacon 3 | move to beacon 3 now | Beacon 3 is secure and holding | we hold beacon 3 |
+| 15 | Callout to the squad, Report, calm, about beacon 2 | move to beacon 2 now | Beacon 2 is secure and holding | we hold beacon 2 |
+| 16 | Callout to the squad, Report, calm, about beacon 0 | hold at beacon 0 | Beacon 0 is secure and holding | beacon 0 is ours |
+| 17 | Callout to agent 5, Report, uncertain, about beacon 3 | move to beacon 3 now | beacon 3 report uncertain | we hold beacon 3 |
+| 18 | Callout to agent 6, Report, calm, about beacon 3 | beacon 3 in range | Beacon 3 is secure and holding | we hold beacon 3 |
+| 19 | Callout to the squad, Report, calm, about beacon 3 | move to beacon 3 now | Beacon 3 is secure and holding | we hold beacon 3 |
+
+### The honest judgement
+
+On the words alone, Qwen is the better radio for the lines the rounds
+actually produce. Its calm reports are reports -- "Beacon 2 is secure
+and holding" -- where LFM2 keeps wording a report as an order ("move to
+beacon 2 now", the same imperative streak section 3 recorded), and its
+one uncertain call, "beacon 3 report uncertain", is genuine shorthand
+under pressure. LFM2's clipped "beacon 3 in range" is tight but
+ambiguous, and an order that arrives wearing a report's tags is a line
+the squad has to reinterpret.
+
+But the A/B asked "better **or faster**", and on everything that is the
+wording mechanism Qwen loses: ~250 ms slower at p50, a slowest answer
+twenty milliseconds under the deadline, rounds that word zero lines when
+the box is busy where LFM2 answers at 600 ms under the same load, 24 GiB
+of GPU against 1.5 GiB, and two slots shared with the pi task runner.
+The fallback rate is a wash, the on-plan rate is 100% for both, and the
+decision tier cannot tell the two apart through the box's noise.
+
+**Verdict: LFM2-1.2B stays the default, and no config change is
+proposed.** The wording Qwen buys is a nose ahead on fidelity; the price
+is a door that misses its own deadline the moment the box earns its
+living. If the wording itself is what needs improving, the next lever is
+the prompt -- or a small instruct-tuned voice model on the realizer's
+own port -- not a 30B coder MoE behind a shared door.
+
+### The commands
+
+```text
+# arm a: the shipped default
+cargo test --release -p lm-agents --test realizer_on_thor -- --ignored --nocapture
+
+# arm b: the config alone carries the arm
+UTTER_LLM_MODEL=Qwen3-Coder-30B-A3B-Instruct UTTER_LLM_PORT=8001 \
+  UTTER_DUMP=target/ab/arm-b.dump \
+  cargo test --release -p lm-agents --test realizer_on_thor -- --ignored --nocapture
+
+# the d1-2B while each model works
+python3 ~/lm-services/realizer/bench-d1-2b.py --label "during the rounds" --n 20
+```
