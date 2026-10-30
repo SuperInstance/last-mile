@@ -556,6 +556,7 @@ mod tests {
                 role: lm_core::header::Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
+                paint_slow_q8: 0,
             },
             squad: vec![],
             enemies: vec![],
