@@ -1,0 +1,45 @@
+==============================================================================
+DOES THE CURL PICK OUT THE CASES WHERE THE MODELS DIFFER?
+==============================================================================
+roster  situation         h1 (curl)    conf  models differ
+r8      contested          0.103030   0.295            YES
+r8      holding_beacon     0.127273   0.304            YES
+r8      last_standing      0.036364   0.392            YES
+r8      retreat_danger     0.157576   0.332             no
+r8      scout_alone        0.236364   0.460            YES
+r4      contested          0.085714   0.331            YES
+r4      holding_beacon     0.257143   0.306             no
+r4      last_standing      0.314286   0.415             no
+r4      retreat_danger     0.400000   0.438             no
+r4      scout_alone        0.428571   0.687             no
+r2      contested          0.200000   0.402            YES
+r2      holding_beacon     0.100000   0.387             no
+r2      last_standing      0.400000   0.431             no
+r2      retreat_danger     0.700000   0.392            YES
+r2      scout_alone        0.300000   0.758             no
+
+models differ in 7 of 15 situations
+
+  curl (h1)     AUC for 'the models differ' = 0.250  (0.5 = a coin, 1.0 = perfect)
+  confidence     AUC for 'the models differ' = 0.714  (oriented: low confidence predicts a difference)
+
+  the two models' full ORDERINGS differ in 15 of 15 situations, so the curl is
+  non-zero everywhere: it says 'these two models are not on one
+  scale', which is true always, and therefore selects nothing.
+
+The overlap that makes the point concrete:
+    h1=0.036364  differs  r8/last_standing
+    h1=0.085714  differs  r4/contested
+    h1=0.100000  agrees   r2/holding_beacon
+    h1=0.103030  differs  r8/contested
+    h1=0.127273  differs  r8/holding_beacon
+    h1=0.157576  agrees   r8/retreat_danger
+    h1=0.200000  differs  r2/contested
+    h1=0.236364  differs  r8/scout_alone
+    h1=0.257143  agrees   r4/holding_beacon
+    h1=0.300000  agrees   r2/scout_alone
+    h1=0.314286  agrees   r4/last_standing
+    h1=0.400000  agrees   r4/retreat_danger
+    h1=0.400000  agrees   r2/last_standing
+    h1=0.428571  agrees   r4/scout_alone
+    h1=0.700000  differs  r2/retreat_danger

@@ -1,0 +1,1422 @@
+[
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "holding_beacon",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 960,
+  "choice": "agent0",
+  "probs": {
+   "squad": 0.2599626840616094,
+   "all": 0.061344109956939126,
+   "agent0": 0.3039925628830674,
+   "agent1": 0.040522687920241225,
+   "agent2": 0.12891518188914108,
+   "agent3": 0.058863634220529974,
+   "agent4": 0.06762797056993154,
+   "agent5": 0.03193123336845645,
+   "agent6": 0.015227276422270404,
+   "agent7": 0.031612658707813414
+  },
+  "confidence": 0.3039925628830674,
+  "usage": {
+   "input_tokens": 388,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "holding_beacon",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 331,
+  "choice": "agent0",
+  "probs": {
+   "squad": 0.2599626840616094,
+   "all": 0.061344109956939126,
+   "agent0": 0.3039925628830674,
+   "agent1": 0.040522687920241225,
+   "agent2": 0.12891518188914108,
+   "agent3": 0.058863634220529974,
+   "agent4": 0.06762797056993154,
+   "agent5": 0.03193123336845645,
+   "agent6": 0.015227276422270404,
+   "agent7": 0.031612658707813414
+  },
+  "confidence": 0.3039925628830674,
+  "usage": {
+   "input_tokens": 388,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "holding_beacon",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 1059,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.28720956675722065,
+   "agent1": 0.12347866631675646,
+   "agent2": 0.0682960157441097,
+   "agent3": 0.032851709606205266,
+   "agent4": 0.019376176973287387,
+   "agent5": 0.0196511771547174,
+   "agent6": 0.014752185149291459,
+   "agent7": 0.014323297325701085,
+   "all": 0.0894243264780655,
+   "squad": 0.3306368784946451
+  },
+  "confidence": 0.2562631983273835,
+  "usage": {
+   "input_tokens": 595,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "holding_beacon",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 1027,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.28720956675722065,
+   "agent1": 0.12347866631675646,
+   "agent2": 0.0682960157441097,
+   "agent3": 0.032851709606205266,
+   "agent4": 0.019376176973287387,
+   "agent5": 0.0196511771547174,
+   "agent6": 0.014752185149291459,
+   "agent7": 0.014323297325701085,
+   "all": 0.0894243264780655,
+   "squad": 0.3306368784946451
+  },
+  "confidence": 0.2562631983273835,
+  "usage": {
+   "input_tokens": 595,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "retreat_danger",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 8452,
+  "choice": "agent3",
+  "probs": {
+   "squad": 0.08329629387396635,
+   "all": 0.11171962064706915,
+   "agent0": 0.04728314724543461,
+   "agent1": 0.09507263414701844,
+   "agent2": 0.09429147778232519,
+   "agent3": 0.3321264777651167,
+   "agent4": 0.08331206529101555,
+   "agent5": 0.05381665184398734,
+   "agent6": 0.02954178915607236,
+   "agent7": 0.0695398422479943
+  },
+  "confidence": 0.3321264777651167,
+  "usage": {
+   "input_tokens": 372,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "retreat_danger",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 411,
+  "choice": "agent3",
+  "probs": {
+   "squad": 0.08329629387396635,
+   "all": 0.11171962064706915,
+   "agent0": 0.04728314724543461,
+   "agent1": 0.09507263414701844,
+   "agent2": 0.09429147778232519,
+   "agent3": 0.3321264777651167,
+   "agent4": 0.08331206529101555,
+   "agent5": 0.05381665184398734,
+   "agent6": 0.02954178915607236,
+   "agent7": 0.0695398422479943
+  },
+  "confidence": 0.3321264777651167,
+  "usage": {
+   "input_tokens": 372,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "retreat_danger",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 1035,
+  "choice": "agent3",
+  "probs": {
+   "agent0": 0.0849490279457558,
+   "agent1": 0.11788526804740435,
+   "agent2": 0.12867499231585364,
+   "agent3": 0.3389708580497069,
+   "agent4": 0.09912876749550988,
+   "agent5": 0.038915437178390216,
+   "agent6": 0.01939826695006378,
+   "agent7": 0.01545997310357261,
+   "all": 0.04889175900288164,
+   "squad": 0.10772564991086114
+  },
+  "confidence": 0.2655231756107854,
+  "usage": {
+   "input_tokens": 580,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "retreat_danger",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 1031,
+  "choice": "agent3",
+  "probs": {
+   "agent0": 0.0849490279457558,
+   "agent1": 0.11788526804740435,
+   "agent2": 0.12867499231585364,
+   "agent3": 0.3389708580497069,
+   "agent4": 0.09912876749550988,
+   "agent5": 0.038915437178390216,
+   "agent6": 0.01939826695006378,
+   "agent7": 0.01545997310357261,
+   "all": 0.04889175900288164,
+   "squad": 0.10772564991086114
+  },
+  "confidence": 0.2655231756107854,
+  "usage": {
+   "input_tokens": 580,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "contested",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 375,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.29509459545057315,
+   "all": 0.0924127837840941,
+   "agent0": 0.08131747146689407,
+   "agent1": 0.22725401579317406,
+   "agent2": 0.07151037214168128,
+   "agent3": 0.07070966218561882,
+   "agent4": 0.055102909581790885,
+   "agent5": 0.05739011498000143,
+   "agent6": 0.019022205854550497,
+   "agent7": 0.030185868761621912
+  },
+  "confidence": 0.29509459545057315,
+  "usage": {
+   "input_tokens": 377,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "contested",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 239,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.29509459545057315,
+   "all": 0.0924127837840941,
+   "agent0": 0.08131747146689407,
+   "agent1": 0.22725401579317406,
+   "agent2": 0.07151037214168128,
+   "agent3": 0.07070966218561882,
+   "agent4": 0.055102909581790885,
+   "agent5": 0.05739011498000143,
+   "agent6": 0.019022205854550497,
+   "agent7": 0.030185868761621912
+  },
+  "confidence": 0.29509459545057315,
+  "usage": {
+   "input_tokens": 377,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "contested",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 1134,
+  "choice": "agent1",
+  "probs": {
+   "agent0": 0.10732557456551525,
+   "agent1": 0.22228983846096825,
+   "agent2": 0.14081049796674372,
+   "agent3": 0.10776604648255915,
+   "agent4": 0.0871881240010518,
+   "agent5": 0.05640876805817504,
+   "agent6": 0.033006498466865195,
+   "agent7": 0.02861088016064661,
+   "all": 0.057602875137505775,
+   "squad": 0.1589908966999694
+  },
+  "confidence": 0.1358775982899647,
+  "usage": {
+   "input_tokens": 586,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "contested",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 1048,
+  "choice": "agent1",
+  "probs": {
+   "agent0": 0.10732557456551525,
+   "agent1": 0.22228983846096825,
+   "agent2": 0.14081049796674372,
+   "agent3": 0.10776604648255915,
+   "agent4": 0.0871881240010518,
+   "agent5": 0.05640876805817504,
+   "agent6": 0.033006498466865195,
+   "agent7": 0.02861088016064661,
+   "all": 0.057602875137505775,
+   "squad": 0.1589908966999694
+  },
+  "confidence": 0.1358775982899647,
+  "usage": {
+   "input_tokens": 586,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "scout_alone",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 290,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.4597191869912449,
+   "all": 0.03116389270162692,
+   "agent0": 0.036458834059517865,
+   "agent1": 0.027639738014254196,
+   "agent2": 0.02063508049351141,
+   "agent3": 0.03227501803832335,
+   "agent4": 0.037837854435916606,
+   "agent5": 0.3301553492753091,
+   "agent6": 0.011028738930316511,
+   "agent7": 0.013086307059979084
+  },
+  "confidence": 0.4597191869912449,
+  "usage": {
+   "input_tokens": 361,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "scout_alone",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 321,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.4597191869912449,
+   "all": 0.03116389270162692,
+   "agent0": 0.036458834059517865,
+   "agent1": 0.027639738014254196,
+   "agent2": 0.02063508049351141,
+   "agent3": 0.03227501803832335,
+   "agent4": 0.037837854435916606,
+   "agent5": 0.3301553492753091,
+   "agent6": 0.011028738930316511,
+   "agent7": 0.013086307059979084
+  },
+  "confidence": 0.4597191869912449,
+  "usage": {
+   "input_tokens": 361,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "scout_alone",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 1030,
+  "choice": "agent5",
+  "probs": {
+   "agent0": 0.05806753859856199,
+   "agent1": 0.0863765048440931,
+   "agent2": 0.08141090388559777,
+   "agent3": 0.08098592179351033,
+   "agent4": 0.07789041919258707,
+   "agent5": 0.38622315434932175,
+   "agent6": 0.05794323853996956,
+   "agent7": 0.036415280925771315,
+   "all": 0.04885722813454014,
+   "squad": 0.08582980973604692
+  },
+  "confidence": 0.318025727054802,
+  "usage": {
+   "input_tokens": 570,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "scout_alone",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 1027,
+  "choice": "agent5",
+  "probs": {
+   "agent0": 0.05806753859856199,
+   "agent1": 0.0863765048440931,
+   "agent2": 0.08141090388559777,
+   "agent3": 0.08098592179351033,
+   "agent4": 0.07789041919258707,
+   "agent5": 0.38622315434932175,
+   "agent6": 0.05794323853996956,
+   "agent7": 0.036415280925771315,
+   "all": 0.04885722813454014,
+   "squad": 0.08582980973604692
+  },
+  "confidence": 0.318025727054802,
+  "usage": {
+   "input_tokens": 570,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "last_standing",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 239,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.3918917646352291,
+   "all": 0.17544369554381797,
+   "agent0": 0.038782735693991655,
+   "agent1": 0.048494120960985904,
+   "agent2": 0.037187693157581025,
+   "agent3": 0.02876942884934358,
+   "agent4": 0.016678453232185093,
+   "agent5": 0.0183453367964571,
+   "agent6": 0.0215790694455306,
+   "agent7": 0.22282770168487812
+  },
+  "confidence": 0.3918917646352291,
+  "usage": {
+   "input_tokens": 346,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "last_standing",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 191,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.3918917646352291,
+   "all": 0.17544369554381797,
+   "agent0": 0.038782735693991655,
+   "agent1": 0.048494120960985904,
+   "agent2": 0.037187693157581025,
+   "agent3": 0.02876942884934358,
+   "agent4": 0.016678453232185093,
+   "agent5": 0.0183453367964571,
+   "agent6": 0.0215790694455306,
+   "agent7": 0.22282770168487812
+  },
+  "confidence": 0.3918917646352291,
+  "usage": {
+   "input_tokens": 346,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "last_standing",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 925,
+  "choice": "agent7",
+  "probs": {
+   "agent0": 0.11282100592113414,
+   "agent1": 0.10706598724724557,
+   "agent2": 0.04013933709976916,
+   "agent3": 0.024180606601157565,
+   "agent4": 0.019436335040242364,
+   "agent5": 0.0203158219325312,
+   "agent6": 0.033184153479818096,
+   "agent7": 0.34583527838660316,
+   "all": 0.059722854477009334,
+   "squad": 0.23729861981448938
+  },
+  "confidence": 0.27315030931844797,
+  "usage": {
+   "input_tokens": 554,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r8",
+  "roster_size": 8,
+  "situation": "last_standing",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 946,
+  "choice": "agent7",
+  "probs": {
+   "agent0": 0.11282100592113414,
+   "agent1": 0.10706598724724557,
+   "agent2": 0.04013933709976916,
+   "agent3": 0.024180606601157565,
+   "agent4": 0.019436335040242364,
+   "agent5": 0.0203158219325312,
+   "agent6": 0.033184153479818096,
+   "agent7": 0.34583527838660316,
+   "all": 0.059722854477009334,
+   "squad": 0.23729861981448938
+  },
+  "confidence": 0.27315030931844797,
+  "usage": {
+   "input_tokens": 554,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "holding_beacon",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 439,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.3061404676421934,
+   "all": 0.07018206831689776,
+   "agent0": 0.28729140137404413,
+   "agent1": 0.06224611574698519,
+   "agent2": 0.14950082521517297,
+   "agent3": 0.12463912170470658
+  },
+  "confidence": 0.3061404676421934,
+  "usage": {
+   "input_tokens": 308,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "holding_beacon",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 1975,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.3061404676421934,
+   "all": 0.07018206831689776,
+   "agent0": 0.28729140137404413,
+   "agent1": 0.06224611574698519,
+   "agent2": 0.14950082521517297,
+   "agent3": 0.12463912170470658
+  },
+  "confidence": 0.3061404676421934,
+  "usage": {
+   "input_tokens": 308,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "holding_beacon",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 835,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.28254470930117503,
+   "agent1": 0.1409070750988042,
+   "agent2": 0.07602243741461513,
+   "agent3": 0.038334908822738524,
+   "all": 0.09688549184298981,
+   "squad": 0.36530537751967723
+  },
+  "confidence": 0.23836645302361267,
+  "usage": {
+   "input_tokens": 458,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "holding_beacon",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 850,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.28254470930117503,
+   "agent1": 0.1409070750988042,
+   "agent2": 0.07602243741461513,
+   "agent3": 0.038334908822738524,
+   "all": 0.09688549184298981,
+   "squad": 0.36530537751967723
+  },
+  "confidence": 0.23836645302361267,
+  "usage": {
+   "input_tokens": 458,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "retreat_danger",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 749,
+  "choice": "agent3",
+  "probs": {
+   "squad": 0.13225458828168016,
+   "all": 0.1678128324372772,
+   "agent0": 0.047013855738869514,
+   "agent1": 0.12091221410358095,
+   "agent2": 0.09403523431572884,
+   "agent3": 0.43797127512286343
+  },
+  "confidence": 0.43797127512286343,
+  "usage": {
+   "input_tokens": 292,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "retreat_danger",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 205,
+  "choice": "agent3",
+  "probs": {
+   "squad": 0.13225458828168016,
+   "all": 0.1678128324372772,
+   "agent0": 0.047013855738869514,
+   "agent1": 0.12091221410358095,
+   "agent2": 0.09403523431572884,
+   "agent3": 0.43797127512286343
+  },
+  "confidence": 0.43797127512286343,
+  "usage": {
+   "input_tokens": 292,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "retreat_danger",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 800,
+  "choice": "agent3",
+  "probs": {
+   "agent0": 0.1079015223553587,
+   "agent1": 0.14151823509348996,
+   "agent2": 0.156275314871963,
+   "agent3": 0.39509282240396476,
+   "all": 0.06363382658002727,
+   "squad": 0.1355782786951963
+  },
+  "confidence": 0.2741113868847577,
+  "usage": {
+   "input_tokens": 443,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "retreat_danger",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 789,
+  "choice": "agent3",
+  "probs": {
+   "agent0": 0.1079015223553587,
+   "agent1": 0.14151823509348996,
+   "agent2": 0.156275314871963,
+   "agent3": 0.39509282240396476,
+   "all": 0.06363382658002727,
+   "squad": 0.1355782786951963
+  },
+  "confidence": 0.2741113868847577,
+  "usage": {
+   "input_tokens": 443,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "contested",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 218,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.3308079345546303,
+   "all": 0.1034463346629494,
+   "agent0": 0.09019645081853296,
+   "agent1": 0.22391586431033036,
+   "agent2": 0.11439308816629849,
+   "agent3": 0.13724032748725856
+  },
+  "confidence": 0.3308079345546303,
+  "usage": {
+   "input_tokens": 297,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "contested",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 167,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.3308079345546303,
+   "all": 0.1034463346629494,
+   "agent0": 0.09019645081853296,
+   "agent1": 0.22391586431033036,
+   "agent2": 0.11439308816629849,
+   "agent3": 0.13724032748725856
+  },
+  "confidence": 0.3308079345546303,
+  "usage": {
+   "input_tokens": 297,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "contested",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 891,
+  "choice": "agent1",
+  "probs": {
+   "agent0": 0.13176828704171764,
+   "agent1": 0.2855591930223998,
+   "agent2": 0.17378800490771562,
+   "agent3": 0.1351958795431123,
+   "all": 0.07624993450295385,
+   "squad": 0.19743870098210076
+  },
+  "confidence": 0.14267103162687975,
+  "usage": {
+   "input_tokens": 449,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "contested",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 846,
+  "choice": "agent1",
+  "probs": {
+   "agent0": 0.13176828704171764,
+   "agent1": 0.2855591930223998,
+   "agent2": 0.17378800490771562,
+   "agent3": 0.1351958795431123,
+   "all": 0.07624993450295385,
+   "squad": 0.19743870098210076
+  },
+  "confidence": 0.14267103162687975,
+  "usage": {
+   "input_tokens": 449,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "scout_alone",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 76,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.6869538415703957,
+   "all": 0.06036264909907841,
+   "agent0": 0.07050357048265186,
+   "agent1": 0.05581313525179877,
+   "agent2": 0.0545619721132469,
+   "agent3": 0.07180483148282839
+  },
+  "confidence": 0.6869538415703957,
+  "usage": {
+   "input_tokens": 281,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "scout_alone",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 144,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.6869538415703957,
+   "all": 0.06036264909907841,
+   "agent0": 0.07050357048265186,
+   "agent1": 0.05581313525179877,
+   "agent2": 0.0545619721132469,
+   "agent3": 0.07180483148282839
+  },
+  "confidence": 0.6869538415703957,
+  "usage": {
+   "input_tokens": 281,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "scout_alone",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 521,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.11549502771426441,
+   "agent1": 0.17839444992468725,
+   "agent2": 0.16661814057100113,
+   "agent3": 0.1640360021239524,
+   "all": 0.1119857181263238,
+   "squad": 0.26347066153977106
+  },
+  "confidence": 0.11616479384772527,
+  "usage": {
+   "input_tokens": 433,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "scout_alone",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 481,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.11549502771426441,
+   "agent1": 0.17839444992468725,
+   "agent2": 0.16661814057100113,
+   "agent3": 0.1640360021239524,
+   "all": 0.1119857181263238,
+   "squad": 0.26347066153977106
+  },
+  "confidence": 0.11616479384772527,
+  "usage": {
+   "input_tokens": 433,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "last_standing",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 71,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.41516524901555196,
+   "all": 0.20852816998119275,
+   "agent0": 0.07611295397271681,
+   "agent1": 0.12060438925855925,
+   "agent2": 0.09660718212245503,
+   "agent3": 0.08298205564952431
+  },
+  "confidence": 0.41516524901555196,
+  "usage": {
+   "input_tokens": 266,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "last_standing",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 76,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.41516524901555196,
+   "all": 0.20852816998119275,
+   "agent0": 0.07611295397271681,
+   "agent1": 0.12060438925855925,
+   "agent2": 0.09660718212245503,
+   "agent3": 0.08298205564952431
+  },
+  "confidence": 0.41516524901555196,
+  "usage": {
+   "input_tokens": 266,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "last_standing",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 471,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.17583038086146602,
+   "agent1": 0.1709011008887811,
+   "agent2": 0.061922956386127194,
+   "agent3": 0.035387184965044456,
+   "all": 0.0997205540834534,
+   "squad": 0.45623782281512765
+  },
+  "confidence": 0.34748538737815315,
+  "usage": {
+   "input_tokens": 417,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r4",
+  "roster_size": 4,
+  "situation": "last_standing",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 467,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.17583038086146602,
+   "agent1": 0.1709011008887811,
+   "agent2": 0.061922956386127194,
+   "agent3": 0.035387184965044456,
+   "all": 0.0997205540834534,
+   "squad": 0.45623782281512765
+  },
+  "confidence": 0.34748538737815315,
+  "usage": {
+   "input_tokens": 417,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "holding_beacon",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 65,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.38655324231438265,
+   "all": 0.14127648923821626,
+   "agent0": 0.37364370066700364,
+   "agent1": 0.0985265677803976
+  },
+  "confidence": 0.38655324231438265,
+  "usage": {
+   "input_tokens": 268,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "holding_beacon",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 76,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.38655324231438265,
+   "all": 0.14127648923821626,
+   "agent0": 0.37364370066700364,
+   "agent1": 0.0985265677803976
+  },
+  "confidence": 0.38655324231438265,
+  "usage": {
+   "input_tokens": 268,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "holding_beacon",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 459,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.3554601719342015,
+   "agent1": 0.1725388813420732,
+   "all": 0.10924590754564702,
+   "squad": 0.3627550391780784
+  },
+  "confidence": 0.15034005223743785,
+  "usage": {
+   "input_tokens": 390,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "holding_beacon",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 461,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.3554601719342015,
+   "agent1": 0.1725388813420732,
+   "all": 0.10924590754564702,
+   "squad": 0.3627550391780784
+  },
+  "confidence": 0.15034005223743785,
+  "usage": {
+   "input_tokens": 390,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "retreat_danger",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 66,
+  "choice": "all",
+  "probs": {
+   "squad": 0.20511617740406415,
+   "all": 0.39248325867983214,
+   "agent0": 0.11449104562612487,
+   "agent1": 0.2879095182899789
+  },
+  "confidence": 0.39248325867983214,
+  "usage": {
+   "input_tokens": 252,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "retreat_danger",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 63,
+  "choice": "all",
+  "probs": {
+   "squad": 0.20511617740406415,
+   "all": 0.39248325867983214,
+   "agent0": 0.11449104562612487,
+   "agent1": 0.2879095182899789
+  },
+  "confidence": 0.39248325867983214,
+  "usage": {
+   "input_tokens": 252,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "retreat_danger",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 440,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.2166316543573484,
+   "agent1": 0.29418037386142076,
+   "all": 0.13268796067071995,
+   "squad": 0.35650001111051083
+  },
+  "confidence": 0.14200001481401445,
+  "usage": {
+   "input_tokens": 375,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "retreat_danger",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 631,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.2166316543573484,
+   "agent1": 0.29418037386142076,
+   "all": 0.13268796067071995,
+   "squad": 0.35650001111051083
+  },
+  "confidence": 0.14200001481401445,
+  "usage": {
+   "input_tokens": 375,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "contested",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 136,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.4022575962112823,
+   "all": 0.1825456150028222,
+   "agent0": 0.1260906576095668,
+   "agent1": 0.2891061311763287
+  },
+  "confidence": 0.4022575962112823,
+  "usage": {
+   "input_tokens": 257,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "contested",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 162,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.4022575962112823,
+   "all": 0.1825456150028222,
+   "agent0": 0.1260906576095668,
+   "agent1": 0.2891061311763287
+  },
+  "confidence": 0.4022575962112823,
+  "usage": {
+   "input_tokens": 257,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "contested",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 611,
+  "choice": "agent1",
+  "probs": {
+   "agent0": 0.19771435011231123,
+   "agent1": 0.41063677183926106,
+   "all": 0.099634397902872,
+   "squad": 0.29201448014555575
+  },
+  "confidence": 0.2141823624523481,
+  "usage": {
+   "input_tokens": 381,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "contested",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 534,
+  "choice": "agent1",
+  "probs": {
+   "agent0": 0.19771435011231123,
+   "agent1": 0.41063677183926106,
+   "all": 0.099634397902872,
+   "squad": 0.29201448014555575
+  },
+  "confidence": 0.2141823624523481,
+  "usage": {
+   "input_tokens": 381,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "scout_alone",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 132,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.7579789895141041,
+   "all": 0.08817017381956901,
+   "agent0": 0.08141289758731096,
+   "agent1": 0.07243793907901588
+  },
+  "confidence": 0.7579789895141041,
+  "usage": {
+   "input_tokens": 241,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "scout_alone",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 155,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.7579789895141041,
+   "all": 0.08817017381956901,
+   "agent0": 0.08141289758731096,
+   "agent1": 0.07243793907901588
+  },
+  "confidence": 0.7579789895141041,
+  "usage": {
+   "input_tokens": 241,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "scout_alone",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 629,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.1443897395003178,
+   "agent1": 0.24139884925722277,
+   "all": 0.14894510528632365,
+   "squad": 0.4652663059561357
+  },
+  "confidence": 0.28702174127484764,
+  "usage": {
+   "input_tokens": 365,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "scout_alone",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 521,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.1443897395003178,
+   "agent1": 0.24139884925722277,
+   "all": 0.14894510528632365,
+   "squad": 0.4652663059561357
+  },
+  "confidence": 0.28702174127484764,
+  "usage": {
+   "input_tokens": 365,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "last_standing",
+  "model": "d1-2b",
+  "rep": 0,
+  "ok": true,
+  "ms": 58,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.43063853370278893,
+   "all": 0.3090450458170602,
+   "agent0": 0.09229606555272915,
+   "agent1": 0.16802035492742162
+  },
+  "confidence": 0.43063853370278893,
+  "usage": {
+   "input_tokens": 226,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "last_standing",
+  "model": "d1-2b",
+  "rep": 1,
+  "ok": true,
+  "ms": 62,
+  "choice": "squad",
+  "probs": {
+   "squad": 0.43063853370278893,
+   "all": 0.3090450458170602,
+   "agent0": 0.09229606555272915,
+   "agent1": 0.16802035492742162
+  },
+  "confidence": 0.43063853370278893,
+  "usage": {
+   "input_tokens": 226,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "last_standing",
+  "model": "clef-flash",
+  "rep": 0,
+  "ok": true,
+  "ms": 386,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.20790269449148668,
+   "agent1": 0.19607653645607243,
+   "all": 0.11396333648224308,
+   "squad": 0.48205743257019784
+  },
+  "confidence": 0.30940991009359714,
+  "usage": {
+   "input_tokens": 349,
+   "output_tokens": 0
+  }
+ },
+ {
+  "roster": "r2",
+  "roster_size": 2,
+  "situation": "last_standing",
+  "model": "clef-flash",
+  "rep": 1,
+  "ok": true,
+  "ms": 388,
+  "choice": "squad",
+  "probs": {
+   "agent0": 0.20790269449148668,
+   "agent1": 0.19607653645607243,
+   "all": 0.11396333648224308,
+   "squad": 0.48205743257019784
+  },
+  "confidence": 0.30940991009359714,
+  "usage": {
+   "input_tokens": 349,
+   "output_tokens": 0
+  }
+ }
+]

@@ -1,0 +1,48 @@
+==============================================================================
+IS confidence < 0.5 THE RIGHT ESCALATION TRIGGER?
+==============================================================================
+15 situations; the two models chose DIFFERENT options in 7 of them.
+
+Is the reported confidence the largest normalised share?
+  15/15 primary answers: reported confidence == max share
+
+roster  situation         disagree |   conf  margin   nEnt  effOpt
+r8      contested              YES |  0.295   0.068  0.869    7.40
+r8      holding_beacon         YES |  0.304   0.044  0.829    6.75
+r8      last_standing          YES |  0.392   0.169  0.751    5.63
+r8      retreat_danger          no |  0.332   0.220  0.896    7.86
+r8      scout_alone            YES |  0.460   0.130  0.639    4.36
+r4      contested              YES |  0.331   0.107  0.934    5.33
+r4      holding_beacon          no |  0.306   0.019  0.906    5.07
+r4      last_standing           no |  0.415   0.207  0.879    4.83
+r4      retreat_danger          no |  0.438   0.270  0.865    4.71
+r4      scout_alone             no |  0.687   0.615  0.627    3.07
+r2      contested              YES |  0.402   0.113  0.935    3.66
+r2      holding_beacon          no |  0.387   0.013  0.895    3.46
+r2      last_standing           no |  0.431   0.122  0.898    3.47
+r2      retreat_danger         YES |  0.392   0.105  0.937    3.66
+r2      scout_alone             no |  0.758   0.670  0.590    2.27
+
+How well does each one-call statistic separate 'the models differ'
+from 'the models agree'? (AUC, 1.0 is perfect; 0.5 is a coin)
+AUC is reported in the direction that PREDICTS a disagreement, so a
+statistic that is high when the models agree gets 1-AUC.
+
+statistic           AUC  oriented calls to catch all  wasted  missed
+  confidence        0.714     1-AUC        14 of 15 (t>=0.687)       7       0
+  margin            0.286       AUC        14 of 15 (t>=0.013)       7       0
+  norm_entropy      0.589       AUC        13 of 15 (t>=0.627)       6       0
+  eff_options       0.714       AUC        12 of 15 (t>=3.456)       5       0
+  top_minus_rest    0.375       AUC        13 of 15 (t>=0.182)       6       0
+
+The shipped rule, for comparison:
+  confidence < 0.50 -> 13/15 second calls, 7/7 disagreements caught, 6 wasted, 0 missed
+
+The call-cost frontier for each statistic (fewest calls for each
+number of disagreements caught):
+  confidence     1 caught/1 calls  2 caught/2 calls  3 caught/4 calls  4 caught/7 calls  6 caught/9 calls  7 caught/14 calls
+  norm_entropy   1 caught/1 calls  3 caught/3 calls  4 caught/9 calls  5 caught/11 calls  6 caught/12 calls  7 caught/13 calls
+  eff_options    0 caught/0 calls  1 caught/2 calls  3 caught/4 calls  4 caught/5 calls  5 caught/9 calls  6 caught/10 calls  7 caught/12 calls
+
+A perfect trigger that needs no second call would be impossible:
+  by construction it cannot be better than catching all 7 disagreements with 0 wasted calls.
