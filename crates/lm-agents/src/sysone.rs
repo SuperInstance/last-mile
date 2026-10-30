@@ -149,11 +149,47 @@ pub struct Answers {
     /// refuses the move and leaves the line alone.
     #[serde(default)]
     pub unsure: BTreeMap<String, f32>,
+    /// The gates that were asked as a **two-step tree**, by gate id.
+    ///
+    /// A tree is the harness's own way of asking a gate in two smaller
+    /// questions, and both answers are logged here: which partition the
+    /// first question chose, what was asked inside it, and what was
+    /// picked. The log is deterministic — the path is a function of the
+    /// model's answers — so a round can be replayed and the path
+    /// re-derived from it.
+    #[serde(default)]
+    pub decomposed: BTreeMap<String, DecompositionRecord>,
     /// The model that answered: the id this backend asked for.
     pub model: String,
     /// The tokens the pack cost.
     pub input_tokens: u32,
     /// The round trip, in milliseconds.
+    pub latency_ms: u32,
+}
+
+/// One gate asked as a two-step tree: what was asked and what it said.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DecompositionRecord {
+    /// The steps of the tree, in the order they were asked.
+    pub steps: Vec<DecompositionStep>,
+}
+
+/// One step of a tree.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DecompositionStep {
+    /// Which step this was: 1 is the partition, 2 the choice inside it.
+    pub step: u8,
+    /// The partition the first step chose (empty on the first step).
+    pub partition: String,
+    /// The options this step was asked between, with their probabilities.
+    pub probs: BTreeMap<String, f32>,
+    /// How sure the model was on this step.
+    pub confidence: f32,
+    /// The option this step chose.
+    pub chosen: String,
+    /// Whether this step was escalated to a second model.
+    pub escalated: bool,
+    /// The round trip of this step, in milliseconds.
     pub latency_ms: u32,
 }
 
@@ -200,11 +236,26 @@ pub struct Escalation {
     /// changes the answer buys latency and nothing else.
     #[serde(default)]
     pub primary_choice: Option<String>,
+    /// The cheap model's probability of every option of the gate.
+    ///
+    /// The choice on its own says which way the model went; the
+    /// distribution says how far it went and how the options stood
+    /// against each other, which is what the Hodge decomposition of the
+    /// gate's preferences is built from.
+    #[serde(default)]
+    pub primary_probs: BTreeMap<String, f32>,
     /// The second model's confidence, when it answered.
     pub second_confidence: Option<f32>,
     /// The option the second model's distribution favoured, when it answered.
     #[serde(default)]
     pub second_choice: Option<String>,
+    /// The second model's probability of every option of the gate.
+    ///
+    /// The second opinion's own distribution, so that the two models'
+    /// preferences can be compared on the same options and not only
+    /// through the single option each of them named.
+    #[serde(default)]
+    pub second_probs: BTreeMap<String, f32>,
     /// The second model's round trip, in milliseconds.
     pub latency_ms: u32,
     /// What the second opinion came to.
@@ -624,6 +675,14 @@ pub struct EscalatingBackend {
     /// (`escalate_gates`); the threshold stays with the model's calibration
     /// (`AgentsConfig::escalate_below`).
     gates: Option<BTreeSet<String>>,
+    /// The gates a second opinion is **never** bought for.
+    ///
+    /// A gate a shape owns is excluded here: the tree asks its own last
+    /// step of the second model, so the escalation around the tree must
+    /// not buy a second opinion of the same gate as well. The exclusion
+    /// is a separate thing from the filter, because "every gate but this
+    /// one" cannot be written as a list of gates.
+    exclude_gates: BTreeSet<String>,
     /// The escalations so far, for the telemetry.
     escalations: Mutex<Vec<Escalation>>,
 }
@@ -644,6 +703,7 @@ impl EscalatingBackend {
             second,
             escalate_below,
             gates: None,
+            exclude_gates: BTreeSet::new(),
             escalations: Mutex::new(Vec::new()),
         }
     }
@@ -655,6 +715,26 @@ impl EscalatingBackend {
     pub fn with_gates(mut self, gates: Option<BTreeSet<String>>) -> Self {
         self.gates = gates;
         self
+    }
+
+    /// The gates that may be escalated, if the set names them.
+    pub fn gates(&self) -> Option<&BTreeSet<String>> {
+        self.gates.as_ref()
+    }
+
+    /// Never buy a second opinion for these gates.
+    ///
+    /// The exclusion holds whatever the filter says: a gate that is
+    /// excluded is not escalated even when the filter names it. This is
+    /// how a gate that asks its own second opinion is left alone.
+    pub fn with_exclude_gates(mut self, gates: BTreeSet<String>) -> Self {
+        self.exclude_gates = gates;
+        self
+    }
+
+    /// The gates a second opinion is never bought for.
+    pub fn exclude_gates(&self) -> &BTreeSet<String> {
+        &self.exclude_gates
     }
 
     /// The threshold below which a gate is escalated.
@@ -714,6 +794,11 @@ impl SysOne for EscalatingBackend {
         // The gates the cheap model was not sure about: their own numbers
         // are in `per_gate` (above its floor) or in `unsure` (below it).
         for gate in gates_below(&answers, self.escalate_below) {
+            // A gate that owns its own second opinion is left alone: the
+            // exclusion holds whatever the filter says.
+            if self.exclude_gates.contains(&gate) {
+                continue;
+            }
             // Only the gates the harness named: a gate outside the set keeps
             // the cheap model's answer (or its unsure) as it is.
             if let Some(gates) = &self.gates {
@@ -726,6 +811,7 @@ impl SysOne for EscalatingBackend {
                 .per_gate
                 .get(&gate)
                 .and_then(|answer| top_option(answer).cloned());
+            let primary_probs = probs_of(&answers, &gate);
             // The second model is asked this gate **alone**: one question in
             // one call, so its pack always fits.
             let one = one_question(questions, &gate);
@@ -764,6 +850,7 @@ impl SysOne for EscalatingBackend {
             let latency_ms = ms(started.elapsed());
             let second_confidence = second_answer.as_ref().and_then(answer_confidence);
             let second_choice = second_answer.as_ref().and_then(|a| top_option(a).cloned());
+            let second_probs = second_answer.as_ref().map(answer_probs);
             // The second opinion is the gate's answer, or the gate stays
             // unsure: the cheap model's own answer was not trusted alone.
             match second_answer {
@@ -780,8 +867,10 @@ impl SysOne for EscalatingBackend {
                 gate: gate.clone(),
                 primary_confidence,
                 primary_choice,
+                primary_probs,
                 second_confidence,
                 second_choice,
+                second_probs: second_probs.unwrap_or_default(),
                 latency_ms,
                 outcome,
                 refusal,
@@ -839,6 +928,26 @@ fn top_option(answer: &Answer) -> Option<&String> {
     best.map(|(key, _)| key)
 }
 
+/// The probability of every option of a gate's answer.
+///
+/// A choice and a score both carry the options they were asked between;
+/// a noul has none.
+fn answer_probs(answer: &Answer) -> BTreeMap<String, f32> {
+    match answer {
+        Answer::Choice { probs, .. } | Answer::Score { probs, .. } => probs.clone(),
+        Answer::Noul(_) => BTreeMap::new(),
+    }
+}
+
+/// The probability of every option of a gate's answer, if the gate has one.
+fn probs_of(answers: &Answers, gate: &str) -> BTreeMap<String, f32> {
+    answers
+        .per_gate
+        .get(gate)
+        .map(answer_probs)
+        .unwrap_or_default()
+}
+
 /// The gates whose confidence is below `threshold`.
 fn gates_below(answers: &Answers, threshold: f32) -> Vec<String> {
     let mut gates: Vec<String> = answers
@@ -870,48 +979,6 @@ fn one_question(questions: &Value, gate: &str) -> Value {
         }
     }
     Value::Object(one)
-}
-
-/// Wrap the backends so that a gate the cheap model is unsure about is
-/// asked of the second model (D71).
-///
-/// `second` builds the second model for a primary backend's name, and is
-/// called once per wrapped backend: each gets a connection of its own
-/// (D50). A backend that has no second model is left as it is.
-///
-/// `gates` is the set of gates that may be escalated (the harness's
-/// `escalate_gates`): `None` is every gate below the threshold, and an
-/// empty set turns the escalation off.
-pub fn with_escalation(
-    backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
-    escalate_below: f32,
-    escalate_backend: &str,
-    gates: Option<BTreeSet<String>>,
-    second: impl Fn(&str) -> Option<Box<dyn SysOne + Send + Sync>>,
-) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
-    let mut out = BTreeMap::new();
-    for (name, backend) in backends {
-        if name == escalate_backend {
-            // The second model does not escalate to itself.
-            out.insert(name, backend);
-            continue;
-        }
-        match second(&name) {
-            Some(second) => {
-                out.insert(
-                    name,
-                    Box::new(
-                        EscalatingBackend::new(backend, second, escalate_below)
-                            .with_gates(gates.clone()),
-                    ) as Box<dyn SysOne + Send + Sync>,
-                );
-            }
-            None => {
-                out.insert(name, backend);
-            }
-        }
-    }
-    out
 }
 
 /// The cloud Jev backend (TypeSafe's System One API).
@@ -1445,6 +1512,7 @@ fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
         per_gate,
         unsure: BTreeMap::new(),
         escalated: BTreeMap::new(),
+        decomposed: BTreeMap::new(),
         model: "stub".to_owned(),
         input_tokens: 64,
         latency_ms: 0,
@@ -1610,6 +1678,7 @@ fn parse_answers(body: &str, model: &str, latency_ms: u32) -> Result<Answers, Re
         per_gate,
         unsure: BTreeMap::new(),
         escalated: BTreeMap::new(),
+        decomposed: BTreeMap::new(),
         model: model.to_string(),
         input_tokens: u32::try_from(input_tokens).unwrap_or(u32::MAX),
         latency_ms,
@@ -2540,6 +2609,275 @@ mod tests {
         assert_eq!(backend.escalation_count(), 0);
     }
 
+    /// A backend that answers one named option of every choice gate.
+    struct PickerBackend {
+        pick: String,
+        confidence: f32,
+        calls: AtomicUsize,
+        /// The latency it reports.
+        latency_ms: u32,
+        /// How long it takes before it answers.
+        delay_ms: u64,
+    }
+
+    impl PickerBackend {
+        fn new(pick: &str, confidence: f32) -> Self {
+            Self {
+                pick: pick.to_string(),
+                confidence,
+                calls: AtomicUsize::new(0),
+                latency_ms: 0,
+                delay_ms: 0,
+            }
+        }
+
+        /// A picker that reports a latency of its own.
+        fn slow(pick: &str, confidence: f32, latency_ms: u32) -> Self {
+            Self {
+                latency_ms,
+                ..Self::new(pick, confidence)
+            }
+        }
+
+        /// A picker that takes its time before it answers.
+        fn slow_to_answer(pick: &str, confidence: f32, delay_ms: u64) -> Self {
+            Self {
+                delay_ms,
+                ..Self::new(pick, confidence)
+            }
+        }
+    }
+
+    impl SysOne for PickerBackend {
+        fn ask(
+            &self,
+            _state: &str,
+            questions: &Value,
+            _deadline: Instant,
+        ) -> Result<Answers, Refusal> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.delay_ms > 0 {
+                std::thread::sleep(Duration::from_millis(self.delay_ms));
+            }
+            let mut per_gate = BTreeMap::new();
+            for (id, gate) in questions.as_object().expect("a table") {
+                let kind = gate.get("type").and_then(Value::as_str).unwrap_or("choice");
+                let answer = match kind {
+                    "noul" => Answer::Noul(0.8),
+                    _ => {
+                        let options: Vec<&String> = gate
+                            .get("criteria")
+                            .and_then(Value::as_object)
+                            .expect("options")
+                            .keys()
+                            .collect();
+                        // The named option is the one the model picked: it
+                        // holds the most probability even when the model
+                        // says it is unsure about it.
+                        let top = 0.5 + 0.5 * self.confidence;
+                        let rest = options.len().saturating_sub(1).max(1) as f32;
+                        let mut probs = BTreeMap::new();
+                        for option in options {
+                            let p = if option == &self.pick {
+                                top
+                            } else {
+                                (1.0 - top) / rest
+                            };
+                            probs.insert(option.clone(), p);
+                        }
+                        Answer::Choice {
+                            probs,
+                            confidence: self.confidence,
+                        }
+                    }
+                };
+                per_gate.insert(id.clone(), answer);
+            }
+            Ok(Answers {
+                per_gate,
+                unsure: BTreeMap::new(),
+                escalated: BTreeMap::new(),
+                decomposed: BTreeMap::new(),
+                model: "picker".to_string(),
+                input_tokens: 64,
+                latency_ms: self.latency_ms,
+            })
+        }
+
+        fn name(&self) -> &str {
+            "picker"
+        }
+    }
+
+    #[test]
+    fn an_escalation_records_both_models_choices() {
+        // The record says which option each model chose, not only how sure
+        // it was: a second opinion that disagrees with the first is the
+        // case worth reading afterwards.
+        let primary = PickerBackend::new("opt0", 0.2);
+        let second = PickerBackend::new("opt1", 0.9);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .expect("the answer comes back");
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert_eq!(escalation.primary_choice.as_deref(), Some("opt0"));
+        assert_eq!(escalation.second_choice.as_deref(), Some("opt1"));
+    }
+
+    #[test]
+    fn the_pack_keeps_the_models_own_latency() {
+        // The pack's latency is the **model's** own: the tier's estimate of
+        // what a call costs. It must not carry the second opinion's round
+        // trip as well — the tier would then read the pack as costing
+        // twice what it costs, and the answers would land late and be
+        // dropped. The escalation's own time is in its record.
+        let primary = PickerBackend::slow("opt0", 0.2, 100);
+        let second = PickerBackend::slow_to_answer("opt1", 0.9, 40);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .expect("the answer comes back");
+        assert_eq!(
+            answers.latency_ms, 100,
+            "the pack carries the cheap model's own latency"
+        );
+        let escalation = answers.escalated.get("move").expect("the escalation");
+        assert!(
+            escalation.latency_ms >= 40,
+            "the second opinion's round trip is in its record: got {}",
+            escalation.latency_ms
+        );
+    }
+
+    #[test]
+    fn only_the_named_gates_are_escalated() {
+        // The filter says which gates the second opinion is bought for.
+        // A gate outside the filter keeps the first model's answer, even
+        // when the first model was unsure about it.
+        let pack = json!({
+            "move": {
+                "type": "choice",
+                "instructions": "Pick one.",
+                "criteria": {"opt0": "go", "opt1": "hold"},
+            },
+            "gesture": {
+                "type": "choice",
+                "instructions": "Pick one.",
+                "criteria": {"opt0": "go", "opt1": "hold"},
+            }
+        });
+        let primary = PickerBackend::new("opt0", 0.2);
+        let second = PickerBackend::new("opt1", 0.9);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5)
+            .with_gates(Some(BTreeSet::from(["gesture".to_string()])));
+        let answers = backend
+            .ask("the facts", &pack, Instant::now() + Duration::from_secs(5))
+            .expect("the answer comes back");
+        assert_eq!(backend.escalation_count(), 1);
+        assert!(answers.escalated.contains_key("gesture"));
+        assert!(!answers.escalated.contains_key("move"));
+        // The gate outside the filter keeps the first model's answer.
+        match answers.per_gate.get("move") {
+            Some(Answer::Choice { confidence, .. }) => {
+                assert!((confidence - 0.2).abs() < 0.01, "got {confidence}");
+            }
+            other => panic!("got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_filter_escalates_nothing() {
+        let primary = PickerBackend::new("opt0", 0.2);
+        let second = PickerBackend::new("opt1", 0.9);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5)
+            .with_gates(Some(BTreeSet::new()));
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .expect("the answer comes back");
+        assert!(answers.escalated.is_empty());
+    }
+
+    #[test]
+    fn an_excluded_gate_is_not_escalated() {
+        // The exclusion holds whatever the filter says: a gate that owns its
+        // own second opinion is left alone even when the filter names it.
+        let primary = PickerBackend::new("opt0", 0.2);
+        let second = PickerBackend::new("opt1", 0.9);
+        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5)
+            .with_gates(Some(BTreeSet::from(["move".to_string()])))
+            .with_exclude_gates(BTreeSet::from(["move".to_string()]));
+        let answers = backend
+            .ask(
+                "the facts",
+                &one_gate_pack(),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .expect("the answer comes back");
+        assert!(answers.escalated.is_empty());
+        assert_eq!(backend.escalation_count(), 0);
+    }
+
+    #[test]
+    fn a_decomposed_gate_is_logged_with_both_answers() {
+        // The tree's path is part of the round's record: which partition was
+        // chosen, what was asked inside it, and what was picked.
+        let record = DecompositionRecord {
+            steps: vec![
+                DecompositionStep {
+                    step: 1,
+                    partition: String::new(),
+                    probs: BTreeMap::from([("own".to_string(), 0.7)]),
+                    confidence: 0.7,
+                    chosen: "own".to_string(),
+                    escalated: false,
+                    latency_ms: 40,
+                },
+                DecompositionStep {
+                    step: 2,
+                    partition: "own".to_string(),
+                    probs: BTreeMap::from([("agent0".to_string(), 0.6)]),
+                    confidence: 0.6,
+                    chosen: "agent0".to_string(),
+                    escalated: false,
+                    latency_ms: 30,
+                },
+            ],
+        };
+        let answers = Answers {
+            per_gate: BTreeMap::new(),
+            unsure: BTreeMap::new(),
+            escalated: BTreeMap::new(),
+            decomposed: BTreeMap::from([("attention".to_string(), record.clone())]),
+            model: "d1-2B".to_string(),
+            input_tokens: 64,
+            latency_ms: 70,
+        };
+        let text = serde_json::to_string(&answers).expect("the answers serialise");
+        let back: Answers = serde_json::from_str(&text).expect("the answers come back");
+        assert_eq!(back, answers);
+        assert_eq!(
+            back.decomposed
+                .get("attention")
+                .expect("the record")
+                .steps
+                .len(),
+            2
+        );
+    }
+
     #[test]
     fn a_slow_second_model_leaves_the_gate_unsure() {
         // D71: the escalation is bounded by the deadline. A second opinion
@@ -2733,6 +3071,7 @@ mod tests {
             )]),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
+            decomposed: BTreeMap::new(),
             model: "stub".to_string(),
             input_tokens: 0,
             latency_ms: 0,

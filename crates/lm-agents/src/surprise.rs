@@ -712,8 +712,10 @@ mod tests {
                             gate: (*gate).to_owned(),
                             primary_confidence: 0.1,
                             primary_choice: None,
+                            primary_probs: BTreeMap::new(),
                             second_confidence: Some(0.9),
                             second_choice: None,
+                            second_probs: BTreeMap::new(),
                             latency_ms: 1,
                             outcome: EscalationOutcome::Taken,
                             refusal: None,
@@ -722,6 +724,7 @@ mod tests {
                 })
                 .collect(),
             unsure: unsure.iter().map(|g| ((*g).to_owned(), 0.2)).collect(),
+            decomposed: BTreeMap::new(),
             model: "test".to_owned(),
             input_tokens: 0,
             latency_ms: 1,
