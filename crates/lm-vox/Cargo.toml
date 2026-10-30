@@ -1,0 +1,21 @@
+[package]
+name = "lm-vox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Vox Score: the L0-L3 speech-performance protocol, the analyzer, the encoder and the LPC/formant renderer (design §10)"
+
+[dependencies]
+# Nothing. The protocol must be portable by itself (design §10): it depends
+# on nothing in lm-core, and lm-core does not depend on it. The DSP is all
+# published 1970s-1990s methods written from the papers, and the FFT is a
+# ~100-line radix-2 Cooley-Tukey, so the crate adds no dependency at all.
+
+[dev-dependencies]
+# The E3 experiment harness (examples/e3.rs) talks to skald on :8000 and to
+# lm-ears on :8102. Both are already workspace dependencies (lm-voice uses
+# the same client), so this adds nothing new to the lock. The library itself
+# never touches the network.
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip", "multipart"] }
+serde_json = "1"
