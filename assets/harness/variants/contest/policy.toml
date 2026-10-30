@@ -1,0 +1,98 @@
+# When an agent thinks, on which tier of model, and with which levers
+# (D55/D56). Parsed by lm-agents::mind::Policy; a missing or unparsable
+# policy.toml means these defaults.
+
+# The tiers a thought can run on. `quality` ranks them (higher is better
+# thinking); `backend` names a System One backend (lm-agents::sysone) — or
+# "reflex", the tier that means "don't ask a model; the reflex keeps playing".
+[[tiers]]
+name = "reflex"
+backend = "reflex"
+quality = 0
+
+[[tiers]]
+name = "fast"
+# D62: d1-2B beat d1-3B on action, 0.96 vs 0.84 over 200 paired scenes (decision-daw x4)
+backend = "thor-d1-2b"
+quality = 1
+
+[[tiers]]
+name = "deep"
+backend = "jev"
+quality = 2
+
+[think]
+# A fresh threat gives the mind this many ticks; a thought must land within
+# them or the reflex plays the moment instead.
+#
+# The phase-4 pack asks eleven questions in one call (the move gate, the
+# five talk gates and their five presence gates), so a thought costs more
+# than the one gate of phase 3 -- and the budget below has to clear the
+# pack. It is a parameter, so the reviewer moves it with the measured p99
+# (D55).
+#
+# The budgets follow the pack's measured cost: the eleven-question pack
+# costs the Thor's d1-2B 600-1400 ms, so a thought is 20-42 ticks and the
+# budgets have to clear it. At 15 and 30 ticks no model tier fitted, so
+# every ask was refused and the agents never thought at all
+# (crates/lm-agents/tests/talk_on_thor.md).
+#
+# D70 split the pack and D71 added the second opinion, and the talk pack
+# carries both costs: the ten talk gates cost the d1-2B 1350 ms, and an
+# escalated gate is another 550 ms of clef-flash on top of it. The budget
+# has to clear the pair, or the talk pack never fits a tier and the agents
+# never say anything (measured: 28 talk asks per round against the timer's
+# 80). The move pack is one question and 162 ms, so the decision that moves
+# the game is not waiting for any of this.
+threat_horizon_ticks = 105
+# Quiet thinking (no threat, a beacon plan) may take up to this many ticks.
+max_think_ticks = 105
+# An enemy sighting younger than this many ticks is a fresh threat.
+threat_age_ticks = 2
+
+[levers]
+# While a thought slower than buy_time_above_ticks is in flight, hold or
+# follow the safe branch (in M1: the reflex) instead of acting on stale lanes.
+buy_time = true
+buy_time_above_ticks = 4
+# In quiet ticks, ask about the likeliest next situation and cache the
+# verdict (in M1 the likeliest next situation is the current one).
+#
+# The move pack is asked on every think (D70), so its cache is warm by
+# default and this lever has nothing left to warm; it stays in the file for
+# harnesses that ask less often.
+prethink = true
+# Cache verdicts by situation key and reuse them when the situation returns.
+verdict_cache = true
+# Spend extra budget to jump the model queue when the situation is urgent.
+pay_priority = false
+# Questions per ask; absent means AgentsConfig.max_questions.
+# max_questions = 3
+
+# When the talk pack is asked (D70).
+#
+# The pack is split: the **move pack** holds the questions whose answer is
+# the agent's move, and is asked on every think. The **talk pack** holds the
+# ten gates a line is chosen by (the five utterance gates and their five
+# presence gates), and is most of a thought's cost -- 473 ms against the move
+# question's 82 ms on the Thor's d1-2B. So the talk pack is asked only when
+# the agent has something to say, and each trigger below is a switch: turn
+# them off and the agents never speak, turn them all on and they speak
+# whenever the world moves.
+[talk]
+# Ask when the world the agent sees has changed: a new enemy, a beacon that
+# changed hands, an ally in or out of range, a stun. The agent's own walk is
+# not a change of sight -- it changes where the agent is, not what is there.
+ask_on_sight_change = true
+# Ask when a line addressed to this agent is being spoken, so that the reply
+# is drafted while the line is still going and applied when it ends (D31).
+ask_on_order = true
+# Ask when a fresh threat is visible (an enemy sighting younger than
+# think.threat_age_ticks).
+ask_on_threat = true
+# Ask on the slow timer: the backstop that has the agent look again even
+# when nothing changed.
+ask_on_timer = true
+# The slow timer's period, in ticks. At the round's 30 Hz, 300 ticks is ten
+# seconds.
+timer_period_ticks = 300
