@@ -30,6 +30,8 @@ pub mod queue;
 pub use queue::{Budgets, LeastUseQueue, Popped, ThinkReq};
 pub mod sink;
 pub use sink::{ChannelSink, DecisionInbox, DecisionSink};
+pub mod surprise;
+pub use surprise::{RoundSurprise, SituationCounts, SituationKey};
 pub mod sysone;
 pub use sysone::{
     Answer, Answers, EscalatingBackend, Escalation, EscalationOutcome, Refusal, SysOne,

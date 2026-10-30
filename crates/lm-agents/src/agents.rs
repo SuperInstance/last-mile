@@ -29,6 +29,7 @@ use crate::harness::Harness;
 use crate::mind::{Mind, Thinker, ThoughtRecord};
 use crate::queue::{Budgets, LeastUseQueue};
 use crate::sink::DecisionSink;
+use crate::surprise::RoundSurprise;
 use crate::sysone::SysOne;
 use crate::utter::Realizer;
 
@@ -109,6 +110,17 @@ impl Agents {
     /// The counters of the round (for the HUD).
     pub fn stats(&self) -> &AgentStats {
         &self.stats
+    }
+
+    /// The round's surprise table: every mind's answers, merged into one
+    /// table of situation buckets (the signal the between-round reviewer is
+    /// pointed at).
+    pub fn surprise(&self) -> RoundSurprise {
+        let mut table = RoundSurprise::default();
+        for mind in self.minds.values() {
+            table.merge(mind.surprise());
+        }
+        table
     }
 
     /// One tick of the cognition loop.

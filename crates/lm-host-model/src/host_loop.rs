@@ -38,6 +38,7 @@ use std::collections::BTreeMap;
 
 use lm_agents::mind::ThoughtRecord;
 use lm_agents::sink::{ChannelSink, DecisionInbox};
+use lm_agents::surprise::RoundSurprise;
 use lm_agents::{AgentStats, Agents};
 use lm_core::decision::{Decision, Kind, Provenance, Source, Tick};
 use lm_core::fixed::Pos;
@@ -369,6 +370,15 @@ impl HostLoop {
     /// reflex's alone.
     pub fn agent_stats(&self) -> Option<&AgentStats> {
         self.agents.as_ref().map(Agents::stats)
+    }
+
+    /// The round's surprise table: where the minds were unsure, refused or
+    /// escalated, by situation bucket. The between-round flow carries its
+    /// top entries into the round's record, where the reviewer reads them.
+    ///
+    /// `None` when the round has no agents.
+    pub fn agent_surprise(&self) -> Option<RoundSurprise> {
+        self.agents.as_ref().map(Agents::surprise)
     }
 
     /// The round's agents, when the host has them.

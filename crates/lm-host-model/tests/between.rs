@@ -324,3 +324,93 @@ fn reject_override_repins_the_next_round_to_a_revert() {
         "the next header was not repinned"
     );
 }
+
+/// The surprise the round's agents counted travels the whole chain: handed
+/// to the flow, kept by the record (its top entries only), and shown by the
+/// screen between the metrics and the proposal. A round without a table —
+/// a reflex-only round, which is what the flow plays alone — shows nothing.
+#[test]
+fn the_screen_shows_where_the_minds_struggled() {
+    use lm_agents::surprise::{EnemySpot, Margin, Phase, RoundSurprise, SituationKey, Standing};
+    use lm_agents::sysone::{Answers, Refusal};
+
+    let fight = SituationKey {
+        standing: Standing::Enemy,
+        enemy: EnemySpot::Seeing,
+        stunned: true,
+        margin: Margin::Behind,
+        phase: Phase::Mid,
+    };
+    let quiet = SituationKey {
+        standing: Standing::Off,
+        enemy: EnemySpot::None,
+        stunned: false,
+        margin: Margin::Level,
+        phase: Phase::Early,
+    };
+    let answered = Answers {
+        per_gate: Default::default(),
+        escalated: Default::default(),
+        unsure: [("attention".to_owned(), 0.2)].into_iter().collect(),
+        model: "d1-2b".to_owned(),
+        input_tokens: 0,
+        latency_ms: 1,
+    };
+    let mut table = RoundSurprise::default();
+    for _ in 0..9 {
+        table.record(fight, &Ok(answered.clone()));
+    }
+    table.record(fight, &Err(Refusal::Timeout));
+    // The quiet bucket never reaches the minimum-asks floor: counted, but
+    // not ranked.
+    table.record(quiet, &Ok(answered.clone()));
+
+    let dir = scratch("surprise");
+    let harness = harness_root(&dir);
+    let mut reviewer = StubReviewer::new(harmless_review());
+    let cfg = flow(&dir, &harness, 7, 300, 2).with_surprise(table);
+    let record = run_learning_round(&cfg, &mut reviewer).expect("the round runs");
+    assert_eq!(
+        record.surprise.len(),
+        1,
+        "only the ranked bucket is kept: {:?}",
+        record.surprise
+    );
+
+    let model = screen(&record);
+    assert_eq!(model.surprise.len(), 1);
+    let line = &model.surprise[0];
+    assert_eq!(line.asks, 10);
+    assert_eq!(line.unsure_asks, 9);
+    assert_eq!(line.refused, 1);
+    assert_eq!(line.escalated, 0);
+    assert_eq!(
+        line.text,
+        "mid round, behind on score, an enemy in sight, stunned, on an enemy beacon: \
+         9 of 10 asks unsure (attention: 9)"
+    );
+
+    // The surprise sits between the metrics and the proposal: it is the
+    // round's own answer to "where did they struggle", and the proposal is
+    // read against it.
+    let sections = model.sections();
+    let at = |section: Section| sections.iter().position(|s| *s == section).expect("there");
+    assert!(at(Section::Metrics) < at(Section::Surprise));
+    assert!(at(Section::Surprise) < at(Section::Proposal));
+
+    // The record on disk carries the counts the screen read: the files agree.
+    let text = fs::read_to_string(&record.record_path).expect("the record is on disk");
+    let on_disk: FlowRecord = serde_json::from_str(&text).expect("the record loads back");
+    assert_eq!(on_disk.surprise, record.surprise);
+    assert_eq!(on_disk.surprise[0].asks, 10);
+
+    // And a round the flow played alone — reflex only, no asks — shows no
+    // surprise section at all, and says nothing.
+    let dir = scratch("surprise-none");
+    let harness = harness_root(&dir);
+    let mut reviewer = StubReviewer::new(harmless_review());
+    let record = run_learning_round(&flow(&dir, &harness, 7, 300, 2), &mut reviewer)
+        .expect("the round runs");
+    assert!(record.surprise.is_empty());
+    assert!(!screen(&record).sections().contains(&Section::Surprise));
+}

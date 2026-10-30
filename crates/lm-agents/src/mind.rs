@@ -57,6 +57,7 @@ use crate::agents::WordCounts;
 use crate::config::AgentsConfig;
 use crate::facts::Facts;
 use crate::gates::{answers_to_decisions, GateSet};
+use crate::surprise::{RoundSurprise, SituationKey};
 
 /// The pack a thought carries (D70): the move pack or the talk pack.
 pub use crate::gates::Pack;
@@ -853,6 +854,9 @@ struct Flight {
     /// The wording of a line is written over the same situation the
     /// choice was made over, so the line and the choice agree.
     facts: Facts,
+    /// The coarse bucket of the same situation (the surprise signal): the
+    /// answer is counted under it when it comes home.
+    situation: SituationKey,
     /// How many questions the pack held.
     ///
     /// The utterance needs the whole talk pack; a pack that was cut short
@@ -907,6 +911,9 @@ pub struct Mind {
     /// The escalations of this round (D71): the gate, both confidences and
     /// the latency of every second opinion that was asked for.
     escalations: Vec<(Tick, Escalation)>,
+    /// The surprise table of this round: every answer that came home,
+    /// counted under the coarse bucket of the situation it was asked in.
+    surprise: RoundSurprise,
     seq_counter: u32,
     /// The round's roster: who exists, so a line may not name an agent
     /// that is not in the round (D37).
@@ -974,6 +981,7 @@ impl Mind {
             thoughts: Vec::new(),
             refusals,
             escalations: Vec::new(),
+            surprise: RoundSurprise::default(),
             seq_counter: 0,
             roster: Vec::new(),
             talk: TalkParams::default(),
@@ -1149,6 +1157,7 @@ impl Mind {
         }
 
         let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
+        let situation = SituationKey::of(view, &facts, &self.params);
         let fresh_threat = view
             .enemies
             .iter()
@@ -1241,6 +1250,7 @@ impl Mind {
             tier: tier.name().to_owned(),
             expected_land,
             facts: facts.clone(),
+            situation,
             questions_n,
             pre_draft_at: None,
         };
@@ -1307,6 +1317,7 @@ impl Mind {
         }
 
         let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
+        let situation = SituationKey::of(view, &facts, &self.params);
         let tier =
             match self
                 .policy
@@ -1348,6 +1359,7 @@ impl Mind {
             tier: tier.name().to_owned(),
             expected_land,
             facts: facts.clone(),
+            situation,
             questions_n,
             pre_draft_at,
         };
@@ -1424,6 +1436,10 @@ impl Mind {
         {
             record.landed = Some(now);
         }
+        // The surprise signal: the answer is counted under the coarse bucket
+        // of the situation it was asked in, from the answer alone — no clock,
+        // no latency, nothing the same round would not say again.
+        self.surprise.record(flight.situation, &result);
         // Teach the tier: a refusal burned its deadline, so it counts as the
         // timeout it cost (a slow tier must look slow to the next choice).
         let rtt_ms = match &result {
@@ -1696,6 +1712,12 @@ impl Mind {
     /// and the latency of every second opinion.
     pub fn escalations(&self) -> &[(Tick, Escalation)] {
         &self.escalations
+    }
+
+    /// The surprise table of this mind's round: every answer that came
+    /// home, counted under its situation bucket.
+    pub fn surprise(&self) -> &RoundSurprise {
+        &self.surprise
     }
 
     /// Whether the verdict cache holds this situation on this menu.

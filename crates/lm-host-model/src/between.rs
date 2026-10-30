@@ -37,6 +37,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use lm_agents::surprise::SituationCounts;
 use lm_learn::deposits::{self, Deposit};
 use lm_learn::eval::metric_value;
 use lm_learn::flow::{Decision, FlowError, FlowRecord, HumanOverride};
@@ -71,6 +72,28 @@ pub struct ProposalView {
     pub summary: String,
     /// The exact change, as it was written.
     pub diff: String,
+}
+
+/// One situation the minds struggled in, as the screen shows it.
+///
+/// The line is the whole entry — `early round, level on score, an enemy in
+/// sight, stunned, on your beacon: 9 of 14 asks unsure (attention: 9)` —
+/// and the numbers sit beside it for whoever wants more than the line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SurpriseLine {
+    /// The one-line, human-readable description of the situation and its
+    /// dominant failure.
+    pub text: String,
+    /// The surprise score: struggle events per ask, x1000.
+    pub score_x1000: u64,
+    /// The asks that came home in the bucket.
+    pub asks: u64,
+    /// The asks that came home with at least one unsure gate.
+    pub unsure_asks: u64,
+    /// The refused asks, every kind together.
+    pub refused: u64,
+    /// The gates asked of a second model (D71), every gate together.
+    pub escalated: u64,
 }
 
 /// The prediction that was sealed before the change was tested.
@@ -165,6 +188,8 @@ pub enum Call {
 pub enum Section {
     /// What the round measured.
     Metrics,
+    /// Where the minds struggled: the top surprising situations.
+    Surprise,
     /// What the reviewer proposed.
     Proposal,
     /// What it predicted, and the seal it was written under.
@@ -188,6 +213,9 @@ pub struct BetweenModel {
     pub seed: u64,
     /// The metrics of this round, with the change against the round before.
     pub metrics: Vec<MetricLine>,
+    /// The top situations the minds struggled in (the surprise signal):
+    /// where they were unsure, refused or escalated, most surprising first.
+    pub surprise: Vec<SurpriseLine>,
     /// The proposal, when the reviewer made one.
     pub proposal: Option<ProposalView>,
     /// The prediction that was sealed, when there was one.
@@ -230,6 +258,7 @@ impl BetweenModel {
             round_id: record.round_id.clone(),
             seed: record.seed,
             metrics: metric_lines(current, previous),
+            surprise: surprise_of(record),
             proposal: proposal_of(record),
             prediction: prediction_of(record),
             verdict: verdict_of(record),
@@ -271,11 +300,16 @@ impl BetweenModel {
     /// The parts of the screen, in the order they are shown.
     ///
     /// The prediction comes before the verdict: the promise was sealed
-    /// before the test, so it is read first.
+    /// before the test, so it is read first. The surprise comes right after
+    /// the metrics: it is the round's own answer to "where did they
+    /// struggle", and the proposal is read against it.
     pub fn sections(&self) -> Vec<Section> {
         let mut out = Vec::new();
         if !self.metrics.is_empty() {
             out.push(Section::Metrics);
+        }
+        if !self.surprise.is_empty() {
+            out.push(Section::Surprise);
         }
         if self.proposal.is_some() {
             out.push(Section::Proposal);
@@ -422,6 +456,29 @@ fn metric_lines(
             }
         })
         .collect()
+}
+
+/// The situations the minds struggled in, as the screen shows them.
+///
+/// The record carries them already ranked (the flow kept the top of the
+/// round's table); the screen turns each into the one line a person reads
+/// and keeps the numbers beside it. A round with no table — a reflex-only
+/// round, or a record from before the signal existed — shows nothing, and
+/// says nothing.
+fn surprise_of(record: &FlowRecord) -> Vec<SurpriseLine> {
+    record.surprise.iter().map(surprise_line).collect()
+}
+
+/// One bucket of the table, as one line plus its numbers.
+fn surprise_line(counts: &SituationCounts) -> SurpriseLine {
+    SurpriseLine {
+        text: counts.line(),
+        score_x1000: counts.surprise_x1000(),
+        asks: counts.asks,
+        unsure_asks: counts.unsure_asks,
+        refused: counts.refused.values().sum(),
+        escalated: counts.escalated.values().sum(),
+    }
 }
 
 /// What the reviewer proposed, in words and in a diff.

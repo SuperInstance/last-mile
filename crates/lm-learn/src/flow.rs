@@ -27,6 +27,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use lm_agents::harness::{self, Harness};
+use lm_agents::surprise::{RoundSurprise, SituationCounts};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
 use lm_core::Fnv64;
@@ -51,6 +52,11 @@ pub const DEFAULT_TICKS: u64 = 1_500;
 
 /// How many held-out seeds the evaluation runs on, when nothing else is said.
 pub const DEFAULT_EVAL_SEEDS: usize = 4;
+
+/// How many of the round's most surprising situations the record keeps: the
+/// between-round screen is read by a person, and five lines is a reading
+/// list, not a wall.
+pub const TOP_SURPRISE: usize = 5;
 
 /// The most tokens a review may use.
 pub const DEFAULT_MAX_TOKENS: u32 = 4_000;
@@ -139,6 +145,16 @@ pub struct FlowRecord {
     pub eval_seeds: Vec<u64>,
     /// The human overrides, in the order they happened.
     pub overrides: Vec<HumanOverride>,
+    /// The round's top surprising situations: where the minds were unsure,
+    /// refused or escalated, by situation bucket, most surprising first.
+    ///
+    /// The table is counted where the asks happen (the round's agents, on
+    /// the Thor) and handed to the flow by whoever ran the round with live
+    /// minds; a round the flow played with the reflex alone has none, and
+    /// the field says so by being empty. Empty for every record written
+    /// before the field existed, too — the default is what old records read.
+    #[serde(default)]
+    pub surprise: Vec<SituationCounts>,
 }
 
 impl FlowRecord {
@@ -218,6 +234,12 @@ impl FlowRecord {
         if let Some(path) = &self.deposit_path {
             let _ = writeln!(s, "  deposit:        {}", path.display());
         }
+        if !self.surprise.is_empty() {
+            let _ = writeln!(s, "  surprise:       the situations the minds struggled in");
+            for counts in &self.surprise {
+                let _ = writeln!(s, "    - {}", counts.line());
+            }
+        }
         let _ = writeln!(s, "  next header:    pins {}", self.next_header_pin);
         s
     }
@@ -239,6 +261,11 @@ pub struct FlowConfig {
     pub eval_seed_count: usize,
     /// The round's id; derived from the seed when empty.
     pub round_id: Option<String>,
+    /// The surprise table of the round the flow is asked about, when the
+    /// caller has one (a round played with live minds on the Thor). Its top
+    /// entries land in the record, where the between-round screen reads
+    /// them; `None` — the flow's own reflex-only rounds — records none.
+    pub surprise: Option<RoundSurprise>,
 }
 
 impl FlowConfig {
@@ -251,7 +278,20 @@ impl FlowConfig {
             ticks: DEFAULT_TICKS,
             eval_seed_count: DEFAULT_EVAL_SEEDS,
             round_id: None,
+            surprise: None,
         }
+    }
+
+    /// Hand the flow the round's surprise table, and its top situations go
+    /// into the record.
+    ///
+    /// The table is counted where the asks happen — the round's agents — so
+    /// this is the seam between the host that played the round with live
+    /// minds and the flow that records it. [`TOP_SURPRISE`] entries are
+    /// kept, each a one-line, human-readable description.
+    pub fn with_surprise(mut self, surprise: RoundSurprise) -> FlowConfig {
+        self.surprise = Some(surprise);
+        self
     }
 
     /// Where the round's files go.
@@ -681,6 +721,11 @@ pub fn run_learning_round(
         ledger_path: ledger_path.clone(),
         eval_seeds: Vec::new(),
         overrides: Vec::new(),
+        surprise: cfg
+            .surprise
+            .as_ref()
+            .map(|s| s.top(TOP_SURPRISE))
+            .unwrap_or_default(),
     };
 
     // 5. What the reviewer said.
@@ -1564,6 +1609,7 @@ mod tests {
             ledger_path: PathBuf::from("ledger.jsonl"),
             eval_seeds: Vec::new(),
             overrides: Vec::new(),
+            surprise: Vec::new(),
         };
         let overridden = override_verdict(&record, Decision::Adopt);
         assert_eq!(overridden.decision, Decision::Adopt);
@@ -1579,5 +1625,67 @@ mod tests {
         assert_eq!(agent_id("squad0"), None);
         assert_eq!(agent_id("a"), None);
         assert_eq!(agent_id("ax"), None);
+    }
+
+    #[test]
+    fn a_record_carries_its_surprise_and_old_records_load() {
+        use lm_agents::surprise::{EnemySpot, Margin, Phase, SituationKey, Standing};
+        let key = SituationKey {
+            standing: Standing::Enemy,
+            enemy: EnemySpot::Seeing,
+            stunned: true,
+            margin: Margin::Behind,
+            phase: Phase::Mid,
+        };
+        let mut counts = SituationCounts::new(key);
+        counts.asks = 14;
+        counts.unsure_asks = 9;
+        counts.unsure.insert("attention".to_owned(), 9);
+
+        let mut record = record_for_test();
+        record.surprise = vec![counts];
+        let text = serde_json::to_string(&record).expect("the record serialises");
+        let back: FlowRecord = serde_json::from_str(&text).expect("the record loads");
+        assert_eq!(back.surprise.len(), 1);
+        assert_eq!(back.surprise[0].asks, 14);
+        assert!(text.contains("attention"));
+
+        // A record written before the field existed has no `surprise` key at
+        // all: it reads back with none, and says so.
+        let value: serde_json::Value = serde_json::from_str(&text).expect("json");
+        let mut old = value.clone();
+        old.as_object_mut()
+            .expect("a record is an object")
+            .remove("surprise");
+        let old_record: FlowRecord = serde_json::from_value(old).expect("the old record loads");
+        assert!(old_record.surprise.is_empty());
+    }
+
+    /// A minimal record, for the tests that only care about its shape.
+    fn record_for_test() -> FlowRecord {
+        FlowRecord {
+            round_id: "r7".to_string(),
+            seed: 7,
+            log_path: PathBuf::from("r7.log"),
+            harness_root: PathBuf::from("/tmp/harness"),
+            metrics_digest: "0".to_string(),
+            review_text: String::new(),
+            proposal: None,
+            rejection: None,
+            claim: None,
+            seal: None,
+            verdict: None,
+            decision: Decision::Reject,
+            commit: None,
+            next_header_pin: String::new(),
+            next_header_pins: BTreeMap::new(),
+            next_header_path: PathBuf::from("r7-next-header.json"),
+            record_path: PathBuf::from("r7.json"),
+            deposit_path: None,
+            ledger_path: PathBuf::from("ledger.jsonl"),
+            eval_seeds: Vec::new(),
+            overrides: Vec::new(),
+            surprise: Vec::new(),
+        }
     }
 }
