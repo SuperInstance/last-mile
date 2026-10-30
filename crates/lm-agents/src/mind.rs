@@ -32,7 +32,7 @@
 //! model answer reaches the simulation only as a logged decision, so a round
 //! replays bit-exact with no backend at all.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -383,6 +383,14 @@ pub struct Policy {
     pub threat_age_ticks: u32,
     /// When the talk pack is asked (D70).
     pub talk: TalkPolicy,
+    /// The gates a second opinion may be bought for (D71).
+    ///
+    /// `None` is every gate below `AgentsConfig::escalate_below`; `Some(set)`
+    /// is only the named gates, and an empty set is none of them — the
+    /// escalation off. Which gates are worth a second opinion is a harness
+    /// question (the gates are the harness's); the threshold is the model's
+    /// calibration and stays in the config.
+    pub escalate_gates: Option<BTreeSet<String>>,
     /// The `buy_time` lever: hold or follow the safe branch while a slow
     /// thought is in flight.
     pub buy_time: bool,
@@ -436,6 +444,7 @@ impl Policy {
                 ask_on_timer: file.talk.ask_on_timer,
                 timer_period_ticks: file.talk.timer_period_ticks,
             },
+            escalate_gates: file.escalate.gates.map(|gates| gates.into_iter().collect()),
             buy_time: file.levers.buy_time,
             buy_time_above_ticks: file.levers.buy_time_above_ticks,
             prethink: file.levers.prethink,
@@ -520,6 +529,7 @@ struct PolicyFile {
     think: ThinkSpec,
     levers: LeverSpec,
     talk: TalkSpec,
+    escalate: EscalateSpec,
 }
 
 /// One `[[tiers]]` entry.
@@ -571,6 +581,17 @@ impl Default for TalkSpec {
             timer_period_ticks: talk.timer_period_ticks,
         }
     }
+}
+
+/// The `[escalate]` section (D71): which gates may be escalated.
+///
+/// `gates` absent is every gate below `AgentsConfig::escalate_below` (the
+/// escalation as it shipped); `gates = []` is none of them (the escalation
+/// off); `gates = ["move"]` is the named ones only.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct EscalateSpec {
+    gates: Option<Vec<String>>,
 }
 
 /// The `[levers]` section (D56).
@@ -2192,9 +2213,30 @@ mod tests {
         // The shipped backends: reflex plus the two model tiers of D55.
         let backends: Vec<&str> = p.tiers.tiers().iter().map(|t| t.backend()).collect();
         assert_eq!(backends, vec!["reflex", "thor-d1-2b", "jev"]);
+        // The shipped escalation set: the move gate alone (D71's accuracy
+        // was measured on the move gate; the talk gates' second opinion did
+        // not pay for its latency).
+        assert_eq!(p.escalate_gates, Some(BTreeSet::from(["move".to_owned()])));
         // A missing or broken policy file means the defaults, never a panic.
         assert_eq!(Policy::for_harness(""), p);
         assert_eq!(Policy::for_harness("tiers = ["), p);
+    }
+
+    #[test]
+    fn the_escalation_set_is_the_harness_s() {
+        // A file that names the gates escalates only those; an empty list is
+        // the escalation off; a file without the section escalates every
+        // gate below the threshold (D71 as it shipped).
+        let named = Policy::parse("[escalate]\ngates = [\"move\", \"subject\"]\n")
+            .expect("the named gates parse");
+        assert_eq!(
+            named.escalate_gates,
+            Some(BTreeSet::from(["move".to_owned(), "subject".to_owned()]))
+        );
+        let off = Policy::parse("[escalate]\ngates = []\n").expect("the empty set parses");
+        assert_eq!(off.escalate_gates, Some(BTreeSet::new()));
+        let absent = Policy::parse("").expect("the empty file parses");
+        assert_eq!(absent.escalate_gates, None);
     }
 
     #[test]

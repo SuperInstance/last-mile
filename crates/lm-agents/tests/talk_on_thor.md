@@ -373,3 +373,178 @@ shrugs — one such case in 159.
 - **The escalation rate is the game's, not D71's.** D71's 4% is the action
   gate's rate in the decision-daw scenes; see above for the two numbers on
   the Thor.
+
+---
+
+# Tuning the second opinion (D71) and the d1-3B's floor
+
+The escalation above ran at 9.6% of the gates — not the 4% D71 measured —
+and it was carried by the two ten-option talk gates. This is the
+measurement that tunes it, the same harness and the same three seeds
+(1-3, 3000 ticks each, the d1-2B behind the tier), in three arms:
+
+- **all gates**: every gate below `escalate_below` (0.50) is asked of
+  clef-flash, the escalation as D71 shipped it;
+- **move only**: the move gate alone;
+- **off**: no gate.
+
+Every gate the "all gates" arm escalated was then judged offline, and the
+d1-3B was put behind the tier once with its floor at zero, so its own
+confidence floor could be read the way the d1-2B's 0.30 was.
+
+## The command
+
+```text
+cargo test --release -p lm-agents --test talk_on_thor -- --ignored --nocapture
+```
+
+## The arms
+
+Three rounds per arm, seeds 1-3:
+
+| arm | lines per seed | total lines | total decisions | refusals | asks answered | escalations |
+|---|---|---|---|---|---|---|
+| all gates | 41 / 29 / 28 | **98** | 1808 | 53 | 681 | **100** |
+| move only | 40 / 51 / 51 | 142 | 1940 | 56 | 732 | 3 |
+| off | 49 / 60 / 61 | **170** | **1992** | 50 | 760 | 0 |
+
+| metric | all gates | move only | off |
+|---|---|---|---|
+| the escalation rate, per gates answered | 9.2% | 0.2% | — |
+| the escalation rate, per decision | 5.5% | 0.2% | — |
+| escalations by gate | attention 73, subject 24, intention 2, move 1 | move 3 | — |
+| escalations taken / timed out | 94 / 6 | 3 / 0 | — |
+| move pack round trip, p50 / p95 / max | 240 / 409 / 4086 ms | 243 / 436 / 750 ms | 253 / 445 / 502 ms |
+| talk pack round trip, p50 / p95 / max | 1119 / 2307 / 3703 ms | 1606 / 2348 / 3710 ms | 1164 / 2419 / 3503 ms |
+| the added latency, p50 / p95 / max | 986 / 1587 / 1724 ms | 1383-1423 ms (3 of them) | — |
+| asks the Thor timed out | 5 | 8 | 2 |
+| the talk pack's answers | 104 | 144 | 171 |
+
+**Escalating the talk gates does not pay for itself: it costs the round
+lines and decisions.** The "all gates" arm spoke 98 lines against the
+"off" arm's 170 and made 1808 decisions against 1992. The mechanism is the
+talk lane: a second opinion adds 986 ms at the median to a talk pack that
+already costs 1.1 s, the lane answers only 104 asks against the "off"
+arm's 171, and 6 of the 100 second opinions died on the deadline and took
+their lines with them. The "move only" arm is within noise of "off"
+(142 against 170 lines, 1940 against 1992 decisions) at three second
+opinions in three rounds.
+
+No arm spoke an Order-intent line in any round (the orders column is 0/0
+everywhere), so uptake could not tell the arms apart; the line and decision
+counts are the round-level evidence, and they need no judge.
+
+## The second opinion, answer by answer
+
+For every gate the "all gates" arm escalated, the escalation record now
+carries both models' own choices (the option each distribution favoured),
+and every distinct escalated question — 64 of the 100 — was asked of a
+third model, the Thor's **d1-3B**, alone, over the same facts, after the
+rounds were over.
+
+Why the d1-3B as the judge: it is neither party in the dispute, it is
+resident on the same Thor, it is deterministic, and asking it the same
+single question over the same facts is exactly the call clef-flash was
+asked, so the only difference between the two parties is the model. The
+caveat is D62's: the d1-3B measured the weaker decider on the *move* gate
+(0.84 against the d1-2B's 0.96), so its agreement is evidence, not ground
+truth — and the round-level totals above, which need no judge, point the
+same way.
+
+| gate | situations judged | the two models differ | the d1-2B agrees with the judge | clef-flash agrees | neither agrees |
+|---|---|---|---|---|---|
+| attention | 54 | 33 | **35** | 12 | 17 |
+| subject | 7 | 7 | 0 | **6** | 1 |
+| intention | 2 | 2 | 0 | 0 | 2 |
+| move | 1 | 0 | 0 | 0 | 1 |
+
+- **The second opinion is not a rubber stamp: the two models differ on 40
+  of the 64 distinct situations**, and where they differ the line differs —
+  the attention gate is the line's addressee and the subject gate is what
+  the line is about.
+- **On attention — 73% of the escalations — the second opinion replaced
+  the better answer.** The judge agreed with the d1-2B's own choice 35 of
+  54 times and with clef-flash's 12 of 54. The d1-2B is unsure on the
+  ten-option addressee gate (0.40 at the median), but its unsure answer is
+  still the better one; the second second of latency buys a worse addressee.
+- **On subject the picture reverses** — clef-flash 6 of 7 against the
+  d1-2B's 0 of 7 — but it is 7 situations carrying 24 escalations, and the
+  latency it costs lands on the same talk lane that lost 72 lines in the
+  "all gates" arm. A harness that wants it can name it; that is what the
+  parameter is for.
+
+## What was changed
+
+| what | where | why |
+|---|---|---|
+| `escalate_gates` in `policy.toml`: a list of gate ids; absent is every gate, `[]` is off | `assets/harness/default/policy.toml`, `crates/lm-agents/src/mind.rs`, `crates/lm-agents/src/sysone.rs`, `crates/lm-host/src/main.rs` | Which gates are worth a second opinion is a harness question (the gates are the harness's); the threshold stays with the model's calibration (`AgentsConfig::escalate_below`) |
+| The default: `escalate_gates = ["move"]` | `assets/harness/default/policy.toml` | The talk gates' second opinion did not pay (98 against 170 lines, 1808 against 1992 decisions); the move gate is where D71's accuracy was measured (0.98 against the d1-2B's own 0.96) and it costs 3 second opinions in 3 rounds |
+| The escalation record carries both models' own choices | `crates/lm-agents/src/sysone.rs` (`Escalation::primary_choice`/`second_choice`) | An escalation that never changes the answer buys latency and nothing else; the two choices are the difference |
+| The deadline stays 4000 ms | `crates/lm-agents/src/config.rs` | Without the talk-gate escalation the deadline clears the talk pack's *own* slow case: p95 2.3-2.4 s and a 3.5-3.7 s tail on a busy box; the move lane's worst case (pack plus its rare escalation) is 445 + 1423 = 2.2 s |
+| The think budgets stay 105 / 105 ticks | `assets/harness/default/policy.toml` | The talk pack is the slow case (p95 ≈ 72 ticks, max ≈ 112); 105 clears the p95 with room, and the rare 3.7 s tail misses it and plays the reflex (D26) — cheaper than a budget that never lets the talk pack think |
+| The d1-3B's floor: 0.55 → 0.15 | `crates/lm-agents/src/config.rs` | Its own calibration, below |
+
+The escalation rate the harness now ships is **0.2% of the gates answered,
+about one second opinion a round** — D71's 4% was the *action* gate's rate
+in the decision-daw scenes, and the Thor's move gate (0.25% of its answers)
+is in that family; the 9.6% was the talk gates', and they do not want it.
+
+## The d1-3B's floor
+
+The d1-3B played the same three rounds behind the tier with its floor at
+zero (two runs, 393 and 415 distinct situations; the shapes agree). With
+the floor at zero it spoke 50-75 lines and made 535-581 decisions a round —
+the model works behind the tier; it was the floor that killed it.
+
+| gate | min | p10 | p50 | p90 | max |
+|---|---|---|---|---|---|
+| move | 0.2815 | 0.8623 | 0.8874 | 0.9135 | 0.9609 |
+| gesture | 0.2165 | 0.2692 | 0.3099 | 0.3657 | 0.4150 |
+| attention | 0.2123 | 0.3044 | 0.4681 | 0.5701 | 0.6055 |
+| **intention** | **0.0000** | **0.0000** | **0.2000** | **0.2953** | **0.3674** |
+| intent | 0.1491 | 0.2099 | 0.2536 | 0.3278 | 0.3814 |
+| subject | 0.2291 | 0.4124 | 0.5285 | 0.6234 | 0.6743 |
+
+The presence nouls are all above the 0.05 floor (intention_present reads
+0.11-0.24, the lowest), so the wordings hold on this model; it is the
+confidences that run lower than the d1-2B's.
+
+The per-gate rule over the 82 talk situations of the second run:
+
+| floor | gates dropped | situations silent | without the move |
+|---|---|---|---|
+| 0.05 | intention 14 | 14 | 0 |
+| 0.10 | intention 27 | 27 | 0 |
+| **0.15** | **intention 34, intent 1** | **35** | **0** |
+| 0.20 | intention 42, intent 5 | 45 | 0 |
+| 0.30 | every talk gate (intention 74, intent 68, gesture 35…) | 82 | 1 |
+| 0.55 (what shipped) | every talk gate | 82 | 0 |
+
+**The floor is 0.15, read the way the d1-2B's 0.30 was**: the d1-2B's floor
+sits at the bottom of its weakest gate's range (the attention gate's
+0.29-0.64), and the d1-3B's gates bottom out at 0.15-0.23 (the intent
+gate's minimum is 0.149). The one gate that answers below the floor is the
+intention score, which the d1-3B answers near-flat — 0.00-0.37 over three
+levels, barely over the 0.33 of no opinion at all — so those 34 of 82
+situations are honestly unsure and the line is silent. No move is ever
+refused (the move gate answers 0.28-0.96). The 0.55 this replaces was the
+old failure in miniature: it silenced every line of every talk round, 82 of
+82, exactly what the 0.60 pack-level fold did to the d1-2B.
+
+## What this measurement does not say
+
+- **It is not a score.** The Thor's models answer the same pack the same
+  way, so the three seeds are samples of the same behaviour, not three
+  games.
+- **It is one busy day's speed.** The escalation cost 986 ms at the median
+  against the 570-593 ms of the idle days the previous section and D71
+  measured; the arms are comparable with each other (same day), and the
+  move-only default leaves the deadline and the budgets clear of the
+  busy-day tail either way.
+- **The judge is a third model, not ground truth.** D62 measured the d1-3B
+  the weaker decider on the move gate; its agreement on the talk gates is
+  evidence — and the round-level totals, which need no judge, agree with
+  it.
+- **The subject-gate result is 7 situations deep.** clef-flash won it 6-0,
+  but 7 distinct situations do not carry a default; they carry a comment,
+  and the parameter is there the day a harness wants it.
