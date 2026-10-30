@@ -92,11 +92,12 @@ pub struct AgentsConfig {
     /// to clear the slow case and not only the median
     /// (crates/lm-agents/tests/talk_on_thor.md).
     ///
-    /// D70 split the pack, and D71 added a second opinion: the talk pack
-    /// costs 1350 ms on the d1-2B and the escalated gate is another 550 ms
-    /// of clef-flash on top of it, so the deadline has to clear both. At
-    /// 2400 ms half of the escalations died on the way (measured: 43 taken,
-    /// 40 timed out), and the escalated gate stayed unsure.
+    /// D70 split the pack and D71's second opinion now rides the move gate
+    /// alone (`escalate_gates`), so the deadline clears the talk pack's own
+    /// slow case: the ten talk gates cost the d1-2B 1.1-1.6 s at the
+    /// median, 2.3-2.4 s at p95, and 3.5-3.7 s on a busy box. The move
+    /// lane's worst case — the pack plus its rare escalation — is 2.2 s
+    /// (445 ms of d1-2B and up to 1423 ms of clef-flash on top).
     pub request_timeout_ms: u32,
     /// How strongly a squad's shared usage counts in queue priority (D16).
     pub squad_weight: f32,
@@ -203,7 +204,17 @@ impl Default for AgentsConfig {
                 // the model's weakest gate and not only its best one
                 // (crates/lm-agents/tests/talk_on_thor.md).
                 ("thor-d1-2b".to_owned(), 0.30),
-                ("thor-d1-3b".to_owned(), 0.55),
+                // The d1-3B's own calibration, measured the same way
+                // (crates/lm-agents/tests/talk_on_thor.md): its gates
+                // bottom out at 0.15-0.23 (the intent gate's minimum is
+                // 0.149), so the floor sits just above that; the one gate
+                // that answers below it is the intention score, which the
+                // d1-3B answers near-flat (0.00-0.37 over three levels) —
+                // those 34 of 82 situations are honestly unsure and the
+                // line is silent, but no move is ever refused (the move
+                // gate answers 0.28-0.96). The 0.55 this replaces silenced
+                // every line of every talk round: 82 of 82 situations.
+                ("thor-d1-3b".to_owned(), 0.15),
                 // The second opinion (D71). Its confidence scale runs about
                 // half of the d1-2B's on the same gates — the attention gate
                 // reads 0.13 against the d1-2B's 0.33 — so the d1-2B's 0.30
@@ -273,9 +284,11 @@ mod tests {
             c.min_confidence,
             BTreeMap::from([
                 ("thor-d1-2b".to_owned(), 0.30),
-                ("thor-d1-3b".to_owned(), 0.55),
+                // The d1-3B's own calibration: its gates bottom out near
+                // 0.15 (talk_on_thor.md); the old 0.55 silenced every line.
+                ("thor-d1-3b".to_owned(), 0.15),
                 // The second opinion (D71): its confidence scale runs about
-                // half of the d1-2B's, so its floor is lower.
+                // half of d1-2B's, so its floor is lower.
                 ("thor-clef-flash".to_owned(), 0.05),
                 ("jev".to_owned(), 0.5),
             ])

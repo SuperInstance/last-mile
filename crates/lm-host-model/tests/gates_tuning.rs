@@ -85,7 +85,12 @@ const MARCH_TICK: u64 = 600;
 const FIGHT_TICK: u64 = 1800;
 
 /// The confidence floor the Thor's answers have to clear to become a
-/// decision: `AgentsConfig::min_confidence["thor-d1-3b"]`.
+/// decision: `AgentsConfig::min_confidence["thor-d1-3b"]`, which was 0.55
+/// when this measurement ran (phase 3). The floor has since been calibrated
+/// to the model's own scale — 0.15
+/// (crates/lm-agents/tests/talk_on_thor.md) — and this measurement keeps
+/// the 0.55 it was run with, because it is the record of what the tuning
+/// was measured against.
 const FLOOR: f32 = 0.55;
 
 /// One situation: a real view of a real round, and everything asked about

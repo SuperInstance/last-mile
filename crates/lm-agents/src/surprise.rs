@@ -706,7 +706,9 @@ mod tests {
                         Escalation {
                             gate: (*gate).to_owned(),
                             primary_confidence: 0.1,
+                            primary_choice: None,
                             second_confidence: Some(0.9),
+                            second_choice: None,
                             latency_ms: 1,
                             outcome: EscalationOutcome::Taken,
                             refusal: None,
