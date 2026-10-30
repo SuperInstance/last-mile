@@ -206,6 +206,21 @@ enum VoxCommand {
         /// Where the rendered mono PCM16 WAV is written.
         output: PathBuf,
     },
+    /// Conform a WAV toward delivery marks: analyze it, diff against the
+    /// marks' intent, and correct the real audio — or, when a diff is
+    /// beyond the measured artifact thresholds, answer re-ask and write
+    /// nothing.
+    Conform {
+        /// The mono PCM16 WAV to read.
+        input: PathBuf,
+        /// Comma-separated delivery marks, e.g. "urgent,clipped,falling".
+        /// Vocabulary: urgent calm clipped falling rising flat bright dark
+        /// loud soft fast slow tense lax rough.
+        #[arg(long)]
+        marks: String,
+        /// Where the conformed mono PCM16 WAV is written.
+        output: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -321,6 +336,90 @@ fn cmd_vox(command: VoxCommand) -> ExitCode {
                 rendered.samples.len()
             );
             ExitCode::SUCCESS
+        }
+        VoxCommand::Conform {
+            input,
+            marks,
+            output,
+        } => {
+            let started = std::time::Instant::now();
+            let pcm = match lm_vox::wav::Pcm::from_wav_file(&input) {
+                Ok(pcm) => pcm,
+                Err(err) => {
+                    eprintln!("lm: {}: {err}", input.display());
+                    return ExitCode::FAILURE;
+                }
+            };
+            // One WAV and no corpus: the clip is its own baseline, which
+            // is what profile-relative dials mean for a single file.
+            let profile = lm_vox::conform::self_profile(&lm_vox::analyze(&pcm));
+            let before = {
+                let a = lm_vox::analyzer::analyze_with_profile(&pcm, &profile);
+                let gestures = lm_vox::segment_gestures(&a.frames, &profile);
+                let phrase = lm_vox::phrase_summary(&a.frames, &gestures, &profile);
+                lm_vox::l2_line(&phrase)
+            };
+            match lm_vox::conform_str(&pcm, &marks, &profile) {
+                Ok(lm_vox::ConformOutcome::Conformed { plan, audio }) => {
+                    let after = {
+                        // The same profile as the "before" reading: the
+                        // relative dials only compare against the same
+                        // baseline.
+                        let a = lm_vox::analyzer::analyze_with_profile(&audio, &profile);
+                        let gestures = lm_vox::segment_gestures(&a.frames, &profile);
+                        let phrase = lm_vox::phrase_summary(&a.frames, &gestures, &profile);
+                        lm_vox::l2_line(&phrase)
+                    };
+                    if let Err(err) = audio.to_wav_file(&output) {
+                        eprintln!("lm: {}: {err}", output.display());
+                        return ExitCode::FAILURE;
+                    }
+                    let thresholds = lm_vox::Thresholds::default();
+                    for c in &plan.diff.channels {
+                        // The ratio channels (tempo, pause, attack, release)
+                        // ask for a factor, not a delta: their "measured"
+                        // is 1.0 by definition and their limit is one edge
+                        // of a window, so they print as what they are.
+                        let window = match c.name {
+                            "tempo" => Some((thresholds.tempo_min, thresholds.tempo_max)),
+                            "pause" => Some((thresholds.pause_min, thresholds.pause_max)),
+                            "attack" => Some((thresholds.attack_min, thresholds.attack_max)),
+                            "release" => Some((thresholds.release_min, thresholds.release_max)),
+                            _ => None,
+                        };
+                        match window {
+                            Some((lo, hi)) => println!(
+                                "{:12} ratio {:+8.2}  window {:+8.2}..{:+8.2}",
+                                c.name, c.correction, lo, hi
+                            ),
+                            None => println!(
+                                "{:12} wanted {:+8.2}  measured {:+8.2}  correction {:+8.2}  limit {:+8.2}",
+                                c.name, c.wanted, c.measured, c.correction, c.limit
+                            ),
+                        }
+                    }
+                    println!("before  {before}");
+                    println!("after   {after}");
+                    println!(
+                        "{}: conformed in {:.0} ms",
+                        output.display(),
+                        started.elapsed().as_secs_f64() * 1000.0
+                    );
+                    ExitCode::SUCCESS
+                }
+                Ok(lm_vox::ConformOutcome::ReAsk(diff)) => {
+                    eprintln!("lm: {}: {}", input.display(), diff.reask_line());
+                    eprintln!(
+                        "lm: {}: not written; re-ask the generator",
+                        output.display()
+                    );
+                    ExitCode::FAILURE
+                }
+                Err(err) => {
+                    eprintln!("lm: {err}");
+                    ExitCode::FAILURE
+                }
+            }
         }
     }
 }

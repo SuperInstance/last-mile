@@ -21,8 +21,12 @@ const VALLEY_DIP: u8 = 10;
 /// in the same units.
 const VALLEY_RISE: u8 = 5;
 
-/// Gestures shorter than this, in frames, fold into their neighbor.
-const MIN_GESTURE_FRAMES: usize = 3;
+/// Gestures shorter than this, in frames, fold into their neighbor. A
+/// performed syllable bottoms out around 80 ms — shorter spans are
+/// measurement ripple (time-scale modification grain joins, smooth slow
+/// speech), not notes — and folding them keeps L1's syllable count stable
+/// under the conformer's own tempo channel.
+const MIN_GESTURE_FRAMES: usize = 8;
 
 /// Segment L0 frames into gestures, measured against the profile.
 pub fn segment_gestures(frames: &[Frame], profile: &SpeakerProfile) -> Vec<Gesture> {
@@ -78,8 +82,10 @@ pub fn segment_gestures(frames: &[Frame], profile: &SpeakerProfile) -> Vec<Gestu
             peak = f.rms;
         }
         // A valley: the level fell well under the gesture's peak and has
-        // begun to climb again — the syllable's energy trough.
-        if f.rms + VALLEY_DIP <= peak
+        // begun to climb again — the syllable's energy trough. (The dip
+        // is subtracted from the peak, not added to the frame, so a hot
+        // frame near the top of the scale cannot overflow.)
+        if f.rms <= peak.saturating_sub(VALLEY_DIP)
             && i + 1 < frames.len()
             && frames[i + 1].rms > f.rms + VALLEY_RISE
         {

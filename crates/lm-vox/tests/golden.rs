@@ -32,7 +32,11 @@ use lm_vox::wav::Pcm;
 /// same day when the level and tilt tracks lost their velocity state
 /// (the E4 check caught their ramp overshoot inflating peaks) — the
 /// smoothing defaults are parameters, and the hash follows them.
-const PINNED: u64 = 0x71bd_c128_7ba9_ff0b;
+/// Re-pinned again for E10's gesture floor, on top of the smoothing:
+/// `MIN_GESTURE_FRAMES` rose from 3 to 8 frames (80 ms, the floor of a
+/// performed syllable), so sub-80 ms ripple spans — grain joins from time-scale modification, smooth slow
+/// speech — fold into their neighbor instead of counting as notes.
+const PINNED: u64 = 0xaf24_a5fb_5f99_32b1;
 
 /// The golden utterance, built from whole numbers: a pulse train with a
 /// falling pitch contour, noise bursts, pauses, and a formant sweep —
