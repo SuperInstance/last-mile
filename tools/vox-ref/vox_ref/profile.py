@@ -31,6 +31,8 @@ class SpeakerProfile:
     release_median_ms: float = 0.0   # typical envelope release time
     attack_ms: float = 0.0           # median gesture attack
     tempo_syl_per_s: float = 0.0     # median speaking tempo
+    gesture_median_ms: float = 0.0   # median gesture length
+    final_gesture_median_ms: float = 0.0  # median length of the last gesture
     clip_count: int = 0
 
     def to_json(self) -> str:
@@ -51,12 +53,16 @@ class SpeakerProfile:
 
 
 def build_profile(clips: list[list[L0Frame]], tempos: list[float] | None = None,
-                  patches: list | None = None) -> SpeakerProfile:
+                  patches: list | None = None,
+                  gestures: list[list] | None = None) -> SpeakerProfile:
     """Derive a profile from a set of analysed clips.
 
     ``clips`` is a list of per-clip L0 frame lists. ``patches`` is the
-    matching list of L2 patches, used for the envelope medians. The
-    statistics are medians, which makes a single bad clip harmless.
+    matching list of L2 patches, used for the envelope medians. ``gestures``
+    is the matching list of gesture lists, used for the length of a syllable
+    and of the last syllable — the reference the end-of-phrase measurements
+    are made against. The statistics are medians, which makes a single bad
+    clip harmless.
     """
     if not clips:
         return SpeakerProfile()
@@ -94,6 +100,17 @@ def build_profile(clips: list[list[L0Frame]], tempos: list[float] | None = None,
     tempo_values = tempos if tempos else []
     tempo = float(np.median(tempo_values)) if tempo_values else 0.0
 
+    gesture_values: list[float] = []
+    final_gesture_values: list[float] = []
+    for gesture_list in (gestures or []):
+        for gesture in gesture_list:
+            if gesture.duration_s > 0:
+                gesture_values.append(gesture.duration_s)
+        if gesture_list:
+            last = gesture_list[-1]
+            if last.duration_s > 0:
+                final_gesture_values.append(last.duration_s)
+
     return SpeakerProfile(
         reference_hz=round(reference_hz, 4),
         pitch_range_cents=round(pitch_range, 3),
@@ -109,5 +126,9 @@ def build_profile(clips: list[list[L0Frame]], tempos: list[float] | None = None,
         attack_ms=round(float(np.median(attack_values)), 3)
                      if attack_values else 0.0,
         tempo_syl_per_s=round(tempo, 4),
+        gesture_median_ms=round(float(np.median(gesture_values)) * 1000.0, 3)
+                              if gesture_values else 0.0,
+        final_gesture_median_ms=round(float(np.median(final_gesture_values)) * 1000.0, 3)
+                                  if final_gesture_values else 0.0,
         clip_count=len(clips),
     )

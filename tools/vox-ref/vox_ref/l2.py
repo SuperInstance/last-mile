@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 
 from . import dsp
+from . import eop
 from .l0 import L0Frame
 from .l1 import Gesture, find_pauses
 
@@ -32,6 +33,67 @@ VIBRATO_FLOOR_CENTS = 15.0
 
 #: Minimum tremolo depth, in dB, before tremolo is reported at all.
 TREMOLO_FLOOR_DB = 1.5
+
+#: The fields the revised (v3) L2 line carries, in order.
+#:
+#: Every field is profile-relative: it says how this delivery compares with
+#: this speaker's own typical delivery. The set is the one that earned its
+#: place on the E4b corpus (see docs/research/vox/E4-E5.md).
+#:
+#: ``contour_cv`` and ``end_cv`` carry the class *and* the number; the
+#: ``_c`` forms carry the class alone and the plain forms the number alone.
+#: Which of the three the line uses is an experiment, not a constant.
+V3_FIELDS = (
+    "vel",       # level against the speaker's profile
+    "bright",    # timbre against the speaker's profile
+    "tempo",     # pace
+    "dur",       # how long the delivery lasted
+    "contour_cv",  # the pitch movement over the delivery, in ranges
+    "end_cv",      # where the pitch ended, in ranges
+    "tone",      # the boundary tone: rise / fall / level
+)
+
+#: The fields of the v3 line, without the ones that carry the order/question
+#: signal. It is the control for "which fields did the work".
+V3_FIELDS_NO_CONTOUR = (
+    "vel",
+    "bright",
+    "tempo",
+    "dur",
+)
+
+#: The v3 line with the numbers only: no class words.
+V3_FIELDS_NUM = (
+    "vel",
+    "bright",
+    "tempo",
+    "dur",
+    "contour",
+    "end",
+)
+
+#: The v3 line with the classes only: no numbers.
+V3_FIELDS_CLASS = (
+    "vel",
+    "bright",
+    "tempo",
+    "dur",
+    "contour_c",
+    "end_c",
+)
+
+
+def _offset_class(value: float, flat: float = 0.05) -> str:
+    """A profile-relative pitch movement, as rise / level / fall.
+
+    ``flat`` is the band, in fractions of the speaker's pitch range, that
+    counts as no movement at all.
+    """
+    if value >= flat:
+        return "rise"
+    if value <= -flat:
+        return "fall"
+    return "level"
 
 
 @dataclass
@@ -68,6 +130,12 @@ class Patch:
     # Contour.
     contour_class: str = "flat"
     contour_change_cents: float = 0.0
+    #: The same movement, in fractions of the speaker's own pitch range.
+    contour_norm: float = 0.0
+    #: The same movement, measured with medians instead of means, in
+    #: fractions of the speaker's own pitch range. The mean over a third of
+    #: the utterance moves when one frame is wrong; the median does not.
+    contour_median_norm: float = 0.0
 
     # Modulation.
     vibrato_cents: float = 0.0
@@ -89,6 +157,17 @@ class Patch:
     # Brightness level relative to the profile.
     brightness_class: str = "mid"
     brightness_offset_hz: float = 0.0
+
+    # The end of the phrase (the boundary tone and its neighbours).
+    eop_window_s: float = 0.25
+    eop_slope_cents_per_s: float = 0.0
+    eop_rise_cents: float = 0.0
+    eop_rise_ratio: float = 0.0
+    eop_final_offset_ratio: float = 0.0
+    eop_lengthening: float = 1.0
+    eop_lengthening_vs_gesture: float = 1.0
+    eop_tone: str = "level"
+    eop_voiced_frames: int = 0
 
     def as_row(self) -> dict:
         row = asdict(self)
@@ -181,6 +260,66 @@ class Patch:
             return "none"
         depth = "low" if self.tremolo_db < 3.5 else "high"
         return f"{depth} {self.tremolo_db:.1f}db@{self.tremolo_hz:.1f}hz"
+
+    # --- the revised line (v3) -------------------------------------------
+    #
+    # The v3 line carries the fields that earned their place on the E4b
+    # corpus, and it is profile-relative throughout. ``V3_FIELDS`` is the
+    # field set; ``to_line_v3`` renders it.
+
+    def to_line_v3(self, fields: tuple[str, ...] = V3_FIELDS,
+                   relative: bool = True) -> str:
+        """Render the revised (v3) L2 line.
+
+        The v2 line kept every axis the design named, including the ones
+        that never vary on a real corpus (``vib none``, ``trem none``) and
+        the ones that are constant for a speaker (``dec fast``, ``rel
+        hard``). A reader weighs what it sees, so constant tokens are not
+        free. The v3 line carries only the fields that carry information,
+        and it adds the end of the phrase: the boundary tone and the
+        measurements around it.
+        """
+        parts: list[str] = []
+        for name in fields:
+            token = self._v3_token(name, relative=relative)
+            if token:
+                parts.append(token)
+        return "vox: " + " | ".join(parts)
+
+    def _v3_token(self, name: str, relative: bool = True) -> str:
+        if name == "vel":
+            if relative:
+                return f"vel {self.velocity_class} {self.velocity_db:+.0f}dB"
+            return f"vel {self.velocity_db:+.0f}dB"
+        if name == "bright":
+            return f"bright {self.brightness_class}"
+        if name == "tempo":
+            return f"tempo {self.tempo_syl_per_s:.1f}/s"
+        if name == "dur":
+            return f"dur {self.duration_s:.2f}s"
+        if name == "end":
+            return f"end {self.eop_final_offset_ratio:+.2f}"
+        if name == "end_c":
+            return f"end {_offset_class(self.eop_final_offset_ratio)}"
+        if name == "end_cv":
+            return (f"end {_offset_class(self.eop_final_offset_ratio)} "
+                    f"{self.eop_final_offset_ratio:+.2f}")
+        if name == "contour":
+            return f"contour {self.contour_norm:+.2f}"
+        if name == "contour_c":
+            return f"contour {_offset_class(self.contour_norm)}"
+        if name == "contour_cv":
+            return (f"contour {_offset_class(self.contour_norm)} "
+                    f"{self.contour_norm:+.2f}")
+        if name == "tone":
+            return f"tone {self.eop_tone}"
+        if name == "len":
+            return f"len {self.eop_lengthening:.2f}"
+        if name == "slope":
+            return f"slope {self.eop_slope_cents_per_s:+.0f}c/s"
+        if name == "rise":
+            return f"rise {self.eop_rise_ratio:+.2f}"
+        raise ValueError(f"unknown L2 field {name!r}")
 
 
 def _utterance_adsr(times: np.ndarray, levels: np.ndarray,
@@ -401,6 +540,14 @@ def summarize(frames: list[L0Frame], gestures: list[Gesture], sr: int,
         contour_class, change = _contour_class(cents)
         patch.contour_class = contour_class
         patch.contour_change_cents = change
+        if profile is not None and profile.pitch_range_cents > 0:
+            # The same movement, in the speaker's own units.
+            patch.contour_norm = change / profile.pitch_range_cents
+            # ... and the robust version: medians of the first and last
+            # thirds of the voiced frames.
+            third = max(1, cents.size // 3)
+            median_change = float(np.median(cents[-third:]) - np.median(cents[:third]))
+            patch.contour_median_norm = median_change / profile.pitch_range_cents
 
     vib_c, vib_hz, trem_db, trem_hz = _modulation(frames, gestures, sr, profile_level_peak_db)
     patch.vibrato_cents = vib_c
@@ -440,6 +587,25 @@ def summarize(frames: list[L0Frame], gestures: list[Gesture], sr: int,
             patch.brightness_class = "mid"
     else:
         patch.brightness_class = "mid"
+
+    # The end of the phrase: the boundary tone and its neighbours.
+    end = eop.measure(
+        frames, gestures, sr,
+        pitch_range_cents=(profile.pitch_range_cents if profile else 0.0),
+        final_gesture_median_s=((profile.final_gesture_median_ms / 1000.0)
+                                if profile else 0.0),
+        gesture_median_s=((profile.gesture_median_ms / 1000.0)
+                          if profile else 0.0),
+    )
+    patch.eop_window_s = end.window_s
+    patch.eop_slope_cents_per_s = end.slope_cents_per_s
+    patch.eop_rise_cents = end.rise_cents
+    patch.eop_rise_ratio = end.rise_ratio
+    patch.eop_final_offset_ratio = end.final_offset_ratio
+    patch.eop_lengthening = end.lengthening
+    patch.eop_lengthening_vs_gesture = end.lengthening_vs_gesture
+    patch.eop_tone = end.tone
+    patch.eop_voiced_frames = end.voiced_frames
     return patch
 
 

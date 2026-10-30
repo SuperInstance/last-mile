@@ -14,6 +14,18 @@ Two supplementary arms are also run and clearly labelled:
   lfm3->gate    LFM3's transcript fed to the d1-2B gate, so the transcript
                 can be compared like for like against the other gate arms
 
+E4b adds the arms for the revised L2 line and for the two ways of combining
+the dials with the words:
+  l2-v3          the revised line (v3), the dials alone
+  l2-v3-num      the revised line with the numbers only, no classes
+  l2-v3-cls      the revised line with the classes only, no numbers
+  l2-v3-nocontour  the revised line without the pitch-movement fields: the
+                control for "which fields did the work"
+  l2-v3+words    the revised line and the words, concatenated into one state
+  l2-v3-field+words  the revised line and the words as two separate fields of
+                the System One request (the state is a structured object,
+                which the server renders as JSON)
+
 Every arm answers the same two gates:
 
   urgency          calm / ordinary / urgent      (the delivery)
@@ -32,6 +44,7 @@ import re
 import time
 import urllib.request
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 D1_2B = "http://localhost:8094/v1/systemone"
 LFM3 = "http://localhost:8102/v1/chat/completions"
@@ -65,6 +78,40 @@ QUESTIONS = {
     },
 }
 
+#: The diagnostic question. It asks the gate to *read the measurement*
+#: rather than to guess the intent, so that a wrong answer means the line
+#: did not carry the measurement, not that the gate failed to connect the
+#: measurement to the meaning of a question.
+READ_QUESTIONS = dict(QUESTIONS)
+READ_QUESTIONS["pitch_end"] = {
+    "type": "choice",
+    "instructions": "Judging only by the performance line: where is the pitch "
+                    "at the end of the delivery, compared with where it "
+                    "started?",
+    "criteria": {
+        "higher": "The pitch ends higher than it started.",
+        "lower": "The pitch ends lower than it started.",
+    },
+}
+
+#: The urgency gate already defines its classes in the vocabulary of the
+#: delivery ("fast, loud and sharp"). The order/question gate does not: its
+#: criteria are pure semantics, and there is no word in them for the line to
+#: match. This pack gives the order/question gate the same kind of criteria,
+#: so that the two gates can be compared like for like.
+VOCAB_QUESTIONS = dict(QUESTIONS)
+VOCAB_QUESTIONS["order_or_question"] = {
+    "type": "choice",
+    "instructions": "Is the speaker giving an order or asking a question? "
+                    "Judge it by how the delivery ends.",
+    "criteria": {
+        "order": "The speaker is telling someone to do something. The pitch "
+                 "ends falling or stays level.",
+        "question": "The speaker is asking for information. The pitch ends "
+                    "rising.",
+    },
+}
+
 LFM3_PROMPTS = {
     "urgency": "Rate the urgency of this delivery: calm, ordinary, or urgent? One word only.",
     "order_or_question": "Is the speaker asking a question or giving an order? Reply with exactly one word.",
@@ -80,6 +127,35 @@ LEGEND = (
     "means it holds. 'hard' means the voice stops abruptly, 'soft' means it "
     "trails off. 'bright' describes the timbre, 'tempo' the pace."
 )
+
+#: The legend for the revised (v3) line. It spells out every token, and it
+#: says nothing about which end of the scale means which intent: the reader
+#: is supposed to bring its own knowledge of intonation, the way a person
+#: hearing the line would.
+LEGEND_V3 = (
+    "The performance line describes how the voice was delivered, measured "
+    "against this speaker's own usual delivery. 'soft' means quieter than "
+    "this speaker usually is, 'normal' means the usual level, 'loud' means "
+    "louder than usual. 'bright' describes the timbre, 'tempo' the pace in "
+    "syllables per second, and 'dur' how long the whole delivery lasted, in "
+    "seconds. 'contour' is how far the pitch moved over the whole delivery, "
+    "in fractions of this speaker's usual pitch range: a negative number "
+    "means the pitch ended lower than it started, a positive number means it "
+    "ended higher, and the word 'level' means it ended about where it "
+    "started. 'end' is where the pitch ended, again in fractions of this "
+    "speaker's usual pitch range: negative means the last word ended below "
+    "this speaker's usual pitch, positive means above it. 'tone' is the "
+    "movement of the very last moment of the voice: 'rise', 'fall' or "
+    "'level'."
+)
+
+#: The arms that read the revised line, and the column of l2.csv each uses.
+V3_ARMS = {
+    "l2-v3": "l2_v3",
+    "l2-v3-num": "l2_v3_num",
+    "l2-v3-cls": "l2_v3_cls",
+    "l2-v3-nocontour": "l2_v3_nocontour",
+}
 
 DELIVERY_CLASSES = ["calm", "ordinary", "urgent"]
 INTENT_CLASSES = ["order", "question"]
@@ -129,21 +205,33 @@ def pick_option(text: str, options: list[str]) -> str:
     return best if best_pos >= 0 else ""
 
 
-def ask_gate(state: str, timeout: float = 120.0) -> tuple[dict, float]:
-    """Ask the d1-2B gate the two questions. Returns (answers, latency_ms)."""
-    payload = {"model": "d1-2B", "state": state, "questions": QUESTIONS}
+def ask_gate(state, timeout: float = 120.0, questions: dict | None = None) -> tuple[dict, float]:
+    """Ask the d1-2B gate the two questions. Returns (answers, latency_ms).
+
+    ``state`` may be text or a structured object. The System One API takes
+    the state as it is: a string is handed to the model as text, and an
+    object is rendered as JSON, which is how a channel can be a *separate
+    field* of the request instead of a sentence inside one.
+    """
+    payload = {"model": "d1-2B", "state": state,
+               "questions": questions or QUESTIONS}
     started = time.perf_counter()
     out = post_json(D1_2B, payload, timeout=timeout)
     latency = (time.perf_counter() - started) * 1000.0
     return out.get("answers", {}), latency
 
 
-def arm_state(arm: str, l2_abs: str, l2_rel: str, heard: str, truth: str) -> str:
+def arm_state(arm: str, l2_abs: str, l2_rel: str, heard: str, truth: str,
+              v3: dict | None = None) -> str | dict:
     """The plain-language state each arm hands to the gate."""
     if arm in ("l2-abs", "l2"):
         line = l2_abs if arm == "l2-abs" else l2_rel
         return ("A voice delivery was measured by an analyzer. Its performance "
                 f"line reads:\n{line}\n{LEGEND}")
+    if arm in V3_ARMS:
+        line = (v3 or {}).get(V3_ARMS[arm], "")
+        return ("A voice delivery was measured by an analyzer. Its performance "
+                f"line reads:\n{line}\n{LEGEND_V3}")
     if arm == "words":
         return ("A voice delivery was heard. The words spoken were:\n"
                 f"{heard}")
@@ -155,6 +243,64 @@ def arm_state(arm: str, l2_abs: str, l2_rel: str, heard: str, truth: str) -> str
         return ("A voice delivery was measured by an analyzer and heard. Its "
                 f"performance line reads:\n{line}\n{LEGEND}\n"
                 f"The words spoken were:\n{heard}")
+    if arm == "l2-v3+words":
+        line = (v3 or {}).get("l2_v3", "")
+        return ("A voice delivery was measured by an analyzer and heard. Its "
+                f"performance line reads:\n{line}\n{LEGEND_V3}\n"
+                f"The words spoken were:\n{heard}")
+    if arm == "l2-v3-field+words":
+        # The two channels as two separate fields of the request. The
+        # server renders an object state as JSON, so the model reads the
+        # words and the performance line as distinct things.
+        return {
+            "words": heard,
+            "performance": (v3 or {}).get("l2_v3", ""),
+            "note": ("The performance line describes how the voice was "
+                     "delivered, measured against this speaker's own usual "
+                     "delivery."),
+        }
+    if arm == "l2-v3-vocab":
+        # The same state as l2-v3, but the order/question criteria are
+        # written in the vocabulary of the delivery, the way the urgency
+        # criteria already are.
+        line = (v3 or {}).get("l2_v3", "")
+        return ("A voice delivery was measured by an analyzer. Its performance "
+                f"line reads:\n{line}\n{LEGEND_V3}")
+    if arm == "l2-v3-read":
+        # The same state as l2-v3, with one extra question that asks the
+        # gate to read the measurement instead of guessing the intent.
+        line = (v3 or {}).get("l2_v3", "")
+        return ("A voice delivery was measured by an analyzer. Its performance "
+                f"line reads:\n{line}\n{LEGEND_V3}")
+    if arm == "l2-v3-json":
+        # The same measurements, but as a machine-readable object: every
+        # axis is a named field with a number in it, and the legend is a
+        # note beside them. This is the shape design §5 asks for, in the
+        # only form the System One API can carry.
+        return {
+            "performance": {
+                "velocity_db": float(v3.get("velocity_db", 0.0)),
+                "velocity": v3.get("velocity_class", ""),
+                "brightness": v3.get("brightness_class", ""),
+                "tempo_syl_per_s": float(v3.get("tempo_syl_per_s", 0.0)),
+                "duration_s": float(v3.get("duration_s", 0.0)),
+                "contour_norm": float(v3.get("contour_median_norm", 0.0)),
+                "end_offset_norm": float(v3.get("eop_final_offset_ratio", 0.0)),
+                "boundary_tone": v3.get("eop_tone", ""),
+            },
+            "note": ("How the voice was delivered, measured against this "
+                     "speaker's own usual delivery. 'velocity' is the peak "
+                     "level against that usual level. 'brightness' is the "
+                     "timbre against that usual timbre. 'contour_norm' is how "
+                     "far the pitch moved over the delivery in fractions of "
+                     "this speaker's usual pitch range: negative means the "
+                     "pitch ended lower than it started, positive means it "
+                     "ended higher. 'end_offset_norm' is where the pitch "
+                     "ended in the same units: negative means the last word "
+                     "ended below this speaker's usual pitch, positive above "
+                     "it. 'boundary_tone' is the movement of the very last "
+                     "moment: rise, fall or level."),
+        }
     raise ValueError(arm)
 
 
@@ -184,12 +330,18 @@ def main() -> int:
                              "asking again (used to add an arm later)")
     parser.add_argument("--summarize-only", action="store_true",
                         help="rebuild summary.json from an existing results CSV")
+    parser.add_argument("--workers", type=int, default=4,
+                        help="how many gate requests may be in flight at once "
+                             "(default: 4)")
     args = parser.parse_args()
     dataset = args.dataset
 
     wanted = {a.strip() for a in args.arms.split(",") if a.strip()}
     gate_arms = ["l2-abs", "l2", "words", "l2-abs+words", "l2+words",
                  "oracle-words"]
+    gate_arms += list(V3_ARMS) + ["l2-v3+words", "l2-v3-field+words",
+                                  "l2-v3-json", "l2-v3-read",
+                                  "l2-v3-vocab"]
     if wanted:
         gate_arms = [a for a in gate_arms if a in wanted]
     run_lfm3 = (not wanted) or ("lfm3" in wanted)
@@ -228,41 +380,67 @@ def main() -> int:
         print(f"loaded {len(existing)} existing answers from {existing_path}")
 
     # --- arms that go through the d1-2B gate -------------------------------
-    for arm in gate_arms:
-        print(f"arm {arm}: asking the d1-2B gate on {len(files)} clips")
-        for n, path in enumerate(files, start=1):
-            row = manifest[path]
-            l2_abs = l2_rows[path]["l2_abs"]
-            l2_rel = l2_rows[path]["l2_rel"]
-            heard = transcripts[path]["heard_text"]
-            truth = row["text"]
-            state = arm_state(arm, l2_abs, l2_rel, heard, truth)
-            try:
-                answers, latency = ask_gate(state)
-                error = ""
-            except Exception as exc:  # noqa: BLE001
-                answers, latency, error = {}, 0.0, str(exc)
-            for gate, classes in (("urgency", DELIVERY_CLASSES),
-                                  ("order_or_question", INTENT_CLASSES)):
-                answer = answers.get(gate, {})
-                choice = answer.get("choice", "")
-                results.append({
-                    "arm": arm,
-                    "gate": gate,
-                    "file": path,
-                    "speaker": row["speaker"],
-                    "style": row["style"],
-                    "intent": row["intent"],
-                    "truth": STYLE_TO_DELIVERY.get(row["style"], "") if gate == "urgency"
-                             else row["intent"],
-                    "pred": choice,
-                    "confidence": answer.get("confidence", ""),
-                    "probabilities": json.dumps(answer.get("probabilities", {})),
-                    "latency_ms": round(latency, 1),
-                    "error": error,
-                })
-            if n % 40 == 0 or n == len(files):
-                print(f"  {n}/{len(files)}")
+    # At most four requests are in flight at once: the d1-2B server serves
+    # one Thor and a queue longer than that does not make the answers any
+    # faster, it only makes the model wait longer.
+    pool = ThreadPoolExecutor(max_workers=args.workers)
+    try:
+        for arm in gate_arms:
+            print(f"arm {arm}: asking the d1-2B gate on {len(files)} clips")
+
+            def one(path: str, arm: str = arm) -> list[dict]:
+                row = manifest[path]
+                l2_abs = l2_rows[path]["l2_abs"]
+                l2_rel = l2_rows[path]["l2_rel"]
+                heard = transcripts[path]["heard_text"]
+                truth = row["text"]
+                state = arm_state(arm, l2_abs, l2_rel, heard, truth, v3=l2_rows[path])
+                pack = (READ_QUESTIONS if arm == "l2-v3-read" else
+                        VOCAB_QUESTIONS if arm == "l2-v3-vocab" else QUESTIONS)
+                try:
+                    answers, latency = ask_gate(state, questions=pack)
+                    error = ""
+                except Exception as exc:  # noqa: BLE001
+                    answers, latency, error = {}, 0.0, str(exc)
+                rows = []
+                for gate, classes in (("urgency", DELIVERY_CLASSES),
+                                      ("order_or_question", INTENT_CLASSES),
+                                      ("pitch_end", ["higher", "lower"])):
+                    answer = answers.get(gate, {})
+                    choice = answer.get("choice", "")
+                    if gate == "pitch_end":
+                        # The truth is what the measurement says: the pitch
+                        # moved up over the delivery, or down.
+                        moved = float(l2_rows[path].get("contour_median_norm", 0.0))
+                        gate_truth = "higher" if moved > 0 else "lower"
+                    elif gate == "urgency":
+                        gate_truth = STYLE_TO_DELIVERY.get(row["style"], "")
+                    else:
+                        gate_truth = row["intent"]
+                    rows.append({
+                        "arm": arm,
+                        "gate": gate,
+                        "file": path,
+                        "speaker": row["speaker"],
+                        "style": row["style"],
+                        "intent": row["intent"],
+                        "truth": gate_truth,
+                        "pred": choice,
+                        "confidence": answer.get("confidence", ""),
+                        "probabilities": json.dumps(answer.get("probabilities", {})),
+                        "latency_ms": round(latency, 1),
+                        "error": error,
+                    })
+                return rows
+
+            done = 0
+            for rows in pool.map(one, files):
+                results.extend(rows)
+                done += 1
+                if done % 40 == 0 or done == len(files):
+                    print(f"  {done}/{len(files)}")
+    finally:
+        pool.shutdown(wait=True)
 
     # --- the LFM3-only arm: LFM3 answers the gate from the audio ----------
     if run_lfm3:

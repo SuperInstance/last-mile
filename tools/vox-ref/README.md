@@ -52,22 +52,18 @@ release, pitch target and glide (cents), peak level and a noise-burst flag.
 ### L2 — the patch, the line a decision model reads
 
 ```
-vox: atk 35ms dec fast sus low rel hard | contour fall | vib none | trem none | bright high | tempo 6.1/s | vel +9dB
+vox: vel soft -4dB | bright low | tempo 4.8/s | dur 0.63s | contour fall -0.79 | end fall -1.16 | tone fall
 ```
 
 | axis | meaning |
 |---|---|
-| `atk` | median gesture attack, milliseconds |
-| `dec` | how fast the loudness falls away from its peak: fast / med / slow |
-| `sus` | sustain level: low / mid / high |
-| `rel` | how abruptly the voice stops: hard / med / soft |
-| `contour` | pitch movement over the utterance: rise / fall / flat / rise-fall |
-| `vib` | vibrato depth and rate (cents @ Hz); `none` when below the floor |
-| `trem` | tremolo depth and rate (dB @ Hz) |
+| `vel` | peak level against the speaker's profile: the class (soft / normal / loud) and the dB |
 | `bright` | spectral centroid relative to the speaker profile: low / mid / high |
 | `tempo` | syllables per second of speech |
-| `vel` | peak level relative to the speaker profile, in dB |
-| `pause` | pause count and total duration, when there are pauses |
+| `dur` | how long the delivery lasted |
+| `contour` | the pitch movement over the delivery, class and value in fractions of the speaker's pitch range |
+| `end` | where the pitch ended, class and value in the same units |
+| `tone` | the boundary tone: rise / fall / level |
 
 #### Two forms of the line
 
@@ -84,17 +80,59 @@ material (`dec fast`, `rel hard` almost everywhere), and a reader weighs
 those constant tokens over the one axis that varies. The relative form is
 what the design's §7 profile is for, applied to L2 as well as L0 and L1.
 
+#### The revised line (v3)
+
+`Patch.to_line_v3()` renders the line the E4b experiment settled on
+(`docs/research/vox/E4-E5.md` §8). Two changes from v2:
+
+* **The dead tokens are gone.** `atk`, `dec`, `sus`, `rel`, `vib` and `trem`
+  are dropped: the envelope classes were near-constant for a speaker, and
+  the modulation axes read `none` on every clip of the corpus. A reader
+  weighs what it sees, so a token that never varies is not free.
+* **The end of the phrase is in.** `contour` is now continuous and
+  profile-relative, and `end` and `tone` say where the pitch ended and
+  whether it rose or fell.
+
+The line is 24 words over 7 fields, against v2's 28 words over 7 fields:
+less text, more information. `to_line_v3(fields=...)` takes the field list
+as an argument, so the class-only, number-only and no-contour forms used
+as controls in the experiment are one call away.
+
+#### The end of the phrase (`eop.py`)
+
+The measurements behind `contour`, `end` and `tone`:
+
+| field | what it measures |
+|---|---|
+| `eop_slope_cents_per_s` | the F0 slope over the last 250 ms of speech |
+| `eop_rise_cents`, `eop_rise_ratio` | the final rise, in cents and in fractions of the speaker's pitch range |
+| `eop_final_offset_ratio` | where the pitch ended, in fractions of the speaker's pitch range |
+| `eop_lengthening` | the last gesture against this speaker's typical last gesture |
+| `eop_tone` | the boundary tone: rise / fall / level |
+
+Medians of the first and last third of the window, not means: one wrong
+octave in the pitch tracker moves a mean and barely moves a median. The
+window is 250 ms; 200 ms and 300 ms are configurable, and the sweep over
+all three is in `tools/vox-e4/e4b_select_fields.py`.
+
 #### The legend
 
 A format that a reader has to guess the meaning of is not an interchange
 format. The evaluation sends the vocabulary with the line:
 
-> The performance line describes how the voice was delivered, against this
-> speaker's own usual delivery. 'soft' means quieter than this speaker
-> usually is, 'normal' means the usual level, 'loud' means louder than
-> usual. 'fast' means the loudness falls away quicker than usual, 'slow'
-> means it holds. 'hard' means the voice stops abruptly, 'soft' means it
-> trails off. 'bright' describes the timbre, 'tempo' the pace.
+> The performance line describes how the voice was delivered, measured
+> against this speaker's own usual delivery. 'soft' means quieter than
+> this speaker usually is, 'normal' means the usual level, 'loud' means
+> louder than usual. 'bright' describes the timbre, 'tempo' the pace in
+> syllables per second, and 'dur' how long the whole delivery lasted, in
+> seconds. 'contour' is how far the pitch moved over the whole delivery,
+> in fractions of this speaker's usual pitch range… 'end' is where the
+> pitch ended, again in fractions of this speaker's usual pitch range…
+> 'tone' is the movement of the very last moment of the voice.
+
+The legend describes the *format*. It does not say which end of the scale
+means which intent: that mapping is the reader's own knowledge of
+intonation, and giving it away would measure the hint, not the line.
 
 ## The speaker profile
 
@@ -118,6 +156,7 @@ vox_ref/
   l0.py        the frame layer
   l1.py        gesture segmentation
   l2.py        the patch and the line format
+  eop.py       the end of the phrase: the boundary tone and its neighbours
   profile.py   the speaker profile
   wavio.py     WAV reading and writing
   cli.py       the command line

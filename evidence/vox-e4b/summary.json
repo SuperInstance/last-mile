@@ -1,0 +1,641 @@
+{
+  "arms": {
+    "l2-v3": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.45,
+        "accuracy_answered_only": 0.45,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 26,
+            "ordinary": 34,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 11,
+            "urgent": 1
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 16,
+            "urgent": 44
+          }
+        },
+        "median_latency_ms": 254.0,
+        "mean_latency_ms": 291.5,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.9056,
+          "confusion": {
+            "not": {
+              "not": 119,
+              "urgent": 1
+            },
+            "urgent": {
+              "not": 16,
+              "urgent": 44
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.5,
+        "accuracy_answered_only": 0.5,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 0,
+            "question": 170
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 212.1,
+        "mean_latency_ms": 523.8
+      }
+    },
+    "l2-v3+words": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.3444,
+        "accuracy_answered_only": 0.3444,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 24,
+            "ordinary": 36,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 12,
+            "urgent": 0
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 34,
+            "urgent": 26
+          }
+        },
+        "median_latency_ms": 266.7,
+        "mean_latency_ms": 408.8,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.8111,
+          "confusion": {
+            "not": {
+              "not": 120,
+              "urgent": 0
+            },
+            "urgent": {
+              "not": 34,
+              "urgent": 26
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.9941,
+        "accuracy_answered_only": 0.9941,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 168,
+            "question": 2
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 266.8,
+        "mean_latency_ms": 433.4
+      }
+    },
+    "l2-v3-cls": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.4,
+        "accuracy_answered_only": 0.4,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 26,
+            "ordinary": 34,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 12,
+            "urgent": 0
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 26,
+            "urgent": 34
+          }
+        },
+        "median_latency_ms": 209.9,
+        "mean_latency_ms": 1412.3,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.8556,
+          "confusion": {
+            "not": {
+              "not": 120,
+              "urgent": 0
+            },
+            "urgent": {
+              "not": 26,
+              "urgent": 34
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.5,
+        "accuracy_answered_only": 0.5,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 0,
+            "question": 170
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 210.0,
+        "mean_latency_ms": 1256.1
+      }
+    },
+    "l2-v3-field+words": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.3222,
+        "accuracy_answered_only": 0.3222,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 25,
+            "ordinary": 35,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 12,
+            "urgent": 0
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 39,
+            "urgent": 21
+          }
+        },
+        "median_latency_ms": 121.8,
+        "mean_latency_ms": 360.0,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.7833,
+          "confusion": {
+            "not": {
+              "not": 120,
+              "urgent": 0
+            },
+            "urgent": {
+              "not": 39,
+              "urgent": 21
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.9971,
+        "accuracy_answered_only": 0.9971,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 169,
+            "question": 1
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 121.9,
+        "mean_latency_ms": 249.1
+      }
+    },
+    "l2-v3-json": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.35,
+        "accuracy_answered_only": 0.35,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 26,
+            "ordinary": 33,
+            "urgent": 1
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 11,
+            "urgent": 1
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 34,
+            "urgent": 26
+          }
+        },
+        "median_latency_ms": 198.6,
+        "mean_latency_ms": 397.9,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.8,
+          "confusion": {
+            "not": {
+              "not": 118,
+              "urgent": 2
+            },
+            "urgent": {
+              "not": 34,
+              "urgent": 26
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.5,
+        "accuracy_answered_only": 0.5,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 170,
+            "question": 0
+          },
+          "question": {
+            "order": 170,
+            "question": 0
+          }
+        },
+        "median_latency_ms": 198.6,
+        "mean_latency_ms": 408.6
+      }
+    },
+    "l2-v3-nocontour": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.4333,
+        "accuracy_answered_only": 0.4333,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 26,
+            "ordinary": 34,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 12,
+            "urgent": 0
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 20,
+            "urgent": 40
+          }
+        },
+        "median_latency_ms": 406.7,
+        "mean_latency_ms": 642.0,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.8889,
+          "confusion": {
+            "not": {
+              "not": 120,
+              "urgent": 0
+            },
+            "urgent": {
+              "not": 20,
+              "urgent": 40
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.5,
+        "accuracy_answered_only": 0.5,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 0,
+            "question": 170
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 406.5,
+        "mean_latency_ms": 641.1
+      }
+    },
+    "l2-v3-num": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.4278,
+        "accuracy_answered_only": 0.4278,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 26,
+            "ordinary": 34,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 12,
+            "urgent": 0
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 21,
+            "urgent": 39
+          }
+        },
+        "median_latency_ms": 208.4,
+        "mean_latency_ms": 1061.7,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.8833,
+          "confusion": {
+            "not": {
+              "not": 120,
+              "urgent": 0
+            },
+            "urgent": {
+              "not": 21,
+              "urgent": 39
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.5,
+        "accuracy_answered_only": 0.5,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 0,
+            "question": 170
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 208.4,
+        "mean_latency_ms": 842.5
+      }
+    },
+    "l2-v3-read": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.45,
+        "accuracy_answered_only": 0.45,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 26,
+            "ordinary": 34,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 11,
+            "urgent": 1
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 16,
+            "urgent": 44
+          }
+        },
+        "median_latency_ms": 307.6,
+        "mean_latency_ms": 902.1,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.9056,
+          "confusion": {
+            "not": {
+              "not": 119,
+              "urgent": 1
+            },
+            "urgent": {
+              "not": 16,
+              "urgent": 44
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.5,
+        "accuracy_answered_only": 0.5,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 0,
+            "question": 170
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 307.6,
+        "mean_latency_ms": 626.8
+      }
+    },
+    "l2-v3-vocab": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.45,
+        "accuracy_answered_only": 0.45,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 26,
+            "ordinary": 34,
+            "urgent": 0
+          },
+          "ordinary": {
+            "calm": 48,
+            "ordinary": 11,
+            "urgent": 1
+          },
+          "urgent": {
+            "calm": 0,
+            "ordinary": 16,
+            "urgent": 44
+          }
+        },
+        "median_latency_ms": 298.5,
+        "mean_latency_ms": 2141.4,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.9056,
+          "confusion": {
+            "not": {
+              "not": 119,
+              "urgent": 1
+            },
+            "urgent": {
+              "not": 16,
+              "urgent": 44
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.6559,
+        "accuracy_answered_only": 0.6559,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 141,
+            "question": 29
+          },
+          "question": {
+            "order": 88,
+            "question": 82
+          }
+        },
+        "median_latency_ms": 308.3,
+        "mean_latency_ms": 1313.7
+      }
+    },
+    "words": {
+      "urgency": {
+        "n": 180,
+        "answered": 180,
+        "accuracy": 0.3389,
+        "accuracy_answered_only": 0.3389,
+        "majority_baseline": 0.3333,
+        "confusion": {
+          "calm": {
+            "calm": 9,
+            "ordinary": 42,
+            "urgent": 9
+          },
+          "ordinary": {
+            "calm": 9,
+            "ordinary": 43,
+            "urgent": 8
+          },
+          "urgent": {
+            "calm": 10,
+            "ordinary": 41,
+            "urgent": 9
+          }
+        },
+        "median_latency_ms": 249.8,
+        "mean_latency_ms": 234.1,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.6222,
+          "confusion": {
+            "not": {
+              "not": 103,
+              "urgent": 17
+            },
+            "urgent": {
+              "not": 51,
+              "urgent": 9
+            }
+          }
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "answered": 340,
+        "accuracy": 0.9853,
+        "accuracy_answered_only": 0.9853,
+        "majority_baseline": 0.5,
+        "confusion": {
+          "order": {
+            "order": 165,
+            "question": 5
+          },
+          "question": {
+            "order": 0,
+            "question": 170
+          }
+        },
+        "median_latency_ms": 249.9,
+        "mean_latency_ms": 236.9
+      }
+    }
+  },
+  "totals": {
+    "clips": 340,
+    "answers": 7480,
+    "asr_exact_overall": 0.9647
+  },
+  "asr_exact_by_style": {
+    "Angry": {
+      "n": 60,
+      "exact": 57,
+      "rate": 0.95
+    },
+    "Calm": {
+      "n": 60,
+      "exact": 60,
+      "rate": 1.0
+    },
+    "Default": {
+      "n": 60,
+      "exact": 57,
+      "rate": 0.95
+    },
+    "Happy": {
+      "n": 60,
+      "exact": 57,
+      "rate": 0.95
+    },
+    "Neutral": {
+      "n": 60,
+      "exact": 59,
+      "rate": 0.9833
+    },
+    "Sad": {
+      "n": 40,
+      "exact": 38,
+      "rate": 0.95
+    }
+  }
+}
