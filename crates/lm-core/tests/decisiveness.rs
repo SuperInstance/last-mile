@@ -61,6 +61,24 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The integer square root, by Newton's method.
+///
+/// The crate does its arithmetic in integers only, and so does the sweep:
+/// the fairness bound has to be the same number on every machine (D69's
+/// spirit).
+fn isqrt(n: u64) -> u64 {
+    if n == 0 {
+        return 0;
+    }
+    let mut x = n;
+    let mut y = x.div_ceil(2);
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
+}
+
 /// The reflex the sweep plays: the shipped one, or the one of the harness the
 /// caller names.
 fn reflex() -> String {
@@ -344,5 +362,24 @@ fn decisiveness_sweep() {
                 fought,
                 100.0 * fought as f64 / SEEDS as f64,
             );
+        // Fairness: the same bound the fairness guard uses (`tests/fairness.rs`):
+        // over the decided rounds the win gap must stay inside 2-sigma, so
+        // neither colour may win more than the guard allows. The bound is
+        // printed next to the share so a sweep can be read against the guard
+        // without running it.
+        let decided = wins0 + wins1;
+        let bound = 2 * isqrt(decided);
+        let gap = wins0.abs_diff(wins1);
+        println!(
+            "    wins: squad 0 {} ({:.0}%), squad 1 {} ({:.0}%) of {} decided, gap {}, 2-sigma bound {} -- {}",
+            wins0,
+            100.0 * wins0 as f64 / SEEDS as f64,
+            wins1,
+            100.0 * wins1 as f64 / SEEDS as f64,
+            decided,
+            gap,
+            bound,
+            if gap <= bound { "fair" } else { "UNFAIR" }
+        );
     }
 }

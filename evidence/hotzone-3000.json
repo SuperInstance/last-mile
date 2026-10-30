@@ -1,0 +1,2186 @@
+{
+  "deltas": [
+    -759,
+    -30,
+    40,
+    -240,
+    214,
+    -597,
+    44,
+    -833,
+    -577,
+    104,
+    -803,
+    -570,
+    -826,
+    104,
+    -775,
+    196
+  ],
+  "port": 8104,
+  "rounds": [
+    {
+      "answered": 345,
+      "arm": "default",
+      "asks": 361,
+      "decisions": 265,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 83,
+      "expired": 0,
+      "first_sight_tick": 2077,
+      "margin": 345,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          83
+        ]
+      ],
+      "refusals": 99,
+      "score": 1923,
+      "scores": [
+        977,
+        632
+      ],
+      "seed": 1000000,
+      "sight_ticks": 923,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          45
+        ],
+        [
+          1,
+          46
+        ],
+        [
+          2,
+          44
+        ],
+        [
+          3,
+          44
+        ],
+        [
+          4,
+          46
+        ],
+        [
+          5,
+          46
+        ],
+        [
+          6,
+          45
+        ],
+        [
+          7,
+          45
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 306,
+      "arm": "shared-ghost",
+      "asks": 322,
+      "decisions": 218,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 78,
+      "expired": 0,
+      "first_sight_tick": 1861,
+      "margin": 689,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          78
+        ]
+      ],
+      "refusals": 94,
+      "score": 1164,
+      "scores": [
+        689,
+        0
+      ],
+      "seed": 1000000,
+      "sight_ticks": 464,
+      "tags": 7,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          40
+        ],
+        [
+          1,
+          41
+        ],
+        [
+          2,
+          40
+        ],
+        [
+          3,
+          40
+        ],
+        [
+          4,
+          41
+        ],
+        [
+          5,
+          41
+        ],
+        [
+          6,
+          39
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 308,
+      "arm": "default",
+      "asks": 324,
+      "decisions": 254,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 57,
+      "expired": 0,
+      "first_sight_tick": 2006,
+      "margin": 32,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          57
+        ]
+      ],
+      "refusals": 73,
+      "score": 1994,
+      "scores": [
+        590,
+        558
+      ],
+      "seed": 1000001,
+      "sight_ticks": 994,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          41
+        ],
+        [
+          1,
+          41
+        ],
+        [
+          2,
+          40
+        ],
+        [
+          3,
+          40
+        ],
+        [
+          4,
+          41
+        ],
+        [
+          5,
+          40
+        ],
+        [
+          6,
+          41
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 287,
+      "arm": "shared-ghost",
+      "asks": 303,
+      "decisions": 196,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 78,
+      "expired": 0,
+      "first_sight_tick": 1725,
+      "margin": 424,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          78
+        ]
+      ],
+      "refusals": 94,
+      "score": 1964,
+      "scores": [
+        670,
+        1094
+      ],
+      "seed": 1000001,
+      "sight_ticks": 664,
+      "tags": 3,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          39
+        ],
+        [
+          1,
+          38
+        ],
+        [
+          2,
+          38
+        ],
+        [
+          3,
+          38
+        ],
+        [
+          4,
+          37
+        ],
+        [
+          5,
+          38
+        ],
+        [
+          6,
+          38
+        ],
+        [
+          7,
+          37
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 351,
+      "arm": "default",
+      "asks": 367,
+      "decisions": 287,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 61,
+      "expired": 0,
+      "first_sight_tick": 2054,
+      "margin": 278,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          61
+        ]
+      ],
+      "refusals": 77,
+      "score": 1923,
+      "scores": [
+        1066,
+        788
+      ],
+      "seed": 1000002,
+      "sight_ticks": 923,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          45
+        ],
+        [
+          1,
+          45
+        ],
+        [
+          2,
+          46
+        ],
+        [
+          3,
+          46
+        ],
+        [
+          4,
+          47
+        ],
+        [
+          5,
+          47
+        ],
+        [
+          6,
+          46
+        ],
+        [
+          7,
+          45
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 276,
+      "arm": "shared-ghost",
+      "asks": 292,
+      "decisions": 181,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 83,
+      "expired": 0,
+      "first_sight_tick": 1786,
+      "margin": 940,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          83
+        ]
+      ],
+      "refusals": 99,
+      "score": 1963,
+      "scores": [
+        210,
+        1150
+      ],
+      "seed": 1000002,
+      "sight_ticks": 463,
+      "tags": 5,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          37
+        ],
+        [
+          1,
+          37
+        ],
+        [
+          2,
+          36
+        ],
+        [
+          3,
+          35
+        ],
+        [
+          4,
+          37
+        ],
+        [
+          5,
+          37
+        ],
+        [
+          6,
+          37
+        ],
+        [
+          7,
+          36
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 334,
+      "arm": "default",
+      "asks": 350,
+      "decisions": 277,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 61,
+      "expired": 0,
+      "first_sight_tick": 2030,
+      "margin": 100,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          61
+        ]
+      ],
+      "refusals": 77,
+      "score": 1970,
+      "scores": [
+        413,
+        513
+      ],
+      "seed": 1000003,
+      "sight_ticks": 970,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          44
+        ],
+        [
+          1,
+          44
+        ],
+        [
+          2,
+          44
+        ],
+        [
+          3,
+          43
+        ],
+        [
+          4,
+          44
+        ],
+        [
+          5,
+          44
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          7,
+          43
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 299,
+      "arm": "shared-ghost",
+      "asks": 315,
+      "decisions": 215,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 71,
+      "expired": 0,
+      "first_sight_tick": 2177,
+      "margin": 1215,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          71
+        ]
+      ],
+      "refusals": 87,
+      "score": 1730,
+      "scores": [
+        1449,
+        234
+      ],
+      "seed": 1000003,
+      "sight_ticks": 230,
+      "tags": 5,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          40
+        ],
+        [
+          1,
+          40
+        ],
+        [
+          2,
+          39
+        ],
+        [
+          3,
+          39
+        ],
+        [
+          4,
+          40
+        ],
+        [
+          5,
+          39
+        ],
+        [
+          6,
+          39
+        ],
+        [
+          7,
+          39
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 336,
+      "arm": "default",
+      "asks": 352,
+      "decisions": 270,
+      "draw": false,
+      "end_tick": 2692,
+      "escalations": 70,
+      "expired": 0,
+      "first_sight_tick": 2041,
+      "margin": 1162,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          70
+        ]
+      ],
+      "refusals": 86,
+      "score": 1960,
+      "scores": [
+        1801,
+        639
+      ],
+      "seed": 1000004,
+      "sight_ticks": 460,
+      "tags": 5,
+      "ticks": 2693,
+      "usage": [
+        [
+          0,
+          44
+        ],
+        [
+          1,
+          45
+        ],
+        [
+          2,
+          44
+        ],
+        [
+          3,
+          43
+        ],
+        [
+          4,
+          44
+        ],
+        [
+          5,
+          44
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 302,
+      "arm": "shared-ghost",
+      "asks": 318,
+      "decisions": 217,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 71,
+      "expired": 0,
+      "first_sight_tick": 2237,
+      "margin": 934,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          71
+        ]
+      ],
+      "refusals": 87,
+      "score": 2174,
+      "scores": [
+        1330,
+        396
+      ],
+      "seed": 1000004,
+      "sight_ticks": 674,
+      "tags": 5,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          40
+        ],
+        [
+          1,
+          40
+        ],
+        [
+          2,
+          40
+        ],
+        [
+          3,
+          40
+        ],
+        [
+          4,
+          39
+        ],
+        [
+          5,
+          39
+        ],
+        [
+          6,
+          40
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 328,
+      "arm": "default",
+      "asks": 344,
+      "decisions": 241,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 91,
+      "expired": 0,
+      "first_sight_tick": 2017,
+      "margin": 13,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          91
+        ]
+      ],
+      "refusals": 107,
+      "score": 1846,
+      "scores": [
+        1111,
+        1124
+      ],
+      "seed": 1000005,
+      "sight_ticks": 846,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          43
+        ],
+        [
+          1,
+          44
+        ],
+        [
+          2,
+          43
+        ],
+        [
+          3,
+          42
+        ],
+        [
+          4,
+          43
+        ],
+        [
+          5,
+          44
+        ],
+        [
+          6,
+          43
+        ],
+        [
+          7,
+          42
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 303,
+      "arm": "shared-ghost",
+      "asks": 319,
+      "decisions": 218,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 76,
+      "expired": 0,
+      "first_sight_tick": 1740,
+      "margin": 519,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          76
+        ]
+      ],
+      "refusals": 92,
+      "score": 1249,
+      "scores": [
+        615,
+        96
+      ],
+      "seed": 1000005,
+      "sight_ticks": 649,
+      "tags": 6,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          41
+        ],
+        [
+          1,
+          40
+        ],
+        [
+          2,
+          39
+        ],
+        [
+          3,
+          40
+        ],
+        [
+          4,
+          41
+        ],
+        [
+          5,
+          39
+        ],
+        [
+          6,
+          39
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 346,
+      "arm": "default",
+      "asks": 362,
+      "decisions": 271,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 80,
+      "expired": 0,
+      "first_sight_tick": 1997,
+      "margin": 374,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          80
+        ]
+      ],
+      "refusals": 96,
+      "score": 1794,
+      "scores": [
+        990,
+        1364
+      ],
+      "seed": 1000006,
+      "sight_ticks": 794,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          46
+        ],
+        [
+          1,
+          46
+        ],
+        [
+          2,
+          45
+        ],
+        [
+          3,
+          45
+        ],
+        [
+          4,
+          46
+        ],
+        [
+          5,
+          45
+        ],
+        [
+          6,
+          45
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 310,
+      "arm": "shared-ghost",
+      "asks": 325,
+      "decisions": 220,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 79,
+      "expired": 0,
+      "first_sight_tick": 1759,
+      "margin": 997,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          79
+        ]
+      ],
+      "refusals": 95,
+      "score": 1838,
+      "scores": [
+        1231,
+        234
+      ],
+      "seed": 1000006,
+      "sight_ticks": 438,
+      "tags": 4,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          41
+        ],
+        [
+          1,
+          41
+        ],
+        [
+          2,
+          40
+        ],
+        [
+          3,
+          41
+        ],
+        [
+          4,
+          41
+        ],
+        [
+          5,
+          41
+        ],
+        [
+          6,
+          40
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 335,
+      "arm": "default",
+      "asks": 351,
+      "decisions": 256,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 91,
+      "expired": 0,
+      "first_sight_tick": 2047,
+      "margin": 196,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          91
+        ]
+      ],
+      "refusals": 107,
+      "score": 1953,
+      "scores": [
+        744,
+        548
+      ],
+      "seed": 1000007,
+      "sight_ticks": 953,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          44
+        ],
+        [
+          1,
+          43
+        ],
+        [
+          2,
+          43
+        ],
+        [
+          3,
+          43
+        ],
+        [
+          4,
+          45
+        ],
+        [
+          5,
+          45
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 309,
+      "arm": "shared-ghost",
+      "asks": 325,
+      "decisions": 223,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 78,
+      "expired": 0,
+      "first_sight_tick": 1741,
+      "margin": 930,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          78
+        ]
+      ],
+      "refusals": 94,
+      "score": 1120,
+      "scores": [
+        143,
+        1073
+      ],
+      "seed": 1000007,
+      "sight_ticks": 520,
+      "tags": 6,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          41
+        ],
+        [
+          1,
+          41
+        ],
+        [
+          2,
+          41
+        ],
+        [
+          3,
+          40
+        ],
+        [
+          4,
+          41
+        ],
+        [
+          5,
+          40
+        ],
+        [
+          6,
+          41
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 351,
+      "arm": "default",
+      "asks": 367,
+      "decisions": 273,
+      "draw": false,
+      "end_tick": 2990,
+      "escalations": 83,
+      "expired": 0,
+      "first_sight_tick": 2084,
+      "margin": 889,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          83
+        ]
+      ],
+      "refusals": 99,
+      "score": 1623,
+      "scores": [
+        912,
+        1801
+      ],
+      "seed": 1000008,
+      "sight_ticks": 623,
+      "tags": 0,
+      "ticks": 2991,
+      "usage": [
+        [
+          0,
+          46
+        ],
+        [
+          1,
+          45
+        ],
+        [
+          2,
+          45
+        ],
+        [
+          3,
+          46
+        ],
+        [
+          4,
+          47
+        ],
+        [
+          5,
+          46
+        ],
+        [
+          6,
+          46
+        ],
+        [
+          7,
+          46
+        ]
+      ],
+      "winner": 1
+    },
+    {
+      "answered": 293,
+      "arm": "shared-ghost",
+      "asks": 309,
+      "decisions": 205,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 78,
+      "expired": 0,
+      "first_sight_tick": 1711,
+      "margin": 604,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          78
+        ]
+      ],
+      "refusals": 94,
+      "score": 1046,
+      "scores": [
+        754,
+        150
+      ],
+      "seed": 1000008,
+      "sight_ticks": 646,
+      "tags": 4,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          38
+        ],
+        [
+          1,
+          39
+        ],
+        [
+          2,
+          39
+        ],
+        [
+          3,
+          39
+        ],
+        [
+          4,
+          39
+        ],
+        [
+          5,
+          38
+        ],
+        [
+          6,
+          38
+        ],
+        [
+          7,
+          39
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 336,
+      "arm": "default",
+      "asks": 352,
+      "decisions": 259,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 79,
+      "expired": 0,
+      "first_sight_tick": 2026,
+      "margin": 76,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          79
+        ]
+      ],
+      "refusals": 95,
+      "score": 1974,
+      "scores": [
+        604,
+        528
+      ],
+      "seed": 1000009,
+      "sight_ticks": 974,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          43
+        ],
+        [
+          1,
+          44
+        ],
+        [
+          2,
+          44
+        ],
+        [
+          3,
+          43
+        ],
+        [
+          4,
+          44
+        ],
+        [
+          5,
+          46
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 304,
+      "arm": "shared-ghost",
+      "asks": 318,
+      "decisions": 217,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 81,
+      "expired": 0,
+      "first_sight_tick": 2177,
+      "margin": 155,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          81
+        ]
+      ],
+      "refusals": 97,
+      "score": 2078,
+      "scores": [
+        1070,
+        915
+      ],
+      "seed": 1000009,
+      "sight_ticks": 578,
+      "tags": 5,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          40
+        ],
+        [
+          1,
+          40
+        ],
+        [
+          2,
+          39
+        ],
+        [
+          3,
+          40
+        ],
+        [
+          4,
+          39
+        ],
+        [
+          5,
+          40
+        ],
+        [
+          6,
+          40
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 328,
+      "arm": "default",
+      "asks": 344,
+      "decisions": 246,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 92,
+      "expired": 0,
+      "first_sight_tick": 2357,
+      "margin": 583,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          92
+        ]
+      ],
+      "refusals": 108,
+      "score": 1643,
+      "scores": [
+        1497,
+        914
+      ],
+      "seed": 1000010,
+      "sight_ticks": 643,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          43
+        ],
+        [
+          1,
+          44
+        ],
+        [
+          2,
+          43
+        ],
+        [
+          3,
+          43
+        ],
+        [
+          4,
+          43
+        ],
+        [
+          5,
+          42
+        ],
+        [
+          6,
+          43
+        ],
+        [
+          7,
+          43
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 263,
+      "arm": "shared-ghost",
+      "asks": 279,
+      "decisions": 174,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 74,
+      "expired": 0,
+      "first_sight_tick": 2239,
+      "margin": 801,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          74
+        ]
+      ],
+      "refusals": 90,
+      "score": 840,
+      "scores": [
+        801,
+        0
+      ],
+      "seed": 1000010,
+      "sight_ticks": 240,
+      "tags": 6,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          35
+        ],
+        [
+          1,
+          35
+        ],
+        [
+          2,
+          34
+        ],
+        [
+          3,
+          34
+        ],
+        [
+          4,
+          36
+        ],
+        [
+          5,
+          35
+        ],
+        [
+          6,
+          35
+        ],
+        [
+          7,
+          35
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 342,
+      "arm": "default",
+      "asks": 358,
+      "decisions": 259,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 82,
+      "expired": 0,
+      "first_sight_tick": 2089,
+      "margin": 78,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          82
+        ]
+      ],
+      "refusals": 98,
+      "score": 1792,
+      "scores": [
+        1116,
+        1038
+      ],
+      "seed": 1000011,
+      "sight_ticks": 792,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          44
+        ],
+        [
+          1,
+          44
+        ],
+        [
+          2,
+          44
+        ],
+        [
+          3,
+          43
+        ],
+        [
+          4,
+          46
+        ],
+        [
+          5,
+          46
+        ],
+        [
+          6,
+          46
+        ],
+        [
+          7,
+          45
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 274,
+      "arm": "shared-ghost",
+      "asks": 290,
+      "decisions": 187,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 78,
+      "expired": 0,
+      "first_sight_tick": 1769,
+      "margin": 628,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          78
+        ]
+      ],
+      "refusals": 94,
+      "score": 1222,
+      "scores": [
+        692,
+        64
+      ],
+      "seed": 1000011,
+      "sight_ticks": 722,
+      "tags": 5,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          36
+        ],
+        [
+          1,
+          36
+        ],
+        [
+          2,
+          37
+        ],
+        [
+          3,
+          36
+        ],
+        [
+          4,
+          37
+        ],
+        [
+          5,
+          37
+        ],
+        [
+          6,
+          36
+        ],
+        [
+          7,
+          35
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 336,
+      "arm": "default",
+      "asks": 352,
+      "decisions": 264,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 74,
+      "expired": 0,
+      "first_sight_tick": 2127,
+      "margin": 86,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          74
+        ]
+      ],
+      "refusals": 90,
+      "score": 1850,
+      "scores": [
+        1058,
+        972
+      ],
+      "seed": 1000012,
+      "sight_ticks": 850,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          44
+        ],
+        [
+          1,
+          44
+        ],
+        [
+          2,
+          45
+        ],
+        [
+          3,
+          43
+        ],
+        [
+          4,
+          44
+        ],
+        [
+          5,
+          44
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 294,
+      "arm": "shared-ghost",
+      "asks": 310,
+      "decisions": 209,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 73,
+      "expired": 0,
+      "first_sight_tick": 1739,
+      "margin": 586,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          73
+        ]
+      ],
+      "refusals": 89,
+      "score": 1024,
+      "scores": [
+        741,
+        155
+      ],
+      "seed": 1000012,
+      "sight_ticks": 524,
+      "tags": 5,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          38
+        ],
+        [
+          1,
+          39
+        ],
+        [
+          2,
+          39
+        ],
+        [
+          3,
+          39
+        ],
+        [
+          4,
+          39
+        ],
+        [
+          5,
+          39
+        ],
+        [
+          6,
+          39
+        ],
+        [
+          7,
+          38
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 342,
+      "arm": "default",
+      "asks": 358,
+      "decisions": 266,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 80,
+      "expired": 0,
+      "first_sight_tick": 2031,
+      "margin": 81,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          80
+        ]
+      ],
+      "refusals": 96,
+      "score": 1868,
+      "scores": [
+        945,
+        1026
+      ],
+      "seed": 1000013,
+      "sight_ticks": 868,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          45
+        ],
+        [
+          1,
+          46
+        ],
+        [
+          2,
+          45
+        ],
+        [
+          3,
+          45
+        ],
+        [
+          4,
+          45
+        ],
+        [
+          5,
+          44
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 301,
+      "arm": "shared-ghost",
+      "asks": 317,
+      "decisions": 213,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 82,
+      "expired": 0,
+      "first_sight_tick": 1741,
+      "margin": 267,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          82
+        ]
+      ],
+      "refusals": 98,
+      "score": 1972,
+      "scores": [
+        1031,
+        764
+      ],
+      "seed": 1000013,
+      "sight_ticks": 672,
+      "tags": 3,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          40
+        ],
+        [
+          1,
+          40
+        ],
+        [
+          2,
+          39
+        ],
+        [
+          3,
+          39
+        ],
+        [
+          4,
+          40
+        ],
+        [
+          5,
+          40
+        ],
+        [
+          6,
+          39
+        ],
+        [
+          7,
+          40
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 341,
+      "arm": "default",
+      "asks": 357,
+      "decisions": 256,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 89,
+      "expired": 0,
+      "first_sight_tick": 2013,
+      "margin": 125,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          89
+        ]
+      ],
+      "refusals": 105,
+      "score": 1922,
+      "scores": [
+        1078,
+        953
+      ],
+      "seed": 1000014,
+      "sight_ticks": 922,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          45
+        ],
+        [
+          1,
+          45
+        ],
+        [
+          2,
+          45
+        ],
+        [
+          3,
+          45
+        ],
+        [
+          4,
+          45
+        ],
+        [
+          5,
+          44
+        ],
+        [
+          6,
+          44
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 301,
+      "arm": "shared-ghost",
+      "asks": 317,
+      "decisions": 211,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 80,
+      "expired": 0,
+      "first_sight_tick": 1754,
+      "margin": 909,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          80
+        ]
+      ],
+      "refusals": 96,
+      "score": 1147,
+      "scores": [
+        975,
+        66
+      ],
+      "seed": 1000014,
+      "sight_ticks": 647,
+      "tags": 5,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          40
+        ],
+        [
+          1,
+          40
+        ],
+        [
+          2,
+          40
+        ],
+        [
+          3,
+          39
+        ],
+        [
+          4,
+          40
+        ],
+        [
+          5,
+          40
+        ],
+        [
+          6,
+          39
+        ],
+        [
+          7,
+          39
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 339,
+      "arm": "default",
+      "asks": 355,
+      "decisions": 267,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 76,
+      "expired": 0,
+      "first_sight_tick": 2066,
+      "margin": 500,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          76
+        ]
+      ],
+      "refusals": 92,
+      "score": 1827,
+      "scores": [
+        632,
+        1132
+      ],
+      "seed": 1000015,
+      "sight_ticks": 827,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          44
+        ],
+        [
+          1,
+          44
+        ],
+        [
+          2,
+          45
+        ],
+        [
+          3,
+          44
+        ],
+        [
+          4,
+          44
+        ],
+        [
+          5,
+          45
+        ],
+        [
+          6,
+          45
+        ],
+        [
+          7,
+          44
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 299,
+      "arm": "shared-ghost",
+      "asks": 315,
+      "decisions": 207,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 82,
+      "expired": 0,
+      "first_sight_tick": 1724,
+      "margin": 728,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          82
+        ]
+      ],
+      "refusals": 98,
+      "score": 2023,
+      "scores": [
+        955,
+        227
+      ],
+      "seed": 1000015,
+      "sight_ticks": 623,
+      "tags": 4,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          40
+        ],
+        [
+          1,
+          39
+        ],
+        [
+          2,
+          40
+        ],
+        [
+          3,
+          39
+        ],
+        [
+          4,
+          39
+        ],
+        [
+          5,
+          40
+        ],
+        [
+          6,
+          39
+        ],
+        [
+          7,
+          39
+        ]
+      ],
+      "winner": null
+    }
+  ],
+  "seeds": [
+    1000000,
+    1000001,
+    1000002,
+    1000003,
+    1000004,
+    1000005,
+    1000006,
+    1000007,
+    1000008,
+    1000009,
+    1000010,
+    1000011,
+    1000012,
+    1000013,
+    1000014,
+    1000015
+  ],
+  "ticks": 3000
+}

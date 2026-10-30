@@ -61,15 +61,43 @@ impl SignTest {
     /// comparison in [`passes`]. This one is truncated with integer
     /// arithmetic too, so it is the same on every machine.
     pub fn p_value_text(&self) -> String {
-        let tail = binomial_tail(self.moved, self.claimed);
-        let mut scaled = tail;
-        scaled.mul_small(10u64.pow(PLACES as u32));
-        // floor(p * 10^PLACES): dividing by 2^n is a shift.
-        let whole = scaled.shr_bits(self.moved);
-        let digits = whole.to_decimal_string();
-        let digits = format!("{digits:0>width$}", width = PLACES + 1);
-        let split = digits.len() - PLACES;
-        format!("{}.{}", &digits[..split], &digits[split..])
+        fraction_text(&binomial_tail(self.moved, self.claimed), self.moved)
+    }
+
+    /// The **two-sided** p-value in decimal, truncated at [`PLACES`] places.
+    ///
+    /// The one-sided test asks "how unlikely is it that the change moved the
+    /// claimed way this often?"; the two-sided asks "how unlikely is it that
+    /// the change moved *any* way this often?" — twice the smaller of the
+    /// two tails, capped at 1.
+    ///
+    /// It is the stricter of the two: at 12 of 16 seeds the one-sided
+    /// p-value is 0.0384 (below 0.05) and the two-sided is 0.0768 (above
+    /// it), so the two-sided test needs 13 of 16 to pass where the
+    /// one-sided needs 12.
+    pub fn two_sided_p_value_text(&self) -> String {
+        fraction_text(&self.two_sided_numerator(), self.moved)
+    }
+
+    /// The numerator of the two-sided p-value, over `2^moved`.
+    ///
+    /// The two-sided test asks about the split of the movements, whichever
+    /// way it fell: the tail is taken at the **larger** of the two counts,
+    /// `max(claimed, moved - claimed)`, and doubled. The binomial is
+    /// symmetric, so that is the same as twice the smaller tail.
+    ///
+    /// The p-value cannot be more than 1, so the doubled tail is capped at
+    /// the whole.
+    fn two_sided_numerator(&self) -> BigUint {
+        let k = self.claimed.max(self.moved - self.claimed);
+        let mut numerator = binomial_tail(self.moved, k);
+        numerator.mul_small(2);
+        let mut cap = BigUint::one();
+        cap.shl_bits(self.moved);
+        if numerator.cmp_to(&cap) == Ordering::Greater {
+            numerator = cap;
+        }
+        numerator
     }
 }
 
@@ -104,6 +132,35 @@ pub fn sign_test(deltas: &[i64], direction: Direction) -> SignTest {
 /// the verdict and no rounding to argue about.
 pub fn passes(test: SignTest) -> bool {
     tail_below(test.moved, test.claimed, ALPHA_NUMERATOR, ALPHA_DENOMINATOR)
+}
+
+/// Does the **two-sided** sign test pass: is its two-sided p-value below
+/// 0.05?
+///
+/// The comparison is exact, like [`passes`]: the two-sided numerator over
+/// `2^n`, times 20, against `2^n`.
+pub fn two_sided_passes(test: SignTest) -> bool {
+    let numerator = test.two_sided_numerator();
+    let mut left = numerator;
+    left.mul_small(ALPHA_DENOMINATOR);
+    let mut right = BigUint::from_u64(ALPHA_NUMERATOR);
+    right.shl_bits(test.moved);
+    left.cmp_to(&right) == Ordering::Less
+}
+
+/// A fraction over `2^bits`, in decimal, truncated at [`PLACES`] places.
+///
+/// The rendering, not the decision: `floor(numerator * 10^PLACES / 2^bits)`
+/// is a multiply and a shift, so it is the same on every machine.
+fn fraction_text(numerator: &BigUint, bits: usize) -> String {
+    let mut scaled = numerator.clone();
+    scaled.mul_small(10u64.pow(PLACES as u32));
+    // floor(p * 10^PLACES): dividing by 2^n is a shift.
+    let whole = scaled.shr_bits(bits);
+    let digits = whole.to_decimal_string();
+    let digits = format!("{digits:0>width$}", width = PLACES + 1);
+    let split = digits.len() - PLACES;
+    format!("{}.{}", &digits[..split], &digits[split..])
 }
 
 /// Is `P(X >= k)` for `X` drawn from `Binomial(n, 1/2)` strictly below
@@ -400,5 +457,62 @@ mod tests {
         // The whole row sums to 2^n.
         assert_eq!(binomial_tail(0, 0).to_decimal_string(), "1");
         assert_eq!(binomial_tail(16, 0).to_decimal_string(), "65536");
+    }
+
+    /// The two-sided test is the stricter of the two: at 12 of 16 seeds the
+    /// one-sided test passes and the two-sided does not, and the two-sided
+    /// needs 13 of 16 to pass.
+    #[test]
+    fn the_two_sided_test_is_the_stricter_one() {
+        // 12 of 16: the one-sided tail is 2517/65536 = 0.0384, the
+        // two-sided is 2 * 2517/65536 = 0.0768.
+        let twelve_of_sixteen = sign_test(
+            &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1],
+            Direction::Up,
+        );
+        assert_eq!(twelve_of_sixteen.p_value_text(), "0.0384");
+        assert_eq!(twelve_of_sixteen.two_sided_p_value_text(), "0.0768");
+        assert!(passes(twelve_of_sixteen));
+        assert!(
+            !two_sided_passes(twelve_of_sixteen),
+            "12 of 16 is p = 0.0768 two-sided, which is not below 0.05"
+        );
+
+        // 13 of 16: 697/65536 = 0.0106 one-sided, 2 * 697/65536 = 0.0212
+        // two-sided, which passes both ways.
+        let thirteen_of_sixteen = sign_test(
+            &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1],
+            Direction::Up,
+        );
+        assert_eq!(thirteen_of_sixteen.p_value_text(), "0.0106");
+        assert_eq!(thirteen_of_sixteen.two_sided_p_value_text(), "0.0212");
+        assert!(passes(thirteen_of_sixteen));
+        assert!(two_sided_passes(thirteen_of_sixteen));
+
+        // 16 of 16: 2/65536 = 0.0000.
+        let sixteen = sign_test(&[1; 16], Direction::Up);
+        assert_eq!(sixteen.two_sided_p_value_text(), "0.0000");
+        assert!(two_sided_passes(sixteen));
+
+        // Nothing moved: no evidence, so p = 1 either way.
+        let nothing = sign_test(&[0, 0, 0, 0], Direction::Up);
+        assert_eq!(nothing.two_sided_p_value_text(), "1.0000");
+        assert!(!two_sided_passes(nothing));
+    }
+
+    /// The two-sided p-value does not depend on which way the prediction
+    /// pointed: the same 12 of 16 is 0.0768 whether the claim was a rise or
+    /// a fall.
+    #[test]
+    fn the_two_sided_test_is_the_same_either_way() {
+        let deltas = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1];
+        let up = sign_test(&deltas, Direction::Up);
+        let down = sign_test(&deltas, Direction::Down);
+        assert_eq!(up.moved, 16);
+        assert_eq!(down.moved, 16);
+        assert_eq!(up.claimed, 12);
+        assert_eq!(down.claimed, 4);
+        assert_eq!(up.two_sided_p_value_text(), "0.0768");
+        assert_eq!(down.two_sided_p_value_text(), "0.0768");
     }
 }

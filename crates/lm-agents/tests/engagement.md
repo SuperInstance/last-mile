@@ -946,3 +946,391 @@ and a Thor pass with more seeds than three.
   about the *rule* is a sweep claim. Where the two disagree, both are
   reported.
 
+## The hot zone, judged
+
+*The brief: measure the hot zone the way the game measures itself, and then
+say whether it is any good. Three things are wanted — a headless sweep at the
+round's own limit and win score, a judged run on the Thor's real decision
+model under D78, and the ask budget the hot zone spends to get there.*
+
+### The rule, written down before the run
+
+The judgement is D78's: **16 held-out seeds**, and a change passes only when
+it is better on at least `ceil(3N/4)` = 12 of them **and** the exact sign
+test over the per-seed deltas gives `p < 0.05`.
+
+"Better" is fixed before anything is run, and it is a single score per
+round:
+
+```text
+score = 100 * tags + sight_ticks + 1000 * (min(score0, score1) >= 200)
+```
+
+- the **tags** are the game's atomic fight event, weighted so that one fight
+  is worth a hundred ticks of looking;
+- the **sight ticks** are the sustained engagement: the ticks on which some
+  agent had a fresh enemy within reach and a clear line of sight;
+- the last term is the round's **both squads in the game** test: the same
+  200-point rule the headless sweep uses for a collapsed round. A round where
+  one squad was held off the board scores nothing for it, so a win bought
+  with a rout cannot buy the verdict.
+
+"Better" on a seed means the hot zone's score is strictly greater than the
+default's; the bar is therefore one point, and any rise counts. The rule is
+written in the test file itself (`crates/lm-agents/tests/hotzone_judged.rs`),
+so the code and the claim cannot drift apart. It was written down before the
+run and was **not** changed after the first seed was measured.
+
+A **secondary** reading is reported beside the primary one and never instead
+of it: the contact alone (`100 * tags + sight_ticks`), which asks one
+question — did the squads meet — and does not care what they scored for it.
+
+Two horizons are measured, and the reason for the second one is in the
+numbers below.
+
+### 1. The headless sweep, at the round's own limit
+
+100 seeds, the round's own `win_score` (1800) and time limit (9000), the
+reflex each harness carries. No model, so the only thing that differs
+between the arms is the doctrine.
+
+```bash
+DECISIVENESS_CELL=1800x9000 cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+DECISIVENESS_CELL=1800x9000 DECISIVENESS_HARNESS=assets/harness/variants/shared-ghost \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+DECISIVENESS_CELL=1800x9000 DECISIVENESS_HARNESS=assets/harness/variants/shared-free \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+```
+
+| arm | draws | wins (squad 0 / squad 1) | tags/round | sight ticks/round | collapsed rounds | rounds with a fight | median round length |
+|---|---|---|---|---|---|---|---|
+| `default` (advance) | **63 (63%)** | 21 / 16 | 0.62 | 413.5 | **2** | 35 (35%) | 4784 ticks |
+| `shared-ghost` | **0** | 64 / 36 | **5.45** | **1900.2** | 45 | **97 (97%)** | 4578 ticks |
+| `shared-free` | **0** | 49 / 51 | 4.19 | **2007.3** | 75 | **98 (98%)** | 3414 ticks |
+
+The hot zone does what it promised: the draw goes away, and the fight
+arrives — 5.45 tags a round against 0.62, and a fight in 97 rounds out of
+100 against 35. The fixed shared target does the same thing and does it
+sooner (98 rounds with a fight, and the shortest rounds of the three).
+
+**But the hot zone is not fair.** The fairness guard
+(`crates/lm-core/tests/fairness.rs`) allows a win gap of `2 * isqrt(decided)`
+over the decided rounds; over 100 decided rounds that is 20.
+
+| arm | decided | gap | the guard's bound | |
+|---|---|---|---|---|
+| `default` | 37 | 5 | 12 | fair |
+| `shared-ghost` | 100 | **28** | **20** | **unfair** |
+| `shared-free` | 100 | 2 | 20 | fair |
+
+Squad 0 takes 64 of the 100 decided rounds under the hot zone. The same
+harness would fail the fairness guard if it were ever made the default, and
+the sweep now prints the share and the bound next to every run, so this is
+visible without running the guard.
+
+The mechanism is the walk. The hot beacon is the lowest-numbered beacon no
+squad holds, and it stays on that beacon for `rotation_ticks` (600) before
+moving to the next one (`hot_beacon` in `crates/lm-agents/src/shared.rs`:
+`list[step]`, where `list` is the free beacons **in beacon order** and
+`step = (tick / rotation_ticks) % list.len()`). The map's symmetry is the
+180° rotation, and it pairs beacon 0 with beacon 1 and beacon 2 with beacon
+3 — so "in beacon order" is not the map's symmetry. A mirrored round would
+walk 1, 0, 3, 2, and the two walks do not give the two squads the same
+rounds.
+
+That is a story, so it was measured: the same sweep, with the walk reversed
+— the mirrored round, with nothing else changed (the shipped variant is
+untouched; the experiment lives in `/tmp`):
+
+The experiment is four lines: copy the variant's reflex, walk the list from
+the other end, and play the sweep with it.
+
+```bash
+mkdir -p /tmp/ghost-reversed/reflexes
+cp assets/harness/variants/shared-ghost/reflexes/default.rhai /tmp/ghost-reversed/reflexes/  # the copy overwrites
+python3 - <<'PY'
+path = "/tmp/ghost-reversed/reflexes/default.rhai"
+text = open(path).read()
+old = "    let step = (v.tick / 600) % free.len();\n    free[step]"
+new = "    let step = (v.tick / 600) % free.len();\n    free[free.len() - 1 - step]"
+assert old in text
+open(path, "w").write(text.replace(old, new))
+PY
+DECISIVENESS_CELL=1800x9000 DECISIVENESS_HARNESS=/tmp/ghost-reversed \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+```
+
+| arm | wins (squad 0 / squad 1) | gap | the guard's bound | | tags/round | collapsed rounds |
+|---|---|---|---|---|---|---|
+| `shared-ghost`, the shipped walk | 64 / 36 | 28 | 20 | **unfair** | 5.45 | 45 |
+| `shared-ghost`, the walk reversed | 43 / 57 | **14** | 20 | **fair** | 6.52 | 39 |
+
+The bias **flips with the walk**: 64/36 one way, 43/57 the other, and the
+reversed walk is inside the guard's bound. So the colour bias is not a
+property of the hot zone's idea — it is a property of the **order** it walks
+the beacons in.
+
+The mechanism is in which beacon the walk reaches first. The beacons come in
+180°-rotated pairs (0 with 1, 2 with 3), and the outer pair — beacons 2 and
+3 — is the asymmetric one: beacon 2 is on squad 0's side of the map and
+beacon 3 on squad 1's. The shipped walk visits them in beacon order, so it
+reaches **beacon 2 before beacon 3**: squad 0 gets the first pick of the
+outer pair and squad 1 has to take the far one. The reversed walk reaches
+beacon 3 first, and the split goes the other way.
+
+The fix is therefore in the schedule, not in the doctrine: the walk's order
+has to be checked against the fairness guard, because the map's symmetry and
+the beacon order are not the same thing. (`shared-free`, which never walks
+past the lowest-numbered free beacon and so mostly stays in the symmetric
+centre pair, is fair at 49/51 — the same control from the other side.)
+
+### 2. The judged run on the Thor: D78's horizon
+
+16 held-out seeds (the seed farm's own block — `lm_learn::eval::eval_seeds(&[],
+16, 0)` is `1_000_000..1_000_015`), 1500 ticks a round, both arms on the
+same seeds, the arms alternating inside a seed so that a slow patch of the
+server does not fall on one arm every time. The decision server is the
+batched one on `:8104` (the brief's first choice): it answers the same packs
+the same way as `:8094` — measured in `crates/lm-agents/tests/batched_sysone.md`
+— and a one-seed control on each port refused the same 16 answers (all of
+them schema mismatches) and produced the same round: no tags and no sight
+ticks in either, with the ask counts a few calls apart (59 against 65),
+because the model samples and a live round is not a replay.
+
+```bash
+cargo test --release -p lm-agents --test hotzone_judged -- --ignored --nocapture
+```
+
+| seed | default score | hot zone score | delta | default tags | hot zone tags | default sight | hot zone sight |
+|---|---|---|---|---|---|---|---|
+| 1000000 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000001 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000002 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1000003 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000004 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000005 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000006 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000007 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000008 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000009 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000010 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1000011 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 1000012 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000013 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000014 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+| 1000015 | 1000 | 0 | -1000 | 0 | 0 | 0 | 0 |
+
+**The verdict: the hot zone does not qualify.** It is better on **0 of 16**
+seeds (the bar is 12), and the one-sided sign test gives **p = 1.0000** (13
+seeds moved, none of them the claimed way). The two-sided sign test gives
+**p = 0.0002** — it *passes*, and it passes the wrong way round: the
+two-sided test says the split is lopsided, and the lopsidedness is against
+the hot zone. The direction comes from the count and the one-sided test, not
+from the two-sided one.
+
+**And the reason is that the horizon is too short to see the effect at
+all.** The secondary reading says it plainly: on the contact alone, all 16
+seeds are **ties** — 0 seeds moved, so the sign test has no population to
+read and the p-value is 1.0000. Not one of the 32 rounds had a tag, and not
+one of the 32 rounds had a single tick on which any agent had an enemy in
+sight. **The squads had not met.**
+
+That is not the Thor's doing: the headless sweep at the same horizon says
+the same thing (100 seeds, `win_score` 1800, 1500 ticks):
+
+| arm | tags/round | sight ticks/round | mean scores | collapsed rounds | decided |
+|---|---|---|---|---|---|
+| `default` | 0.00 | 0.0 | 123 / 123 | 100 | 2 of 100 (squad 1) |
+| `shared-ghost` | 0.00 | 0.0 | 4 / 0 | 100 | 12 of 100 (squad 0) |
+
+At 1500 ticks the hot zone's squads are still walking to a beacon that moves
+every 600 ticks, and they have scored nothing (4 points a round); the
+default's squads are parked on their own beacons and have scored 123 each.
+D78's own words cover this case: a shorter round reports that it cannot
+measure.
+
+The primary score's 200-point term then decides the verdict on a knife edge:
+the default's squads average 123 points at this horizon, so they cross 200
+on 13 seeds and not on 3, while the hot zone scores 0 on every seed. The
+term was written to catch a squad held off the board; at 1500 ticks it catches
+"in transit" instead, and it hands the verdict to whichever arm is standing
+still. **At this horizon the primary metric is not a reading of the hot
+zone** — it is a reading of who was walking and who was parked.
+
+### 3. The same judgement where the effect is: 3000 ticks
+
+The contact arrives late. In the 3000-tick rounds the first enemy in sight
+lands between tick **1740 and 2237** — D78's horizon is 1500, so the horizon
+is 240 to 740 ticks short of the first contact. This is the same 16 seeds,
+the same two arms, the same rule that was written down first, 3000 ticks a
+round:
+
+| seed | default score | hot zone score | delta | default tags | hot zone tags | default sight | hot zone sight |
+|---|---|---|---|---|---|---|---|
+| 1000000 | 1923 | 1164 | -759 | 0 | 7 | 923 | 464 |
+| 1000001 | 1994 | 1964 | -30 | 0 | 3 | 994 | 664 |
+| 1000002 | 1923 | 1963 | +40 | 0 | 5 | 923 | 463 |
+| 1000003 | 1970 | 1730 | -240 | 0 | 5 | 970 | 230 |
+| 1000004 | 1960 | 2174 | +214 | 5 | 5 | 460 | 674 |
+| 1000005 | 1846 | 1249 | -597 | 0 | 6 | 846 | 649 |
+| 1000006 | 1794 | 1838 | +44 | 0 | 4 | 794 | 438 |
+| 1000007 | 1953 | 1120 | -833 | 0 | 6 | 953 | 520 |
+| 1000008 | 1623 | 1046 | -577 | 0 | 4 | 623 | 646 |
+| 1000009 | 1974 | 2078 | +104 | 0 | 5 | 974 | 578 |
+| 1000010 | 1643 | 840 | -803 | 0 | 6 | 643 | 240 |
+| 1000011 | 1792 | 1222 | -570 | 0 | 5 | 792 | 722 |
+| 1000012 | 1850 | 1024 | -826 | 0 | 5 | 850 | 524 |
+| 1000013 | 1868 | 1972 | +104 | 0 | 3 | 868 | 672 |
+| 1000014 | 1922 | 1147 | -775 | 0 | 5 | 922 | 647 |
+| 1000015 | 1827 | 2023 | +196 | 0 | 4 | 827 | 623 |
+
+**On the contact alone, the hot zone qualifies:** better on **14 of 16**
+seeds (the bar is 12), **p = 0.0020** one-sided and **0.0041** two-sided.
+The hot zone made **78 tags** over the 16 rounds against the default's **5** —
+4.9 a round against 0.3. It is the only thing in the build that makes the
+game a fight, and it does that on the real model, not only in the reflex.
+
+**On the pre-registered score, it does not qualify:** better on **6 of 16**
+seeds, **p = 0.8949** one-sided, 0.4544 two-sided. The gap between those two
+readings *is* the finding, and it is not a rounding difference:
+
+| over the 16 rounds | `default` | `shared-ghost` |
+|---|---|---|
+| tags | 5 | **78** |
+| sight ticks | 13362 (835 a round) | 8754 (547 a round) |
+| rounds with a squad held off the board | **0** | **8** |
+| the rounds decided | 2 of 16 | 0 of 16 |
+| asks a round | 353.4 | 310.9 |
+| refusals a round | 94 | 94 |
+| the answer latency | p50 415 ms, p95 1240 ms | p50 682 ms, p95 1383 ms |
+
+**The hot zone buys the fight with the game.** Eight of its sixteen rounds
+leave a squad on zero points; the default leaves none. Two squads pulled onto
+one beacon fight over it, and the one that loses it holds nothing — the hot
+zone's own contact is what produces the collapse, which is why the score's
+third term (*both squads in the game*) cancels the fight it just won. On the
+rule that was written down first — a win bought with a rout does not count —
+**the hot zone does not qualify, and the price of the fight is eight routs in
+sixteen rounds.**
+
+Two more things the table says. The default's squads *see* each other more
+often than the hot zone's (835 sight ticks a round against 547) and tag
+almost never: under the shipped doctrine the model holds its own beacon when
+the enemy is near, and under the hot zone's it goes for the target and
+fights. Seeing is not fighting, and the hot zone is what turns one into the
+other. And neither arm's rounds were decided at 3000 ticks (2 of 16 and 0 of
+16), so the **win share still cannot be read from the Thor at this horizon**;
+the fairness finding above is a sweep claim and stays one.
+
+
+### 4. What the hot zone spends
+
+Over the 16 rounds of the 1500-tick run:
+
+| | `default` | `shared-ghost` |
+|---|---|---|
+| asks | 3186 (199.1 a round) | 2828 (176.8 a round) |
+| — the move gate | 2197 | 1892 |
+| — the talk gate | 488 | 495 |
+| decisions the answers became | 2286 | 1896 |
+| refusals | 659 (41 a round) | 747 (47 a round) |
+| — the answer did not match the schema | 256 (16 a round) | 256 (16 a round) |
+| — the second opinion did not answer in time | 403 (25 a round) | 491 (31 a round) |
+| escalations to the second model | 403 | 491 |
+| the answer latency | p50 337 ms, p95 1355 ms | p50 413 ms, p95 1386 ms |
+| the model calls per agent | 391–406 over the 16 rounds | 346–360 over the 16 rounds |
+
+**The hot zone does not win by burning the ask budget.** It asks *less*:
+176.8 a round against the default's 199.1, and about 22 calls an agent a
+round against 25 — against a budget of 400 an agent a round, so neither arm
+is near the wall at this horizon (the stub control in the sections above is
+the arm that spends it).
+
+What the hot zone does spend more of is the **second opinion**: 491
+escalations against 403, and every one of those 88 extra escalations came
+back as "the second opinion did not answer in time". The hot zone's facts
+change under the agent's feet — the target moves every 600 ticks and the
+field's strength pulses — so more of its gates fall below the confidence
+floor and go to clef-flash, the slow tier. On a loaded box those escalations
+time out, and a second opinion that times out is a refused answer, and a
+refused answer plays the reflex.
+
+### 5. What this does not say
+
+- **The sweep's rows are the reflex's, not the facts'.** The sweep plays a
+  Rhai reflex; it cannot read a facts text, so it cannot tell a plain target
+  from a field. Every claim about the *rule* is a sweep claim, and every
+  claim about the *representation* is a Thor claim. Where the two disagree,
+  both are reported.
+- **The judged run is one model, one day, one box.** The Thor was shared
+  with four other seats' work throughout (the load average ran between 4
+  and 102 on 14 cores, and the GPU sat at 97% for much of it), so the
+  refusals here are far higher than the quiet-box numbers in the sections
+  above. The rounds themselves played close to their own rate — 1835 s for
+  the 32 rounds of 1500 ticks and 3459 s for the 32 rounds of 3000 ticks,
+  which is 26 and 28 ticks a second against the round's own 30 — so it is
+  the model's answers that were slow, not the clock. The two arms were
+  measured in the same run and interleaved inside every seed, so the
+  comparison is fair; the absolute refusal counts are a property of the
+  load, not of the doctrine.
+- **One horizon cannot measure everything.** At 1500 ticks nothing happens
+  at all, in either arm, and the metric says so. A verdict without its
+  horizon is not a verdict.
+- **Nothing here says the hot zone is the right lever.** It says: this is
+  the only lever in the build that moves contact, it buys that contact with
+  points, it leans one way on the colour, and it needs a horizon longer
+  than D78's before any of it shows up.
+
+### 6. The recommendation
+
+The hot zone is the only lever in the build that turns the game into a fight,
+and the fight is the thing the game is for. Three things have to be fixed
+before it can be the default, and none of them is the doctrine:
+
+1. **The walk has to be fair.** The shipped walk fails the fairness guard
+   (64/36, a gap of 28 over a bound of 20); the mirrored walk passes
+   (43/57, a gap of 14). The order is the cause, and the order lives in
+   `hot_beacon` (`crates/lm-agents/src/shared.rs`) and in the variant's
+   reflex.
+2. **The squad that loses the beacon has to stay in the game.** Eight of
+   sixteen rounds leave one on zero points, and the hot zone's own fight is
+   what does it. A second objective for the loser is the missing piece: the
+   shared target is worth fighting for, and it is the only one.
+3. **The horizon has to be one that can see it.** The first contact lands
+   between tick 1740 and 2237; a judgement at 1500 ticks reads nothing at
+   all. D78's horizon is right for the learning metrics (which live by tick
+   1000) and wrong for this one.
+
+So the brief's own question — *is the hot zone any good?* — has three
+answers, and they are not the same answer: **yes on contact** (14 of 16
+seeds, p = 0.0020), **no on the rule as it was written** (6 of 16 on the
+pre-registered score, p = 0.8949), and **not yet fair** (the guard's bound
+fails by 8). The pre-registered verdict at D78's own horizon is "does not
+qualify", and the reason there is that the horizon cannot see the effect at
+all; at 3000 ticks the verdict is still "does not qualify" on the composite
+and "qualifies" on contact, and the difference between those two readings is
+eight routs in sixteen rounds.
+
+### The commands
+
+```bash
+# the headless sweep, one per harness
+DECISIVENESS_CELL=1800x9000 cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+DECISIVENESS_CELL=1800x9000 DECISIVENESS_HARNESS=assets/harness/variants/shared-ghost \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+DECISIVENESS_CELL=1800x9000 DECISIVENESS_HARNESS=assets/harness/variants/shared-free \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+
+# the judged run: 16 held-out seeds, both arms, the real decision model
+cargo test --release -p lm-agents --test hotzone_judged -- --ignored --nocapture
+HOTZONE_TICKS=3000 cargo test --release -p lm-agents --test hotzone_judged -- --ignored --nocapture
+```
+
+What was added to the tree for this: `crates/lm-agents/tests/hotzone_judged.rs`
+(the judged run and the pre-registered rule), the two-sided sign test in
+`crates/lm-learn/src/sign.rs` (`two_sided_p_value_text` and
+`two_sided_passes`, exact integer arithmetic beside the one-sided one), the
+fairness line in `crates/lm-core/tests/decisiveness.rs`, so the sweep
+prints the win share and the guard's bound with every run, and the raw
+records of the two judged runs: `evidence/hotzone-1500.json` and
+`evidence/hotzone-3000.json` (one entry per round, with the deltas).
