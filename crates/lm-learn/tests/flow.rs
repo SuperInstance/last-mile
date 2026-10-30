@@ -795,3 +795,51 @@ fn override_that_cannot_apply_is_refused_and_not_recorded() {
     );
     assert_eq!(record_on_disk(&dir, "r7").decision, Decision::Reject);
 }
+
+/// The seed count is the flow's parameter: the count it is given is the
+/// count the prediction is sealed on and judged on.
+#[test]
+fn the_seed_count_is_a_parameter() {
+    let dir = scratch("seeds");
+    let harness = harness_root(&dir, &[0]);
+    let cfg = FlowConfig::new(7, harness)
+        .with_runs_root(dir.join("runs"))
+        .with_ticks(300)
+        .with_eval_seeds(8);
+    let mut reviewer = StubReviewer::new(harmless_review());
+    let record = run_learning_round(&cfg, &mut reviewer).expect("the round runs");
+
+    // The record says how many seeds it was judged on.
+    assert_eq!(record.eval_seeds.len(), 8);
+    let verdict = record.verdict.clone().expect("the verdict is recorded");
+    assert_eq!(verdict.deltas.len(), 8);
+    for (seed, _) in &verdict.deltas {
+        assert!(
+            record.eval_seeds.contains(seed),
+            "the delta of an unjudged seed"
+        );
+    }
+
+    // And the sealed prediction names the same seeds: the seal comes
+    // before the test (D32).
+    let seal = ledger_entries(&record)
+        .into_iter()
+        .find_map(|entry| match entry {
+            Entry::Seal(prediction) => Some(prediction),
+            _ => None,
+        })
+        .expect("the prediction was sealed");
+    assert_eq!(seal.eval_seeds, record.eval_seeds);
+    assert_eq!(seal.eval_seeds.len(), 8);
+}
+
+/// The default count is the count the flow has always judged on.
+#[test]
+fn the_default_seed_count_is_four() {
+    let cfg = FlowConfig::new(7, "/tmp/harness");
+    assert_eq!(cfg.eval_seed_count, 4);
+    assert_eq!(
+        cfg.eval_seeds(),
+        vec![1_007_000, 1_007_001, 1_007_002, 1_007_003]
+    );
+}
