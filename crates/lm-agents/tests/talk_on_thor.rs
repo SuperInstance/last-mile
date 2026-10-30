@@ -69,6 +69,21 @@ const TICKS: u64 = 3_000;
 /// The seeds the measurement plays.
 const SEEDS: [u64; 3] = [1, 2, 3];
 
+/// The seeds to play, if the environment names them.
+///
+/// The measurement plays three seeds. The pack capture needs more than that
+/// to have five hundred packs to compare, and it is the same round, played
+/// with more seeds: `LM_SEEDS=1,2,3,4,5,6`.
+fn seeds() -> Vec<u64> {
+    match std::env::var("LM_SEEDS") {
+        Ok(text) => text
+            .split(',')
+            .filter_map(|part| part.trim().parse::<u64>().ok())
+            .collect(),
+        Err(_) => SEEDS.to_vec(),
+    }
+}
+
 /// The confidence floor the soak pins on the Thor's d1-2B.
 const SOAK_FLOOR: f32 = 0.15;
 
@@ -79,6 +94,9 @@ struct Ask {
     pack: Pack,
     /// The situation the pack was asked over: the facts text.
     state: String,
+    /// The pack as it was asked: the questions, so the same pack can be
+    /// asked again of another server and the answers compared.
+    questions: Value,
     /// The five presence nouls, by gate id.
     presence: BTreeMap<String, f32>,
     /// The confidence of every gate that has one, by gate id.
@@ -193,6 +211,7 @@ impl SysOne for Watcher {
         self.log.lock().expect("the watcher's log").push(Ask {
             pack,
             state: state.to_owned(),
+            questions: questions.clone(),
             presence,
             confidence,
             min_confidence,
@@ -245,7 +264,19 @@ struct Round {
 fn play(seed: u64) -> (Round, Vec<Ask>, BTreeMap<String, u64>) {
     let header = Header::default_round(seed, DEFAULT_REFLEX);
     let harness = default_harness();
-    let cfg = AgentsConfig::default();
+    let mut cfg = AgentsConfig::default();
+    // The box to measure. The default is the Thor's own d1-2B; the
+    // environment points the round at another server of the same shape (the
+    // batched one), so the two can be measured on the same packs.
+    if let Ok(base) = std::env::var("LM_THOR_BASE") {
+        cfg.thor_base = base;
+    }
+    if let Ok(port) = std::env::var("LM_THOR_PORT") {
+        cfg.ports.insert(
+            "d1-2b".to_owned(),
+            port.parse().expect("the port is a number"),
+        );
+    }
 
     let watcher = Watcher::new(&cfg);
     let log = watcher.log();
@@ -321,7 +352,7 @@ fn talk_on_thor() {
     let mut rounds = Vec::new();
     let mut asks = Vec::new();
     let mut thor_refusals: BTreeMap<String, u64> = BTreeMap::new();
-    for seed in SEEDS {
+    for seed in seeds() {
         let (round, log, refused) = play(seed);
         println!(
             "round {seed}: {} utterances, {} decisions, {} refusals, {} asks sent, \
@@ -340,6 +371,24 @@ fn talk_on_thor() {
         }
         rounds.push(round);
         asks.extend(log);
+    }
+
+    // The packs that were asked, dumped so they can be asked again of
+    // another server and the answers compared: LM_CAPTURE_PACKS=<file>
+    // writes one pack per line.
+    if let Ok(path) = std::env::var("LM_CAPTURE_PACKS") {
+        let mut text = String::new();
+        for ask in &asks {
+            let line = serde_json::json!({
+                "pack": ask.pack.as_str(),
+                "state": ask.state,
+                "questions": ask.questions,
+            });
+            text.push_str(&serde_json::to_string(&line).expect("the pack is JSON"));
+            text.push('\n');
+        }
+        std::fs::write(&path, text).expect("the packs are written");
+        println!("wrote {} packs to {path}", asks.len());
     }
 
     let utterances: u64 = rounds.iter().map(|round| round.utterances).sum();
