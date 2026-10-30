@@ -471,6 +471,7 @@ fn draw_screen(
     for section in model.sections() {
         match section {
             Section::Metrics => draw_metrics(ui, model),
+            Section::Surprise => draw_surprise(ui, model),
             Section::Proposal => draw_proposal(ui, model),
             Section::Prediction => draw_prediction(ui, model),
             Section::Verdict => draw_verdict(ui, model),
@@ -554,6 +555,20 @@ fn draw_proposal(ui: &mut egui::Ui, model: &BetweenModel) {
 }
 
 /// The prediction that was sealed before the test.
+/// Where the minds struggled this round (the surprise signal): the top
+/// situations by unsure + refused + escalated answers per ask, one line
+/// each, so the reviewer sees which questions the game is missing.
+fn draw_surprise(ui: &mut egui::Ui, model: &BetweenModel) {
+    if model.surprise.is_empty() {
+        return;
+    }
+    ui.separator();
+    ui.label("where the minds struggled");
+    for line in &model.surprise {
+        ui.label(&line.text);
+    }
+}
+
 fn draw_prediction(ui: &mut egui::Ui, model: &BetweenModel) {
     if let Some(prediction) = &model.prediction {
         ui.separator();
