@@ -95,7 +95,7 @@ use lm_host_model::record;
 use lm_host_model::scrub::Scrubber;
 use lm_host_model::talk::TalkConfig;
 use lm_host_model::view::{BottomMode, BottomSwitch, ViewMode, ViewSwitch};
-use lm_voice::{RivaTts, StubTts, Tts};
+use lm_voice::{RivaTts, StubTts, Tts, VoiceMap};
 use std::{num::NonZeroU8, path::PathBuf};
 
 /// The window the app opens with.
@@ -160,6 +160,10 @@ struct Options {
     score_seconds: u32,
     /// The tick a replay opens on, when the command line names one.
     scrub: Option<u64>,
+    /// The voice map that says where the ears are: its `[asr]` section.
+    voice_toml: Option<PathBuf>,
+    /// The waves to play into the capture path: the test hook.
+    mic_wavs: Vec<PathBuf>,
 }
 
 /// The host's view switch, as a resource: which view draws, and the `B`
@@ -267,8 +271,8 @@ fn main() -> AppExit {
                  [--possess AGENT] [--replay FILE] [--screenshot PATH [--frames N]] \
                  [--agents off|stub|thor] [--talk off|stub|riva] [--harness DIR] \
                  [--agents-config FILE] [--reviewer stub|router] [--harness-root DIR] \
-                 [--runs DIR] [--learn-ticks N] [--ticks N] \
-                 [--bottom roll|score] [--score-seconds N] [--scrub N]"
+                 [--runs DIR] [--learn-ticks N] [--ticks N] [--voice-toml FILE] \
+                 [--mic-wav FILE] [--bottom roll|score] [--score-seconds N] [--scrub N]"
             );
             return AppExit::Error(NonZeroU8::MIN);
         }
@@ -276,6 +280,48 @@ fn main() -> AppExit {
 
     // The viewer: watching, unless the command line says to play.
     let mut input = InputState::new();
+
+    // The ears: the voice map's `[asr]` section says which backend hears
+    // and where the ears are. It is the one config: the game and the
+    // intelligibility gate read the same section, so they cannot disagree
+    // about where the ears are. Without a file the shipped map applies.
+    let asr = match &options.voice_toml {
+        Some(path) => match VoiceMap::load(path) {
+            Ok(map) => map.asr,
+            Err(err) => {
+                eprintln!(
+                    "lm-host: the voice map {} cannot be read: {err}",
+                    path.display()
+                );
+                return AppExit::Error(NonZeroU8::MIN);
+            }
+        },
+        None => VoiceMap::shipped().asr,
+    };
+    println!(
+        "lm-host: the ears hear with the {} backend",
+        asr.backend.as_str()
+    );
+
+    // The waves for the test hook: the capture path is fed a file instead
+    // of a device, so the whole path runs with no microphone and no human.
+    let mut waves = Vec::new();
+    for path in &options.mic_wavs {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("lm-host: the wave {} cannot be read: {err}", path.display());
+                return AppExit::Error(NonZeroU8::MIN);
+            }
+        };
+        match lm_host_model::wav::read(&bytes) {
+            Ok(wave) => waves.push(wave.at_capture_rate().samples),
+            Err(err) => {
+                eprintln!("lm-host: the wave {} cannot be read: {err}", path.display());
+                return AppExit::Error(NonZeroU8::MIN);
+            }
+        }
+    }
 
     // The round: either one being played, or one being replayed out of a
     // log. The two are different animals, so the app is told which one it
@@ -441,6 +487,7 @@ fn main() -> AppExit {
     app.insert_resource(round)
         .insert_resource(recording)
         .insert_resource(input_plugin::Input(input))
+        .insert_resource(audio_plugin::MicWavs::new(waves))
         .init_resource::<FrameCount>()
         // The bottom panel opens in the mode the command line names (`E`
         // walks between them at runtime), the score draws as many seconds
@@ -460,7 +507,7 @@ fn main() -> AppExit {
             app.add_plugins((
                 map_plugin::MapPlugin,
                 input_plugin::InputPlugin,
-                audio_plugin::VoicePlugin,
+                audio_plugin::VoicePlugin { asr: asr.clone() },
                 hud_plugin::HudPlugin,
                 roll_plugin::RollPlugin,
                 // The between-round screen is egui, and it rides whatever
@@ -505,7 +552,7 @@ fn main() -> AppExit {
                     view3d::View3dPlugin { settings },
                     map_plugin::MapPlugin,
                     input_plugin::InputPlugin,
-                    audio_plugin::VoicePlugin,
+                    audio_plugin::VoicePlugin { asr: asr.clone() },
                     hud_plugin::HudPlugin,
                     roll_plugin::RollPlugin,
                     // The between-round screen rides the panel carrier's
@@ -651,9 +698,9 @@ fn backends(
     cfg: &AgentsConfig,
     harness: &Harness,
 ) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
-    let mut out: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = BTreeMap::new();
     match choice {
-        AgentChoice::Off => {}
+        // No models at all: the round thinks with nothing.
+        AgentChoice::Off => BTreeMap::new(),
         AgentChoice::Stub => {
             // The stub answers every tier the policy names: the gates, the
             // policy and the ladder are the real ones, only the model is not.
@@ -690,7 +737,7 @@ fn backends(
             let thor = with_escalation(out, cfg.escalate_below, &cfg.escalate_backend, |_| {
                 thor_backend(cfg, &cfg.escalate_backend)
             });
-            out = thor;
+            let mut out = thor;
             // The cloud tier, when its key is there. That key only ever goes
             // to api.typesafe.ai -- never to the Thor.
             match JevBackend::from_secrets() {
@@ -703,7 +750,6 @@ fn backends(
             out
         }
     }
-    out
 }
 
 /// The Thor backend a backend name stands for: `"thor-clef-flash"` is the
@@ -741,6 +787,8 @@ fn parse_args() -> Result<Options, String> {
     let mut bottom = BottomMode::Roll;
     let mut score_seconds = sim_plugin::SCORE_SECONDS;
     let mut scrub = None;
+    let mut voice_toml = None;
+    let mut mic_wavs: Vec<PathBuf> = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -871,6 +919,18 @@ fn parse_args() -> Result<Options, String> {
                         .map_err(|_| String::from("`--scrub` needs a whole number"))?,
                 );
             }
+            "--voice-toml" => {
+                voice_toml =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        String::from("`--voice-toml` needs a file")
+                    })?));
+            }
+            "--mic-wav" => {
+                mic_wavs
+                    .push(PathBuf::from(args.next().ok_or_else(|| {
+                        String::from("`--mic-wav` needs a wave file")
+                    })?));
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -900,6 +960,8 @@ fn parse_args() -> Result<Options, String> {
         bottom,
         score_seconds,
         scrub,
+        voice_toml,
+        mic_wavs,
     })
 }
 
@@ -1005,8 +1067,13 @@ fn quit_after_capture(_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit
 struct FrameCount(u32);
 
 /// Count the frames: the screenshot mode waits for them.
-fn count_frames(mut frame: ResMut<FrameCount>) {
-    frame.0 += 1;
+///
+/// The waves are played first: the screenshot is of the round after the
+/// lines, not of the round before them.
+fn count_frames(mut frame: ResMut<FrameCount>, wavs: Res<audio_plugin::MicWavs>) {
+    if wavs.finished {
+        frame.0 += 1;
+    }
 }
 
 #[cfg(test)]

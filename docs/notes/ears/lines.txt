@@ -1,0 +1,20 @@
+hold
+wait
+stay
+hold the north beacon
+wait for the beacon
+stay where you are
+hold the line
+wait a moment
+stay on the beacon
+hold the south beacon
+wait here
+stay on the north
+hold the east beacon
+wait for me
+stay on the west
+hold the north beacon now
+wait for the squad
+stay on the beacon
+hold the west beacon
+wait at the beacon

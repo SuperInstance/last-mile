@@ -236,6 +236,30 @@ fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Pl
                 "not measured"
             }
         ));
+        // The ASR: which backend hears the human. "stub" is the app's own
+        // line, "http" is the ears on the Thor.
+        ui.label(format!("asr {}", voice.backend.as_str()));
+        // The ears: what they did, turn by turn. The three counters add up
+        // to the number of turns: every turn was heard, late or down.
+        let ears = voice.path.ears();
+        ui.label(format!(
+            "ears heard {} / late {} / down {}",
+            ears.heard, ears.late, ears.down
+        ));
+        // And the line they heard last, in their own words — and whose
+        // words they are: a late or missing answer is the stub's line,
+        // and the HUD says so rather than passing it off as the ears'.
+        if let Some(report) = voice.path.last_turn() {
+            let whose = match report.outcome {
+                lm_host_model::voice::EarsOutcome::Heard => "ears",
+                lm_host_model::voice::EarsOutcome::Late => "ears late, the stub",
+                lm_host_model::voice::EarsOutcome::Down => "ears down, the stub",
+            };
+            ui.colored_label(
+                egui::Color32::from_rgb(170, 215, 255),
+                format!("{whose}: \"{}\"", report.text),
+            );
+        }
         // The gate: how much was played, and how much the human took by
         // talking. A dropped clip is dropped for good.
         ui.label(format!(

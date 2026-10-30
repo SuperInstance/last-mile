@@ -69,13 +69,47 @@ uncertain = "Calm"    # doubt: the gentler, drawn style (Sad is not on every spe
 # query = "Calm"
 
 [asr]
-# The intelligibility gate: audio "works" only when a speech recognizer
-# agrees with what was asked for (skald's ASR round-trip rule). Riva's
-# HTTP surface has /v1/audio/transcriptions, but this deployment carries
-# TTS models only (it answers "Model not found" for every language), so
-# the gate falls through to the faster-whisper venv skald's own smoke
-# test uses. When neither path answers, the report says so plainly and
-# claims nothing.
+# The ears: the speech-to-text that hears the human, and the ones that
+# verify the rendered audio. One section, one file: the game and the
+# intelligibility gate read the same answers, so they cannot disagree
+# about where the ears are.
+#
+# Which backend hears the human:
+#   stub -- the deterministic one: no network, no clock, the same words
+#           every time. A map that says nothing hears with this, and the
+#           round plays exactly as it did before the ears existed;
+#   http -- the ears on the Thor. The line is scored when the words come
+#           back, and a late or missing answer falls back to the stub;
+#   auto -- the ears if the health probe says they are up at start-up,
+#           the stub if they are not. This is the realizer's auto in the
+#           same shape: the source that can do the work is used, and the
+#           deterministic one stands in when it cannot answer.
+backend = "auto"
+# Where the ears are: the Thor's LFM3-Audio door (the same door the
+# intelligibility gate asks whether a rendered line carries its words).
+# It answers POST /v1/audio/transcriptions (multipart, the field "file")
+# and GET /health.
+url = "http://192.168.0.78:8102"
+# How long one call may take, in milliseconds. Later than that the answer
+# is late, the stub stands in, and the HUD counts the turn as late.
+#
+# The deadline is generous because the round does not wait for it: the
+# words are asked for on a thread, and the line is scored when they come
+# back. Measured on the Thor over twenty turns: 179 ms at the median for
+# the whole turn, of which 6 ms was the wire — and 16-21 s for a single
+# call while another seat's job held the box, which is what the deadline
+# is for.
+deadline_ms = 5000
+# The language the ears are asked in.
+language = "en"
+
+# The gate's own ears, for the intelligibility round trip: it asks these
+# whether the audio says what it was asked to say. Riva's HTTP surface
+# has /v1/audio/transcriptions, but this deployment carries TTS models
+# only (it answers "Model not found" for every language), so the gate
+# falls through to the faster-whisper venv skald's own smoke test uses.
+# When neither path answers, the report says so plainly and claims
+# nothing.
 riva_base = "http://localhost"
 riva_port = 50000
 whisper_python = "/tmp/whisperenv/bin/python3"

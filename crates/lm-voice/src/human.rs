@@ -18,6 +18,8 @@
 //! The conversions are fixed point: the score is hashed and replays, so the
 //! same capture always gives the same score, on every machine.
 
+use std::sync::Arc;
+
 use lm_core::talk::TalkParams;
 use lm_core::utterance::{
     Addressee, Affect, Channel, Intent, Prosody, SpeechAct, Subject, Utterance, Word,
@@ -370,18 +372,27 @@ fn pause_after(
 /// on purpose: when it is absent, or when it answers with an error, the
 /// capture still gives its words, and the score is built without prosody.
 /// The round never waits for it.
+///
+/// The capture is shared, not owned: the backends behind it are `Send +
+/// Sync`, so the host can hand a copy to a thread and read the capture
+/// while the thread is still asking the ears.
+#[derive(Clone)]
 pub struct Capture {
     /// The backend that writes the words down.
-    asr: Box<dyn Asr>,
+    asr: Arc<dyn Asr>,
     /// The service that measures the voice, when there is one.
-    prosody: Option<Box<dyn ProsodyPort>>,
+    prosody: Option<Arc<dyn ProsodyPort>>,
     /// The rate the samples were taken at.
     sample_rate: u32,
 }
 
 impl Capture {
     /// A capture over an ASR, with no prosody service.
-    pub fn new(asr: Box<dyn Asr>) -> Capture {
+    ///
+    /// The backend is an arc and not a box: a capture that is shared with
+    /// the thread that asks the ears needs to be shareable, and the
+    /// trait is `Send + Sync` already.
+    pub fn new(asr: Arc<dyn Asr>) -> Capture {
         Capture {
             asr,
             prosody: None,
@@ -390,7 +401,7 @@ impl Capture {
     }
 
     /// The capture with a prosody service behind it.
-    pub fn with_prosody(mut self, port: Box<dyn ProsodyPort>) -> Capture {
+    pub fn with_prosody(mut self, port: Arc<dyn ProsodyPort>) -> Capture {
         self.prosody = Some(port);
         self
     }
@@ -616,7 +627,7 @@ mod tests {
 
     #[test]
     fn a_capture_without_a_prosody_service_still_gives_its_words() {
-        let capture = Capture::new(Box::new(crate::StubAsr::scripted("hold")));
+        let capture = Capture::new(Arc::new(crate::StubAsr::scripted("hold")));
 
         let (transcript, measured) = capture.read(&[1, 2, 3]).expect("the capture reads");
 

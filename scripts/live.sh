@@ -27,15 +27,25 @@
 #   lm-host-model  live_round_on_thor                        d1-3b
 #   lm-host-model  the_doctrine_pack_is_confident_enough...  d1-3b
 #   lm-host-model  talk_soak                                 d1-2b
-#   lm-voice       live_skald_speaks                         skald :8000
-#   lm-voice       live_skald_round_trip_is_intelligible     skald :8000 (+ whisper venv)
+#   lm-voice       live_skald_speaks                         the voice daemon
+#   lm-voice       live_skald_round_trip_is_intelligible     the voice daemon (+ the ears)
+#   lm-host-model  the_ears_hear_a_line...                   the ears (+ the voice daemon)
 #   lm-agents      realizer_on_thor                          d1-2b, realizer
 #
 # The Riva tests (lm-voice's live_riva_tts and lm-host-model's
 # live_round_with_riva) are not in this lane: they need a Riva service, not
-# the Thor. The skald lane below is different: the voice daemon runs on
-# this very Thor (localhost:8000), so it is probed on its own and skipped
-# when it is down.
+# the Thor.
+#
+# The voice daemon and the ears run on the Thor as well, so they are
+# probed and addressed the same way as the models: the Thor's base from
+# the agents' config, the daemon's port from the voice map, and the
+# ears' address from the live test that talks to them. Nothing in this
+# lane assumes "localhost" -- that is only right on the daemon's own box,
+# and the lane is often run from another one (the ProArt).
+#
+# The ears are the Thor's speech-to-text. They are not a decision model, so
+# the agents' config does not name them: the live test says where they are,
+# and the lane reads it from there.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -43,6 +53,12 @@ cd "$(dirname "$0")/.."
 # lane follows the config and the config is the one thing that says where the
 # Thor is.
 CONFIG="crates/lm-agents/src/config.rs"
+
+# The live test that talks to the ears: it says where they are.
+EARS_TEST="crates/lm-host-model/tests/ears.rs"
+
+# The voice map: the config that says where the voice daemon is.
+VOICE_MAP="assets/harness/default/voice.toml"
 
 # How long to wait for the Thor to answer a health call, in seconds.
 PROBE_TIMEOUT="${LM_PROBE_TIMEOUT:-3}"
@@ -74,6 +90,29 @@ thor_ports() {
 # The port of one model, by its name in the config.
 port_of() {
   thor_ports | awk -v name="$1" '$1 == name {print $2; exit}'
+}
+
+# The URL of the ears, as the live test has it.
+ears_url() {
+  sed -n 's/^const EARS: &str = "\([^"]*\)".*/\1/p' "$EARS_TEST" | head -1
+}
+
+# The port the voice daemon answers on, as the voice map says it.
+#
+# The map is the config: it says which port the daemon is on, and the
+# lane reads it from there instead of repeating the number.
+skald_port() {
+  sed -n '/^\[skald\]/,/^\[/ s/^port = \([0-9]*\).*/\1/p' "$VOICE_MAP" | head -1
+}
+
+# Where the voice daemon is.
+#
+# The daemon runs on the Thor, and the lane can run from another box
+# (the ProArt), so its address is read from the config the rest of the
+# lane reads: the Thor's base and the voice map's port. Nothing here
+# assumes "localhost", which only ever works on the daemon's own box.
+skald_url() {
+  printf '%s:%s' "$(thor_base)" "$(skald_port)"
 }
 
 # The port of one model, or a loud failure: a test that needs a port the
@@ -114,6 +153,39 @@ llm_port() {
   sed -n 's/.*llm_port: \([0-9][0-9]*\).*/\1/p' "$CONFIG" | head -1
 }
 
+# Is a URL serving? The same probe, for a service that is named by its own
+# URL rather than by a port of the Thor's base.
+#
+# The paths are the ones the services answer: the ears' door answers
+# /health, the voice daemon answers /v1/health (its / is slow — it takes
+# seconds — so it is the last resort and not the first try).
+url_is_up() {
+  local url="$1"
+  for path in /health /v1/health /v1/voices; do
+    curl -fsS --noproxy '*' --connect-timeout "$PROBE_TIMEOUT" --max-time "$PROBE_TIMEOUT" \
+      "$url$path" >/dev/null 2>&1 && return 0
+  done
+  curl -sS --noproxy '*' --connect-timeout "$PROBE_TIMEOUT" --max-time "$PROBE_TIMEOUT" \
+    -o /dev/null "$url/" >/dev/null 2>&1 && return 0
+  return 1
+}
+
+# Is the service serving? A port is on the Thor's base; a URL is its own.
+service_is_up() {
+  case "$1" in
+    http://* | https://*) url_is_up "$1" ;;
+    *) port_is_up "$1" ;;
+  esac
+}
+
+# Where the service is, in a phrase.
+where_of() {
+  case "$1" in
+    http://* | https://*) printf '%s' "$1" ;;
+    *) printf 'the Thor on :%s' "$1" ;;
+  esac
+}
+
 # The logs of the runs, in a scratch directory of their own: the repo is
 # never written to.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/lm-live.XXXXXX")"
@@ -133,10 +205,10 @@ run_live() {
   shift 3
   local log="$WORK/$(printf '%s' "$label" | tr -c 'A-Za-z0-9' '_').log"
 
-  printf '==> %s (the Thor on :%s)\n' "$label" "$port"
+  printf '==> %s (%s)\n' "$label" "$(where_of "$port")"
 
-  if ! port_is_up "$port"; then
-    printf "SKIP: %s -- the Thor's port %s is not serving\n" "$label" "$port"
+  if ! service_is_up "$port"; then
+    printf "SKIP: %s -- %s is not serving\n" "$label" "$(where_of "$port")"
     skipped=$((skipped + 1))
     return 0
   fi
@@ -200,6 +272,18 @@ check_soak_table() {
   return 0
 }
 
+# The live fact: the ears heard the line, and the line reached the score.
+# The test asserts both; this reads the marker back out of the log, so the
+# lane still fails if that assertion is ever weakened.
+check_ears() {
+  if ! grep -q 'the ears heard the line, and the line is in the log' "$1"; then
+    printf 'the ears did not hear the line, or the line did not reach the log\n'
+    return 1
+  fi
+  printf 'the ears heard the line and the line is in the log\n'
+  return 0
+}
+
 # ------------------------------------------------------------------ the run
 
 PORT_D1_3B="$(need_port d1-3b)" || exit 1
@@ -244,27 +328,58 @@ run_live "lm-host-model the_doctrine_pack_is_confident_enough_to_drive_play" \
 run_live "lm-host-model talk_soak" "$PORT_D1_2B" check_soak_table \
   -p lm-host-model --test talk_soak talk_soak
 
-# The skald lane: the voice daemon on the Thor itself (localhost:8000),
-# not the decision models. The daemon's health path is /v1/health, which
-# port_is_up does not try, so the probe is any HTTP answer at all — the
-# daemon's / answers 200. The round-trip test also needs the whisper venv
-# of skald's own smoke test; without ears it fails loudly, because an
-# unverified clip is not a working clip.
-SKALD_PORT=8000
-if port_is_up "$SKALD_PORT"; then
-  run_live "lm-voice live_skald_speaks" "$SKALD_PORT" check_ran \
+# The skald lane: the voice daemon, which runs on the Thor itself, not
+# the decision models. The daemon's health path is /v1/health, which
+# url_is_up does not try, so the probe is any HTTP answer at all — the
+# daemon's / answers 200.
+#
+# The address is read from the config (the Thor's base and the voice
+# map's port), so the lane works from another box: the daemon's
+# "localhost" is only right on the daemon's own box. The same address
+# goes to the tests through the environment, so the test and the probe
+# are talking to the same daemon.
+SKALD="$(skald_url)"
+if [ -z "$SKALD" ]; then
+  printf 'FAIL: the voice map %s does not say which port the daemon is on\n' "$VOICE_MAP"
+  failed=$((failed + 1))
+elif ! url_is_up "$SKALD"; then
+  printf 'SKIP: the skald lane -- the voice daemon %s is not serving\n' "$SKALD"
+  skipped=$((skipped + 1))
+else
+  # The base, without the port: the port is the voice map's, and the
+  # tests take it from there.
+  export LM_SKALD_BASE="$(thor_base)"
+  run_live "lm-voice live_skald_speaks" "$SKALD" check_ran \
     -p lm-voice --lib live_skald_speaks
 
-  if [ -x /tmp/whisperenv/bin/python3 ]; then
-    run_live "lm-voice live_skald_round_trip_is_intelligible" "$SKALD_PORT" check_ran \
-      -p lm-voice --lib live_skald_round_trip_is_intelligible
-  else
-    printf 'SKIP: lm-voice live_skald_round_trip_is_intelligible -- no whisper venv at /tmp/whisperenv\n'
-    skipped=$((skipped + 1))
-  fi
-else
-  printf 'SKIP: the skald lane -- the voice daemon on :%s is not serving\n' "$SKALD_PORT"
+  # The round trip: the rendered line is heard back by an ear. The gate
+  # asks the door on the Thor first (a real speech-to-text model), so
+  # the whisper venv is only a fallback and not a requirement.
+  run_live "lm-voice live_skald_round_trip_is_intelligible" "$SKALD" check_ran \
+    -p lm-voice --lib live_skald_round_trip_is_intelligible
+fi
+
+# The ears: the Thor's speech-to-text. The line is rendered by the
+# Thor's voice and heard by the Thor's ears, and the line reaches the
+# score. The ears' address comes from the live test and the voice's
+# address comes from the config, and both go to the test through the
+# environment, so the probe and the test talk to the same services.
+EARS="$(ears_url)"
+VOICE="$(skald_url)"
+if [ -z "$EARS" ] || [ -z "$VOICE" ]; then
+  printf 'FAIL: %s does not say where the ears are, and the voice map does not say where the voice is\n' "$EARS_TEST"
+  failed=$((failed + 1))
+elif ! url_is_up "$VOICE"; then
+  printf 'SKIP: the ears lane -- the voice %s is not serving\n' "$VOICE"
   skipped=$((skipped + 1))
+elif ! url_is_up "$EARS"; then
+  printf 'SKIP: the ears lane -- the ears %s are not serving\n' "$EARS"
+  skipped=$((skipped + 1))
+else
+  export LM_EARS_BASE="$EARS"
+  export LM_SKALD_BASE="$(thor_base)"
+  run_live "lm-host-model the_ears_hear_a_line" "$EARS" check_ears \
+    -p lm-host-model --test ears the_ears_hear_a_line_and_the_line_reaches_the_score
 fi
 
 # The realizer: the model that writes the wording of a line. It needs the

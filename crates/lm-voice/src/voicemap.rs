@@ -17,7 +17,7 @@
 //! the same ones the file ships with.
 
 use lm_core::utterance::{Affect, Intent};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::VoiceConfigError;
 
@@ -74,10 +74,91 @@ pub struct StylesConfig {
     pub intent: std::collections::BTreeMap<String, String>,
 }
 
-/// Where the intelligibility gate's ears are.
+/// Which backend hears the human.
+///
+/// The names are the ones the configuration uses: `stub`, `http` and
+/// `auto`. Anything else is refused by name -- a typo in the
+/// configuration must not be a backend nobody asked for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AsrBackend {
+    /// The deterministic stub: no network, no clock, the same words every
+    /// time. This is the default, so a map that says nothing hears with
+    /// the stub and the round plays exactly as it did before the ears
+    /// existed.
+    #[default]
+    Stub,
+    /// The ears on the Thor: the capture goes out and the words come
+    /// back.
+    Http,
+    /// The ears when they are up at start-up, the stub when they are not.
+    ///
+    /// This is the realizer's `auto` in the same shape: the source that
+    /// can do the work is used, and the deterministic one stands in when
+    /// it cannot answer.
+    Auto,
+}
+
+impl AsrBackend {
+    /// The backend a name stands for.
+    ///
+    /// The name is refused by name: "htpp" is not "http", and a backend
+    /// nobody asked for is not a backend that is quietly chosen.
+    pub fn parse(name: &str) -> Result<AsrBackend, String> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "stub" => Ok(AsrBackend::Stub),
+            "http" => Ok(AsrBackend::Http),
+            "auto" => Ok(AsrBackend::Auto),
+            other => Err(format!(
+                "the ASR backend `{other}` is not one of stub, http or auto"
+            )),
+        }
+    }
+
+    /// The name the backend is written as in the configuration.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AsrBackend::Stub => "stub",
+            AsrBackend::Http => "http",
+            AsrBackend::Auto => "auto",
+        }
+    }
+}
+
+/// The ears, as the Thor's ears are by default.
+pub const DEFAULT_EARS_URL: &str = "http://192.168.0.78:8102";
+
+/// How long one call to the ears may take, in milliseconds, when the
+/// configuration says nothing.
+///
+/// The deadline is generous, because the round does not wait for it: the
+/// words are asked for on a thread and the line is scored when they come
+/// back. The Thor's ears have answered in 0.3 s when the box was idle and
+/// in 1.8-3.4 s when it was busy, so five seconds is above what they have
+/// taken and below what a person waits for.
+pub const DEFAULT_DEADLINE_MS: u32 = 5_000;
+
+/// The language the ears are asked in, when the configuration names none.
+pub const DEFAULT_LANGUAGE: &str = "en";
+
+/// Where the ears are, and which of them hears.
+///
+/// One section, one set of answers: the game asks the ears on the Thor
+/// and the intelligibility gate asks the same door whether the rendered
+/// audio carries the words it was given. The gate's own fallbacks (Riva's
+/// transcriptions path, the faster-whisper venv) are named here too, so
+/// that one file says where every ear is.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct AsrConfig {
+    /// Which backend hears the human.
+    pub backend: AsrBackend,
+    /// The base URL of the ears: the Thor's LFM3-Audio door.
+    pub url: String,
+    /// How long one call may take, in milliseconds.
+    pub deadline_ms: u32,
+    /// The language the ears are asked in.
+    pub language: String,
     /// Riva's host: its HTTP surface has the transcriptions path, though
     /// this deployment carries TTS models only.
     pub riva_base: String,
@@ -91,6 +172,10 @@ pub struct AsrConfig {
 impl Default for AsrConfig {
     fn default() -> Self {
         AsrConfig {
+            backend: AsrBackend::Stub,
+            url: DEFAULT_EARS_URL.to_owned(),
+            deadline_ms: DEFAULT_DEADLINE_MS,
+            language: DEFAULT_LANGUAGE.to_owned(),
             riva_base: "http://localhost".to_owned(),
             riva_port: 50_000,
             whisper_python: "/tmp/whisperenv/bin/python3".to_owned(),
@@ -108,7 +193,8 @@ pub struct VoiceMap {
     pub agents: AgentsConfig,
     /// The style per tone and per intent.
     pub styles: StylesConfig,
-    /// The intelligibility gate's ears.
+    /// The ears: the one that hears the human, and the ones that verify
+    /// the rendered audio.
     pub asr: AsrConfig,
 }
 
@@ -232,5 +318,57 @@ mod tests {
             VoiceMap::parse("not [ toml"),
             Err(VoiceConfigError::Parse(_))
         ));
+    }
+
+    #[test]
+    fn the_ears_are_read_from_the_one_section() {
+        let map = VoiceMap::parse(
+            "[asr]\nbackend = \"http\"\nurl = \"http://192.168.0.78:8102\"\ndeadline_ms = 1500\n",
+        )
+        .expect("the map parses");
+
+        assert_eq!(map.asr.backend, AsrBackend::Http);
+        assert_eq!(map.asr.url, "http://192.168.0.78:8102");
+        assert_eq!(map.asr.deadline_ms, 1_500);
+        // And the language falls back to the default.
+        assert_eq!(map.asr.language, DEFAULT_LANGUAGE);
+        // The gate's own ears are still named in the same section.
+        assert_eq!(map.asr.riva_port, 50_000);
+    }
+
+    #[test]
+    fn a_map_that_says_nothing_hears_with_the_stub() {
+        let map = VoiceMap::parse("[asr]").expect("an empty section parses");
+
+        assert_eq!(map.asr.backend, AsrBackend::Stub);
+        assert_eq!(map.asr.url, DEFAULT_EARS_URL);
+        assert_eq!(map.asr.deadline_ms, DEFAULT_DEADLINE_MS);
+        assert_eq!(map.asr.language, DEFAULT_LANGUAGE);
+    }
+
+    #[test]
+    fn the_shipped_map_names_the_ears_of_the_thor() {
+        let map = VoiceMap::shipped();
+
+        // The shipped map is the one config: it says where the ears are,
+        // and the game and the gate read the same section.
+        assert_eq!(map.asr.url, DEFAULT_EARS_URL);
+        assert_eq!(map.asr.backend, AsrBackend::Auto);
+        assert!(map.asr.deadline_ms > 0, "the ears have a deadline");
+    }
+
+    #[test]
+    fn a_backend_that_is_not_one_is_refused_by_name() {
+        assert_eq!(AsrBackend::parse("stub"), Ok(AsrBackend::Stub));
+        assert_eq!(AsrBackend::parse("HTTP"), Ok(AsrBackend::Http));
+        assert_eq!(AsrBackend::parse(" auto "), Ok(AsrBackend::Auto));
+        let err = AsrBackend::parse("htpp").expect_err("the typo is refused");
+        assert!(err.contains("htpp"), "{err}");
+    }
+
+    #[test]
+    fn a_backend_that_is_not_one_does_not_parse_into_the_map() {
+        let err = VoiceMap::parse("[asr]\nbackend = \"htpp\"\n").expect_err("the typo is refused");
+        assert!(matches!(err, VoiceConfigError::Parse(_)), "got {err:?}");
     }
 }

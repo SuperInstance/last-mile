@@ -32,10 +32,24 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::VoiceError;
+use crate::voicemap::VoiceMap;
+use crate::{VoiceError, ENV_SKALD_BASE};
 
 /// The path the daemon answers speech on.
 pub const SPEECH_PATH: &str = "/v1/audio/speech";
+
+/// The voice daemon's base URL: the environment's, when it names one,
+/// and the voice map's otherwise.
+///
+/// The daemon is on the Thor and the live lane runs from another box
+/// (the ProArt), so the environment says where the daemon is. The map's
+/// "localhost" is the default for a run on the daemon's own box.
+pub fn skald_base(map: &VoiceMap) -> String {
+    std::env::var(ENV_SKALD_BASE)
+        .ok()
+        .filter(|base| !base.trim().is_empty())
+        .unwrap_or_else(|| map.skald.base.clone())
+}
 
 /// The prefix of every Magpie voice on the Thor.
 const MAGPIE_PREFIX: &str = "Magpie-Multilingual.EN-US";
@@ -434,10 +448,14 @@ mod tests {
     /// The live test: the skald daemon on this Thor, opt-in like every
     /// live test (scripts/live.sh's pattern). It renders one line and
     /// checks the WAV the service answered with.
+    ///
+    /// The daemon's address is the environment's when it names one, so
+    /// the lane can run this from another box.
     #[test]
     #[ignore = "the live skald daemon is opt-in: it must be running on :8000"]
     fn live_skald_speaks() {
-        let client = VoiceClient::new("http://localhost", 8000, 22_050);
+        let map = VoiceMap::shipped();
+        let client = VoiceClient::new(&skald_base(&map), map.skald.port, map.skald.sample_rate_hz);
         let line = SpeechLine::new("Hold the north beacon.", "mia", "Neutral");
         let rendered = match client.render(&line, Instant::now() + Duration::from_secs(10)) {
             Ok(rendered) => rendered,

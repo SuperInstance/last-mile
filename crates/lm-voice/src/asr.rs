@@ -20,27 +20,38 @@
 //!   smoke test uses (`/tmp/whisperenv`, tiny.en, CPU int8), which
 //!   transcribed a rendered line back at homophone-level divergence.
 //!
-//! So the gate tries Riva first (a future deployment may carry ASR models
-//! and then it is the better ear), and falls through to the whisper venv.
-//! When neither path answers, [`Gate::unavailable`] says so plainly: the
-//! audio's intelligibility is **not** verified, and nothing in this crate
-//! or the `lm voice` report claims otherwise.
+//! And, since 2026-10-29, the **door on the Thor** (`:8102`, the
+//! LFM3-Audio-2B speech-to-text of `docs/research/ears/EARS.md`): a real
+//! ASR model, 118 ms for a squad line, and the same door the game asks
+//! when the human speaks.
+//!
+//! So the gate tries the door first (the ear that actually hears), then
+//! Riva (a future deployment may carry ASR models and then it is the
+//! better ear), and falls through to the whisper venv. When no path
+//! answers, [`Gate::unavailable`] says so plainly: the audio's
+//! intelligibility is **not** verified, and nothing in this crate or
+//! the `lm voice` report claims otherwise.
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
+use crate::asr_http::HttpAsr;
 use crate::voicemap::AsrConfig;
 use crate::VoiceError;
 
-/// The path Riva's HTTP surface answers transcriptions on.
-pub const TRANSCRIPTIONS_PATH: &str = "/v1/audio/transcriptions";
-
 /// How long one transcription may take, end to end.
 const TRANSCRIBE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// How long one call to an HTTP ear may take, in milliseconds.
+///
+/// The gate is a verification tool and it can wait; the game cannot. So
+/// the gate's deadline is its own and it is generous: the door's first
+/// call after a start is slow (about two seconds while the audio encoder
+/// warms up), and the Thor answers in seconds when it is busy.
+const GATE_DEADLINE_MS: u32 = 30_000;
 
 /// The script the whisper venv runs: a WAV in, one JSON line out.
 ///
@@ -141,13 +152,23 @@ impl Gate {
         Gate { config }
     }
 
-    /// Transcribe one WAV: Riva's transcriptions first, the whisper venv
-    /// second — the ear that answers a probe is the ear the gate uses.
+    /// Transcribe one WAV: the door on the Thor first, Riva's HTTP
+    /// surface second, the whisper venv last — the ear that answers a
+    /// probe is the ear the gate uses.
+    ///
+    /// The door is first because it is the ear that hears: it carries a
+    /// real speech-to-text model, and it is the same door the game asks
+    /// when the human speaks, so the gate and the game agree on what was
+    /// said.
     pub fn transcribe(&self, wav_path: &Path) -> Result<(String, String), Vec<String>> {
         let mut reasons = Vec::new();
-        match self.transcribe_riva(wav_path) {
+        match self.transcribe_http(&self.config.url, wav_path) {
+            Ok(text) => return Ok(("ears-http".to_owned(), text)),
+            Err(err) => reasons.push(format!("the ears {:?}: {err}", self.config.url)),
+        }
+        match self.transcribe_http(&self.riva_base(), wav_path) {
             Ok(text) => return Ok(("riva-http".to_owned(), text)),
-            Err(err) => reasons.push(format!("riva {:?}: {err}", self.riva_url())),
+            Err(err) => reasons.push(format!("riva {:?}: {err}", self.riva_base())),
         }
         match self.transcribe_whisper(wav_path) {
             Ok(text) => return Ok(("whisper-tiny.en".to_owned(), text)),
@@ -182,73 +203,19 @@ impl Gate {
         GateOutcome::Heard(ear, heard)
     }
 
-    /// Riva's transcriptions URL.
-    fn riva_url(&self) -> String {
-        format!(
-            "{}:{}{}",
-            self.config.riva_base, self.config.riva_port, TRANSCRIPTIONS_PATH
-        )
+    /// Riva's base URL: its host and its port.
+    fn riva_base(&self) -> String {
+        format!("{}:{}", self.config.riva_base, self.config.riva_port)
     }
 
-    /// Ask Riva's HTTP surface what it hears in a WAV.
+    /// Ask an HTTP ear what it hears in a WAV.
     ///
-    /// This deployment carries TTS models only, so this usually answers
-    /// HTTP 400 "Model not found for language …" — which is precisely the
-    /// probe: the day Riva carries ASR models, this ear is the better one
-    /// and the gate takes it without a code change.
-    fn transcribe_riva(&self, wav_path: &Path) -> Result<String, VoiceError> {
-        let boundary = "lm-voice-gate-7381";
-        let wav = std::fs::read(wav_path)
-            .map_err(|err| VoiceError::Malformed(format!("{}: {err}", wav_path.display())))?;
-        let mut body = Vec::new();
-        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        body.extend_from_slice(
-            b"Content-Disposition: form-data; name=\"file\"; filename=\"line.wav\"\r\n\
-               Content-Type: audio/wav\r\n\r\n",
-        );
-        body.extend_from_slice(&wav);
-        body.extend_from_slice(format!("\r\n--{boundary}\r\n").as_bytes());
-        body.extend_from_slice(
-            b"Content-Disposition: form-data; name=\"language\"\r\n\r\nen-US\r\n",
-        );
-        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
-
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(120)))
-            .proxy(None)
-            .build()
-            .into();
-        let response = agent
-            .post(&self.riva_url())
-            .header(
-                "Content-Type",
-                format!("multipart/form-data; boundary={boundary}"),
-            )
-            .send(&body)
-            .map_err(|err| match err {
-                ureq::Error::StatusCode(code) => VoiceError::Http(code),
-                ureq::Error::Timeout(_) => VoiceError::Timeout,
-                other => VoiceError::Malformed(format!("{other}")),
-            })?;
-        let status = response.status().as_u16();
-        let mut text = String::new();
-        response
-            .into_body()
-            .into_reader()
-            .take(1024 * 1024)
-            .read_to_string(&mut text)
-            .map_err(|err| VoiceError::Malformed(format!("the answer did not arrive: {err}")))?;
-        if !(200..300).contains(&status) {
-            return Err(VoiceError::Http(status));
-        }
-        #[derive(Deserialize)]
-        struct Answer {
-            #[serde(default)]
-            text: String,
-        }
-        let answer: Answer = serde_json::from_str(&text)
-            .map_err(|err| VoiceError::Malformed(format!("the answer is not JSON: {err}")))?;
-        Ok(answer.text)
+    /// The same client the game uses — one multipart, one door, one
+    /// deadline. There is no second HTTP ASR in this crate: the gate and
+    /// the game ask the same ear in the same way, so they cannot hear
+    /// different things.
+    fn transcribe_http(&self, base: &str, wav_path: &Path) -> Result<String, VoiceError> {
+        HttpAsr::new(base, GATE_DEADLINE_MS).hear_wav(wav_path)
     }
 
     /// Ask the whisper venv what it hears in a WAV.
@@ -356,14 +323,18 @@ mod tests {
     /// It is opt-in like every live test, and it is the one test whose
     /// whole point is the claim "the audio works": if the ears are not on
     /// this box, the test fails loudly rather than passing quietly.
+    ///
+    /// The daemon's address and the ears' address are the environment's
+    /// when it names them, so the lane can run this from another box.
     #[test]
-    #[ignore = "the live gate needs the skald daemon (:8000) and the whisper venv"]
+    #[ignore = "the live gate needs the skald daemon (:8000) and the ears"]
     fn live_skald_round_trip_is_intelligible() {
-        use crate::skald::{SpeechLine, VoiceClient};
+        use crate::skald::{skald_base, SpeechLine, VoiceClient};
         use crate::voicemap::VoiceMap;
+        use crate::ENV_EARS_BASE;
 
         let map = VoiceMap::shipped();
-        let client = VoiceClient::new(&map.skald.base, map.skald.port, map.skald.sample_rate_hz);
+        let client = VoiceClient::new(&skald_base(&map), map.skald.port, map.skald.sample_rate_hz);
         let line = SpeechLine::new("Hold the north beacon. Contact east.", "mia", "Neutral");
         let rendered = client
             .render(&line, Instant::now() + Duration::from_secs(10))
@@ -374,7 +345,15 @@ mod tests {
         let wav = dir.join("line.wav");
         std::fs::write(&wav, &rendered.wav).expect("the wav is written");
 
-        let gate = Gate::new(map.asr.clone());
+        // The gate asks the ears the configuration names, unless the
+        // environment says where they are.
+        let mut config = map.asr.clone();
+        if let Ok(base) = std::env::var(ENV_EARS_BASE) {
+            if !base.trim().is_empty() {
+                config.url = base;
+            }
+        }
+        let gate = Gate::new(config);
         let (ear, heard) = gate
             .transcribe(&wav)
             .expect("an ear on this box hears — without one, do not claim the audio works");

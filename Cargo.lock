@@ -4130,6 +4130,7 @@ dependencies = [
  "lm-tools",
  "lm-voice",
  "serde_json",
+ "ureq",
 ]
 
 [[package]]

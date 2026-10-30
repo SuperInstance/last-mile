@@ -46,6 +46,8 @@ pub mod scrub;
 pub mod talk;
 // The human's voice: the commands, the tutor ladder and the score.
 pub mod voice;
+// The wave file: a capture that comes from a file instead of a device.
+pub mod wav;
 // Which view of the round the host draws, and the runtime switch between
 // them (phase 6 Task 8); and the bottom panel's own switch between the
 // piano roll and the conductor's score (Vox Score §12, E7).

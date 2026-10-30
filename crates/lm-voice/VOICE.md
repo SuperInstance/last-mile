@@ -60,11 +60,14 @@ A hand probe of the full round trip: *"Hold the north beacon. Contact
 east, fall back to the rally point."* came back as *"Hope the North
 Beacon, contact East, fall back to the rally point."* — homophone-level
 divergence, the class skald's gate calls a pass. The gate
-(`lm_voice::asr`) tries Riva first (the day its deployment carries ASR
-models, it is the better ear) and falls through to the venv; when neither
-answers, `lm voice` prints `intelligibility: NOT VERIFIED — no ASR on
-this box answered` and the reasons, and claims nothing. That branch was
-exercised by pointing the map at a dead port and a missing venv.
+(`lm_voice::asr`) asks the **door on the Thor** first (`:8102`, the
+LFM3-Audio-2B speech-to-text of `docs/research/ears/EARS.md` — a real
+ASR model, and the same door the game asks when the human speaks), then
+Riva (the day its deployment carries ASR models, it is the better ear),
+and falls through to the venv; when none of them answers, `lm voice`
+prints `intelligibility: NOT VERIFIED — no ASR on this box answered` and
+the reasons, and claims nothing. That branch was exercised by pointing
+the map at a dead port and a missing venv.
 
 ## Render latency (the number that shapes everything)
 

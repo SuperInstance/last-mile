@@ -17,10 +17,15 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use lm_core::talk::TalkParams;
 use lm_core::utterance::Utterance;
-use lm_voice::{build_human_utterance, check_mic, Capture, VoiceError};
+use lm_voice::{
+    build_human_utterance, check_mic, Asr, Capture, MeasuredProsody, Transcript, VoiceError,
+};
 
 /// The tokens that make a sentence a negation.
 ///
@@ -327,6 +332,130 @@ impl fmt::Display for VoiceRefusal {
     }
 }
 
+/// What the ears did with a turn.
+///
+/// The three names are the three ways a line can be scored, and the HUD
+/// counts them: the ears heard the line, the ears were too late for it,
+/// or the ears were not there at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EarsOutcome {
+    /// The ears answered in time: the line is theirs.
+    Heard,
+    /// The ears were too late: the stub stood in.
+    Late,
+    /// The ears were not there: the stub stood in.
+    Down,
+}
+
+/// The counters the HUD shows: what the ears did, turn by turn.
+///
+/// Every turn ends in exactly one of the three, so the three counters add
+/// up to the number of turns.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EarsStats {
+    /// How many turns the ears heard.
+    pub heard: u64,
+    /// How many turns the ears were too late for.
+    pub late: u64,
+    /// How many turns the ears were not there for.
+    pub down: u64,
+}
+
+impl EarsStats {
+    /// How many turns there were.
+    pub fn total(&self) -> u64 {
+        self.heard + self.late + self.down
+    }
+}
+
+/// The last turn: the line, and what the ears did with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TurnReport {
+    /// The line, as it was heard.
+    pub text: String,
+    /// What the ears did with the turn.
+    pub outcome: EarsOutcome,
+    /// What the line was read as: the verb and its tier, or the refusal.
+    pub command: CommandOutcome,
+}
+
+/// How long a turn waits for the ears before the stub stands in.
+///
+/// The ears have a deadline of their own, and this one is the last word:
+/// it is past theirs, so the thread's own answer is the one that lands
+/// first. It is the backstop for a thread that does not come back at all.
+pub const DEFAULT_TURN_DEADLINE: Duration = Duration::from_millis(2_500);
+
+/// A turn in flight: the ears are being asked, off the thread.
+struct Pending {
+    /// The thread's answer.
+    ///
+    /// The receiver is behind a lock because it is not shareable on its
+    /// own, and the host keeps the voice in a resource that every system
+    /// can see.
+    rx: Mutex<mpsc::Receiver<Answer>>,
+    /// When the turn has to end, whatever the ears say.
+    deadline: Instant,
+    /// The samples, kept for the stub that stands in.
+    pcm: Vec<i16>,
+    /// The speaker of the line.
+    speaker: u16,
+    /// The talk's rules, for the score.
+    talk: TalkParams,
+}
+
+/// What the thread came back with.
+struct Answer {
+    /// The words.
+    transcript: Transcript,
+    /// The measurement, when a service answered.
+    measured: Option<MeasuredProsody>,
+    /// What the ears did.
+    outcome: EarsOutcome,
+}
+
+/// What a turn cost: the wall clock, and what it was made of.
+///
+/// The two numbers are the split the round's budget is read with: what the
+/// network cost, and what the machine did. The service's own time is the
+/// third: it is the part of the compute that happened on the other side of
+/// the wire.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TurnCost {
+    /// The whole turn: the key coming up to the line being applied.
+    pub total_ms: u64,
+    /// The round trip: the call to the ears, less the service's own time.
+    pub network_ms: u64,
+    /// The service's own time, as it reported it.
+    pub server_ms: u64,
+}
+
+impl TurnCost {
+    /// The compute: the service's own time and the host's own work.
+    pub fn compute_ms(&self) -> u64 {
+        self.total_ms.saturating_sub(self.network_ms)
+    }
+}
+
+/// The percentile of a list of numbers.
+///
+/// The nearest rank: the p-th percentile is the value at the rank
+/// `ceil(p/100 × n)`, counting from one. With twenty values, p50 is the
+/// tenth and p95 the nineteenth.
+pub fn percentile(values: &[u64], p: u8) -> Option<u64> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let count = sorted.len();
+    let rank = (u64::from(p) * count as u64).div_ceil(100).max(1);
+    let index = usize::try_from(rank - 1)
+        .unwrap_or(count - 1)
+        .min(count - 1);
+    sorted.get(index).copied()
+}
+
 /// The human's voice: the microphone path, end to end.
 ///
 /// The path is **capture → the words → the command → the measurement → the
@@ -334,27 +463,59 @@ impl fmt::Display for VoiceRefusal {
 /// nothing is submitted, and the round does not move. The prosody service
 /// is optional: when it is absent or when it fails, the score is built
 /// without prosody and the round never waits for it.
+///
+/// **The round never waits for the ears.** A turn is begun with
+/// [`HumanVoice::begin`], the words are asked for on a thread, and the
+/// score comes back when it is ready with [`HumanVoice::poll`]. An ear
+/// that is late or down does not hold the round up: the stub stands in,
+/// and the HUD says which of the three it was.
 pub struct HumanVoice {
-    capture: Capture,
+    capture: Arc<Capture>,
+    fallback: Option<Arc<dyn Asr>>,
     parser: CommandParser,
     zero_fraction_max_q16: u32,
     measured: bool,
+    ears: EarsStats,
+    pending: Option<Pending>,
+    last: Option<TurnReport>,
+    deadline: Duration,
 }
 
 impl HumanVoice {
     /// The path, over a capture and a parser.
     pub fn new(capture: Capture, parser: CommandParser) -> HumanVoice {
         HumanVoice {
-            capture,
+            capture: Arc::new(capture),
+            fallback: None,
             parser,
             zero_fraction_max_q16: lm_voice::DEFAULT_ZERO_FRACTION_MAX_Q16,
             measured: false,
+            ears: EarsStats::default(),
+            pending: None,
+            last: None,
+            deadline: DEFAULT_TURN_DEADLINE,
         }
     }
 
     /// The path with another limit on a dead microphone.
     pub fn with_zero_fraction_max(mut self, zero_fraction_max_q16: u32) -> HumanVoice {
         self.zero_fraction_max_q16 = zero_fraction_max_q16;
+        self
+    }
+
+    /// The path with a stub behind it.
+    ///
+    /// The stub is the app's own line: the one the round had before the
+    /// ears existed. When the ears are late or down, the stub stands in
+    /// and the line falls back exactly as it did before.
+    pub fn with_fallback(mut self, stub: Arc<dyn Asr>) -> HumanVoice {
+        self.fallback = Some(stub);
+        self
+    }
+
+    /// The path with another deadline for a turn.
+    pub fn with_deadline(mut self, deadline: Duration) -> HumanVoice {
+        self.deadline = deadline;
         self
     }
 
@@ -368,11 +529,21 @@ impl HumanVoice {
         &mut self.parser
     }
 
-    /// Read a capture into the score of a line.
-    ///
-    /// The score comes back only when the microphone was alive and the
-    /// command was allowed. Everything else is a refusal, and a refusal
-    /// submits nothing.
+    /// What the ears did, turn by turn.
+    pub fn ears(&self) -> EarsStats {
+        self.ears
+    }
+
+    /// The last turn: the line, and what the ears did with it.
+    pub fn last_turn(&self) -> Option<&TurnReport> {
+        self.last.as_ref()
+    }
+
+    /// Whether a turn is in flight: the ears have not answered yet.
+    pub fn turn_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
     /// Whether the last capture was measured.
     ///
     /// The prosody service is optional, so the host says so when the line
@@ -391,25 +562,166 @@ impl HumanVoice {
         self.capture.has_prosody()
     }
 
+    /// Begin a turn: the capture is read on a thread, and the round goes on.
+    ///
+    /// The words come back later, and [`HumanVoice::poll`] gives the score
+    /// when they do. A dead microphone is refused here and now: nothing is
+    /// submitted, and the round does not move.
+    pub fn begin(
+        &mut self,
+        pcm: &[i16],
+        speaker: u16,
+        talk: &TalkParams,
+    ) -> Result<(), VoiceRefusal> {
+        check_mic(pcm, self.zero_fraction_max_q16).map_err(VoiceRefusal::Mic)?;
+        // A turn that is still in flight is dropped: the human spoke
+        // again, and the new line is the one that counts. The dropped turn
+        // is late -- its answer never landed.
+        if self.pending.take().is_some() {
+            self.ears.late = self.ears.late.saturating_add(1);
+        }
+        let capture = Arc::clone(&self.capture);
+        let fallback = self.fallback.clone();
+        let samples = pcm.to_vec();
+        let rate = capture.sample_rate();
+        let (tx, rx) = mpsc::channel();
+        // The asking happens on a thread: the round does not wait for the
+        // ears, and the frame does not stop for them.
+        std::thread::spawn(move || {
+            let answer = match capture.read(&samples) {
+                Ok((transcript, measured)) => Answer {
+                    transcript,
+                    measured,
+                    outcome: EarsOutcome::Heard,
+                },
+                Err(VoiceError::Timeout) => Answer {
+                    transcript: stub_says(&fallback, &samples, rate),
+                    measured: None,
+                    outcome: EarsOutcome::Late,
+                },
+                Err(_) => Answer {
+                    transcript: stub_says(&fallback, &samples, rate),
+                    measured: None,
+                    outcome: EarsOutcome::Down,
+                },
+            };
+            let _ = tx.send(answer);
+        });
+        self.pending = Some(Pending {
+            rx: Mutex::new(rx),
+            deadline: Instant::now() + self.deadline,
+            pcm: pcm.to_vec(),
+            speaker,
+            talk: talk.clone(),
+        });
+        Ok(())
+    }
+
+    /// The score of the turn, when it is ready.
+    ///
+    /// `None` means the ears have not answered yet: the round goes on
+    /// without them, and the host asks again next frame. A refusal means
+    /// the line was not a command, and nothing is submitted.
+    pub fn poll(&mut self) -> Option<Result<Utterance, VoiceRefusal>> {
+        let answer = {
+            let pending = self.pending.as_ref()?;
+            let received = match pending.rx.lock() {
+                Ok(rx) => rx.try_recv(),
+                // A lock that is poisoned means the thread died holding it:
+                // the ears are down.
+                Err(_) => Err(mpsc::TryRecvError::Disconnected),
+            };
+            match received {
+                Ok(answer) => answer,
+                Err(mpsc::TryRecvError::Empty) => {
+                    if Instant::now() < pending.deadline {
+                        return None;
+                    }
+                    // The deadline passed: the stub stands in.
+                    self.stub_answer(pending, EarsOutcome::Late)
+                }
+                // The thread is gone: the ears are down.
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.stub_answer(pending, EarsOutcome::Down)
+                }
+            }
+        };
+        let pending = self.pending.take()?;
+        self.count(answer.outcome);
+        self.measured = answer.measured.is_some();
+        let command = self.parser.parse(&answer.transcript.text);
+        self.last = Some(TurnReport {
+            text: answer.transcript.text.clone(),
+            outcome: answer.outcome,
+            command: command.clone(),
+        });
+        match command {
+            CommandOutcome::Refused(why) => Some(Err(VoiceRefusal::Command(why))),
+            CommandOutcome::Accepted { .. } => Some(Ok(build_human_utterance(
+                &answer.transcript,
+                answer.measured.as_ref(),
+                pending.speaker,
+                &pending.talk,
+            ))),
+        }
+    }
+
+    /// Read a capture into the score of a line, waiting for the ears.
+    ///
+    /// This is the blocking form of the path, and it is here for the
+    /// callers that have nowhere else to wait. The host does not use it:
+    /// the round must not wait for the ears, so the host begins the turn
+    /// and polls for the score instead.
     pub fn capture(
         &mut self,
         pcm: &[i16],
         speaker: u16,
         p: &TalkParams,
     ) -> Result<Utterance, VoiceRefusal> {
-        check_mic(pcm, self.zero_fraction_max_q16).map_err(VoiceRefusal::Mic)?;
-        let (transcript, measured) = self.capture.read(pcm).map_err(VoiceRefusal::Voice)?;
-        match self.parser.parse(&transcript.text) {
-            CommandOutcome::Refused(why) => return Err(VoiceRefusal::Command(why)),
-            CommandOutcome::Accepted { .. } => {}
+        self.begin(pcm, speaker, p)?;
+        loop {
+            if let Some(outcome) = self.poll() {
+                return outcome;
+            }
+            std::thread::sleep(Duration::from_millis(1));
         }
-        self.measured = measured.is_some();
-        Ok(build_human_utterance(
-            &transcript,
-            measured.as_ref(),
-            speaker,
-            p,
-        ))
+    }
+
+    /// The answer the stub gives when the ears do not.
+    fn stub_answer(&self, pending: &Pending, outcome: EarsOutcome) -> Answer {
+        let rate = self.capture.sample_rate();
+        Answer {
+            transcript: stub_says(&self.fallback, &pending.pcm, rate),
+            measured: None,
+            outcome,
+        }
+    }
+
+    /// Count the turn.
+    fn count(&mut self, outcome: EarsOutcome) {
+        match outcome {
+            EarsOutcome::Heard => self.ears.heard = self.ears.heard.saturating_add(1),
+            EarsOutcome::Late => self.ears.late = self.ears.late.saturating_add(1),
+            EarsOutcome::Down => self.ears.down = self.ears.down.saturating_add(1),
+        }
+    }
+}
+
+/// The words the stub gives when the ears do not.
+///
+/// The stub is the app's own line: the one the round had before the ears
+/// existed. With no stub behind it there are no words at all, and the
+/// line is refused by name rather than guessed.
+fn stub_says(fallback: &Option<Arc<dyn Asr>>, pcm: &[i16], rate: u32) -> Transcript {
+    match fallback {
+        Some(asr) => asr.transcribe(pcm, rate).unwrap_or(Transcript {
+            words: Vec::new(),
+            text: String::new(),
+        }),
+        None => Transcript {
+            words: Vec::new(),
+            text: String::new(),
+        },
     }
 }
 
@@ -432,7 +744,7 @@ mod tests {
 
     /// The human's voice, over the stub ASR, with the shipped ladder.
     fn voice(said: &str) -> HumanVoice {
-        let capture = Capture::new(Box::new(StubAsr::scripted(said)));
+        let capture = Capture::new(Arc::new(StubAsr::scripted(said)));
         HumanVoice::new(
             capture,
             CommandParser::new(TutorLadder::shipped(), TutorMode::Ladder),
@@ -663,7 +975,7 @@ mod tests {
         // The same line, once with no service and once with a service that
         // fails. The failing service costs the round nothing.
         let without = play_round(None);
-        let with = play_round(Some(Box::new(FailingProsody)));
+        let with = play_round(Some(Arc::new(FailingProsody)));
 
         assert_eq!(without.hashes, with.hashes, "the same round");
         assert_eq!(without.airtime, with.airtime, "the same airtime");
@@ -679,10 +991,10 @@ mod tests {
 
     /// Play a round in which the human says "hold", with a prosody service
     /// or without one.
-    fn play_round(prosody: Option<Box<dyn ProsodyPort>>) -> Spoken {
+    fn play_round(prosody: Option<Arc<dyn ProsodyPort>>) -> Spoken {
         let mut host = HostLoop::new(round()).expect("the round starts");
         let talk = host.header().talk.clone();
-        let mut capture = Capture::new(Box::new(StubAsr::scripted("hold")));
+        let mut capture = Capture::new(Arc::new(StubAsr::scripted("hold")));
         if let Some(port) = prosody {
             capture = capture.with_prosody(port);
         }
@@ -710,5 +1022,228 @@ mod tests {
             airtime,
             ticks: 60,
         }
+    }
+
+    /// An ASR that answers after a while, with a line of its own.
+    struct SlowAsr {
+        said: String,
+        delay: Duration,
+    }
+
+    impl Asr for SlowAsr {
+        fn transcribe(&self, _pcm: &[i16], _rate: u32) -> Result<Transcript, VoiceError> {
+            std::thread::sleep(self.delay);
+            Ok(Transcript {
+                words: Vec::new(),
+                text: self.said.clone(),
+            })
+        }
+    }
+
+    /// An ASR that never answers: the ears are down.
+    struct DeadAsr;
+
+    impl Asr for DeadAsr {
+        fn transcribe(&self, _pcm: &[i16], _rate: u32) -> Result<Transcript, VoiceError> {
+            Err(VoiceError::Http(503))
+        }
+    }
+
+    /// An ASR that is too late: the call itself times out.
+    struct TimedOutAsr;
+
+    impl Asr for TimedOutAsr {
+        fn transcribe(&self, _pcm: &[i16], _rate: u32) -> Result<Transcript, VoiceError> {
+            Err(VoiceError::Timeout)
+        }
+    }
+
+    /// The voice, over a given ASR, with the stub behind it.
+    fn voice_over(asr: Arc<dyn Asr>) -> HumanVoice {
+        HumanVoice::new(
+            Capture::new(asr),
+            CommandParser::new(TutorLadder::shipped(), TutorMode::Ladder),
+        )
+        .with_fallback(Arc::new(StubAsr::scripted("hold")))
+    }
+
+    /// The voice, over the stub ASR, with the stub behind it.
+    fn voice_with_stub(said: &str) -> HumanVoice {
+        voice_over(Arc::new(StubAsr::scripted(said)))
+    }
+
+    #[test]
+    fn the_ears_are_counted_when_they_answer() {
+        let talk = TalkParams::default();
+        let mut voice = voice_with_stub("hold the north beacon");
+
+        voice
+            .begin(&[1, -1, 2, -2], 0, &talk)
+            .expect("the turn begins");
+        let outcome = voice.poll();
+        // The thread may not have answered on the first poll.
+        let mut outcome = outcome;
+        while outcome.is_none() {
+            std::thread::sleep(Duration::from_millis(1));
+            outcome = voice.poll();
+        }
+
+        assert!(
+            outcome.expect("the score").is_ok(),
+            "the line was a command"
+        );
+        let ears = voice.ears();
+        assert_eq!(ears.heard, 1);
+        assert_eq!(ears.late, 0);
+        assert_eq!(ears.down, 0);
+        assert_eq!(ears.total(), 1);
+        // And the line is the one the ears heard.
+        let report = voice.last_turn().expect("the turn is reported");
+        assert_eq!(report.text, "hold the north beacon");
+        assert_eq!(report.outcome, EarsOutcome::Heard);
+    }
+
+    #[test]
+    fn a_late_ear_falls_back_to_the_stub() {
+        let talk = TalkParams::default();
+        let mut voice = voice_over(Arc::new(TimedOutAsr));
+
+        voice
+            .begin(&[1, -1, 2, -2], 0, &talk)
+            .expect("the turn begins");
+        let mut outcome = voice.poll();
+        while outcome.is_none() {
+            std::thread::sleep(Duration::from_millis(1));
+            outcome = voice.poll();
+        }
+
+        // The line is the stub's: the round has the same line it always had.
+        assert!(
+            outcome.expect("the score").is_ok(),
+            "the line was a command"
+        );
+        let report = voice.last_turn().expect("the turn is reported");
+        assert_eq!(report.text, "hold");
+        assert_eq!(report.outcome, EarsOutcome::Late);
+        let ears = voice.ears();
+        assert_eq!(ears.late, 1);
+        assert_eq!(ears.heard, 0);
+        assert_eq!(ears.down, 0);
+    }
+
+    #[test]
+    fn a_dead_ear_falls_back_to_the_stub() {
+        let talk = TalkParams::default();
+        let mut voice = voice_over(Arc::new(DeadAsr));
+
+        voice
+            .begin(&[1, -1, 2, -2], 0, &talk)
+            .expect("the turn begins");
+        let mut outcome = voice.poll();
+        while outcome.is_none() {
+            std::thread::sleep(Duration::from_millis(1));
+            outcome = voice.poll();
+        }
+
+        assert!(
+            outcome.expect("the score").is_ok(),
+            "the line was a command"
+        );
+        let report = voice.last_turn().expect("the turn is reported");
+        assert_eq!(report.text, "hold");
+        assert_eq!(report.outcome, EarsOutcome::Down);
+        let ears = voice.ears();
+        assert_eq!(ears.down, 1);
+        assert_eq!(ears.heard, 0);
+        assert_eq!(ears.late, 0);
+    }
+
+    #[test]
+    fn the_round_does_not_wait_for_the_ears() {
+        let talk = TalkParams::default();
+        // An ear that takes a second to answer.
+        let mut voice = voice_over(Arc::new(SlowAsr {
+            said: "hold".to_owned(),
+            delay: Duration::from_millis(1_000),
+        }));
+
+        let started = Instant::now();
+        voice
+            .begin(&[1, -1, 2, -2], 0, &talk)
+            .expect("the turn begins");
+        let waited = started.elapsed();
+
+        // The turn begins at once: the round does not wait for the ears.
+        assert!(
+            waited < Duration::from_millis(200),
+            "the turn waited {waited:?} for the ears"
+        );
+        // And the score is not there yet: the round goes on without it.
+        assert!(voice.poll().is_none(), "the score is not ready yet");
+    }
+
+    #[test]
+    fn a_dead_microphone_is_refused_before_the_ears_are_asked() {
+        let talk = TalkParams::default();
+        let mut voice = voice_with_stub("hold");
+
+        let err = voice
+            .begin(&[0; 16_000], 0, &talk)
+            .expect_err("the microphone is dead");
+        assert!(matches!(err, VoiceRefusal::Mic(_)), "got {err:?}");
+        // Nothing was asked, and nothing was counted.
+        assert_eq!(voice.ears().total(), 0);
+    }
+
+    #[test]
+    fn a_turn_that_is_dropped_is_late() {
+        let talk = TalkParams::default();
+        let mut voice = voice_over(Arc::new(SlowAsr {
+            said: "hold".to_owned(),
+            delay: Duration::from_millis(500),
+        }));
+
+        voice
+            .begin(&[1, -1, 2, -2], 0, &talk)
+            .expect("the turn begins");
+        // The human spoke again: the first turn is dropped.
+        voice
+            .begin(&[1, -1, 2, -2], 0, &talk)
+            .expect("the turn begins");
+
+        assert_eq!(voice.ears().late, 1);
+        assert_eq!(voice.ears().heard, 0);
+    }
+
+    #[test]
+    fn a_thread_that_never_answers_does_not_hold_the_round() {
+        let talk = TalkParams::default();
+        // An ear that never comes back at all: the thread is lost, not
+        // slow. The turn's own deadline is the last word.
+        let mut voice = voice_over(Arc::new(SlowAsr {
+            said: "hold".to_owned(),
+            delay: Duration::from_secs(30),
+        }))
+        .with_deadline(Duration::from_millis(100));
+
+        voice
+            .begin(&[1, -1, 2, -2], 0, &talk)
+            .expect("the turn begins");
+
+        let mut outcome = voice.poll();
+        while outcome.is_none() {
+            std::thread::sleep(Duration::from_millis(5));
+            outcome = voice.poll();
+        }
+
+        // The line is the stub's, and the turn is counted as late.
+        assert!(
+            outcome.expect("the score").is_ok(),
+            "the line was a command"
+        );
+        let report = voice.last_turn().expect("the turn is reported");
+        assert_eq!(report.text, "hold");
+        assert_eq!(report.outcome, EarsOutcome::Late);
+        assert_eq!(voice.ears().late, 1);
     }
 }

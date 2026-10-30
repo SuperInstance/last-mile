@@ -44,10 +44,12 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
 
+pub mod asr_http;
 pub mod bark;
 pub mod human;
 pub mod prosody;
 
+pub use asr_http::{CallCost, HttpAsr};
 pub use bark::{bark_key, BarkCache, DEFAULT_BARK_CAP};
 pub use human::{
     build_human_utterance, build_human_utterance_at, check_mic, mic_health, Capture, MicHealth,
@@ -66,8 +68,8 @@ pub mod voicemap;
 pub use asr::{word_accuracy, Gate, GateOutcome, Heard};
 pub use bank::{bank_key, BankError, BankMeta, VoiceBank};
 pub use prefetch::{Due, Lookup, PrefetchQueue, QueueStats};
-pub use skald::{canonical_voice_id, SpeechLine, VoiceClient, STYLES};
-pub use voicemap::{VoiceMap, SHIPPED_VOICE_TOML};
+pub use skald::{canonical_voice_id, skald_base, SpeechLine, VoiceClient, STYLES};
+pub use voicemap::{AsrBackend, AsrConfig, VoiceMap, SHIPPED_VOICE_TOML};
 
 /// The environment variable that names the Riva base URL.
 pub const ENV_RIVA_BASE: &str = "LM_RIVA_BASE";
@@ -75,6 +77,20 @@ pub const ENV_RIVA_BASE: &str = "LM_RIVA_BASE";
 pub const ENV_RIVA_TTS_PORT: &str = "LM_RIVA_TTS_PORT";
 /// The environment variable that names the Riva ASR port.
 pub const ENV_RIVA_ASR_PORT: &str = "LM_RIVA_ASR_PORT";
+/// The environment variable that names the voice daemon's base URL.
+///
+/// The daemon is on the Thor, and the live lane runs the tests from
+/// another box: the environment says where the daemon is, and the voice
+/// map's "localhost" is the default for a run on the daemon's own box.
+/// The base is named without the port — the port is the map's, and the
+/// map is the config.
+pub const ENV_SKALD_BASE: &str = "LM_SKALD_BASE";
+/// The environment variable that names the ears' base URL.
+///
+/// The ears are on the Thor too, and the same rule holds: the
+/// environment says where they are, and the voice map's address is the
+/// default.
+pub const ENV_EARS_BASE: &str = "LM_EARS_BASE";
 
 /// What the voice service can be asked for, and what it can be told.
 ///
