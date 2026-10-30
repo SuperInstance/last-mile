@@ -27,6 +27,7 @@
 //! `tests/golden.rs` test pins the whole chain's output by hash.
 
 pub mod analyzer;
+pub mod conform;
 pub mod encode;
 pub mod fft;
 pub mod frame;
@@ -41,6 +42,10 @@ pub mod tables;
 pub mod wav;
 
 pub use analyzer::{analyze, AnalyzerConfig};
+pub use conform::{
+    classify, conform, conform_str, conform_with_target, parse_marks, Centroids, ConformOutcome,
+    DeliveryClass, Mark, Target, Thresholds,
+};
 pub use encode::{decode_stream, encode_stream, encoded_bytes_per_frame};
 pub use frame::{Frame, FrameFlags, Gesture, Intent, Phrase, F0_REF_HZ};
 pub use phrase::{l2_line, phrase_summary};

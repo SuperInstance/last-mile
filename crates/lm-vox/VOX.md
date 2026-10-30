@@ -84,11 +84,13 @@ libm transcendental, no fused multiply-add. L0 quantizes every field to
 integers, so L1/L2/encoding are exact integer work downstream.
 `tests/golden.rs` hashes the whole chain (L0 frames + gestures + phrase +
 L2 line + encoded stream) over a committed synthetic utterance and pins
-it: `0x6bf5f8521844c847` (input WAV hash `0x9c04796558fdd7d2`), identical
+it: `0xaf24a5fb5f9932b1` (input WAV hash `0x9c04796558fdd7d2`), identical
 in debug and release on this aarch64 box. The same test runs on x86-64
 unchanged; by construction the operations cannot differ. If it ever
 fails after an intentional change, re-pin with `GOLDEN_PRINT=1` and say
-so in the commit.
+so in the commit. (Re-pinned by E10, the conformer seat: the gesture floor
+rose from 3 to 8 frames so sub-80 ms spans fold into their neighbour —
+`crates/lm-vox/CONFORM.md` says why.)
 
 ## E2 — how small is it? **498 B/s mean: the 300 B/s target is missed on continuous neural speech**
 
