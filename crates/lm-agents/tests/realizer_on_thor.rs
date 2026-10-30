@@ -201,7 +201,7 @@ fn play(seed: u64) -> (Round, Vec<Line>, Vec<u64>) {
         .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
     let backends = BTreeMap::from([(
         "thor-d1-2b".to_owned(),
-        Box::new(backend) as Box<dyn SysOne + Send>,
+        Box::new(backend) as Box<dyn SysOne + Send + Sync>,
     )]);
 
     let mut agents = Agents::new(&cfg, &harness, &header, backends);
