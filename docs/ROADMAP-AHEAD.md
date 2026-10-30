@@ -83,6 +83,14 @@ For one question's answers (one model or several), build pairwise option prefere
 ### 2.7 Session telemetry for the parent/teacher view (M4)
 Per session: the blocks used, proposals and verdicts, time played, and transcripts **only if a parent opted in** (default: none stored; voice never stored, sandbox §7). It's a readable list, not a dashboard of the child.
 
+### 2.8 Ghost field (M2a/M2b): invisible intent over the visible world (after SuperInstance/ghost-tiles)
+```rust
+struct Ghost { at: Cell, kind: GhostKind /* Attract | Repel | Slow | Hot */, strength_q8: u8, radius_cells: u8,
+               falloff: Falloff /* Linear | InvSquare | Step */, phase: Phase /* Temporal{ticks} | Permanent | Recurring{period, duty} */,
+               author: Author /* Director | Bench | Bolt | Kid | Flow */ }
+```
+Fields are fixed-point and part of the hashed state when they touch the sim. facts.rs reports them as facts ("pulled toward beacon 2, strong"), so System One reads intent instead of taking orders. Uses: the shared target (a recurring hot zone), directors and Bench steering by placing fields, Vibe blocks and Bolt's scoped offers as temporal ghosts, "where" questions answered by reading a field, the learning flow proposing ghost placements, and belief fields (a rumoured enemy, urgency spreading from a shout). Viewers may see them drawn faintly.
+
 ## 3. Open questions, each with its research track
 
 | # | Question | Track (seat or job) | The answer unblocks |
