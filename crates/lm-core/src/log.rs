@@ -36,6 +36,18 @@
 //! The state hashes inside the segments are not touched — the world the log
 //! records did not change, so the round still replays to the hashes it
 //! recorded.
+//!
+//! A version-2 log is read through the [`SegmentV2`] shim and migrated the
+//! same way: the segments gain no refusals (a version-2 log recorded none)
+//! and the version becomes the current one.
+//!
+//! ## The refusals are in the record
+//!
+//! A segment carries the refusals of its ticks: the model that did not answer
+//! in time, the gate the backend was unsure about, the request that expired
+//! in the queue. They are in the chain, so they cannot be edited after the
+//! fact, and they are in the log, so a replay draws the same hollow marks a
+//! live round drew (E7).
 
 use std::fmt;
 use std::io::{self, Read, Write};
@@ -45,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use crate::decision::{Stamped, Tick};
 use crate::hash::Fnv64;
 use crate::header::{Header, HeaderV1, PROTO_VERSION};
+use crate::refusal::{RefusalCounts, Refused};
 
 /// The bytes that start every log file.
 pub const MAGIC: [u8; 8] = *b"LMLOG1\0\0";
@@ -124,6 +137,13 @@ pub struct Segment {
     pub decisions: Vec<Stamped>,
     /// The state hashes reported in the segment, with their ticks.
     pub hashes: Vec<(Tick, u64)>,
+    /// The refusals of the segment, in tick order.
+    ///
+    /// A refusal is an outcome (D26), and an outcome that is not in the
+    /// record cannot be replayed: "8 refusals" in a summary hides four
+    /// different fixes, and a replay that cannot say *why* a mind said
+    /// nothing cannot teach anything about it (D64).
+    pub refusals: Vec<Refused>,
     /// The hash of the previous segment; the header's hash for the first one.
     pub prev: u64,
     /// The hash of this segment.
@@ -132,11 +152,45 @@ pub struct Segment {
 
 /// The part of a segment the hash covers.
 ///
-/// It has the same four fields, in the same order and with the same types, as
+/// It has the same five fields, in the same order and with the same types, as
 /// the front of the segment's own encoding, so the bytes the hash covers are
 /// the bytes the segment starts with.
 #[derive(Serialize)]
 struct SegmentBody<'a> {
+    first_tick: Tick,
+    last_tick: Tick,
+    decisions: &'a [Stamped],
+    hashes: &'a [(Tick, u64)],
+    refusals: &'a [Refused],
+}
+
+/// A version-2 segment: the same segment without the refusals.
+///
+/// The refusals were added to the segment in version 3, and a postcard blob
+/// is read positionally, so an old segment cannot be read as a new one: the
+/// old shape has its own type, and the migration gives it empty refusals.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SegmentV2 {
+    /// The first tick in the segment.
+    pub first_tick: Tick,
+    /// The last tick in the segment.
+    pub last_tick: Tick,
+    /// The decisions applied in the segment, in tick order.
+    pub decisions: Vec<Stamped>,
+    /// The state hashes reported in the segment, with their ticks.
+    pub hashes: Vec<(Tick, u64)>,
+    /// The hash of the previous segment; the header's hash for the first one.
+    pub prev: u64,
+    /// The hash of this segment.
+    pub hash: u64,
+}
+
+/// The part of a version-2 segment its hash covered.
+///
+/// The same four fields, in the same order and with the same types, as the
+/// front of the version-2 segment's own encoding.
+#[derive(Serialize)]
+struct SegmentBodyV2<'a> {
     first_tick: Tick,
     last_tick: Tick,
     decisions: &'a [Stamped],
@@ -151,9 +205,19 @@ impl Segment {
             last_tick: 0,
             decisions: Vec::new(),
             hashes: Vec::new(),
+            refusals: Vec::new(),
             prev: 0,
             hash: 0,
         }
+    }
+
+    /// Whether the segment holds nothing at all.
+    ///
+    /// A segment that holds a refusal is not empty: the refusal's tick is
+    /// the segment's first tick, and the tick that follows does not
+    /// overwrite it.
+    fn is_empty(&self) -> bool {
+        self.decisions.is_empty() && self.hashes.is_empty() && self.refusals.is_empty()
     }
 
     /// The hash of this segment: FNV-1a 64 over the previous hash
@@ -164,12 +228,48 @@ impl Segment {
             last_tick: self.last_tick,
             decisions: &self.decisions,
             hashes: &self.hashes,
+            refusals: &self.refusals,
         })
         .expect("postcard encoding of a segment cannot fail");
         let mut h = Fnv64::new();
         h.u64(self.prev);
         h.write(&body);
         h.finish()
+    }
+}
+
+impl SegmentV2 {
+    /// The hash of a version-2 segment: the same rule, over the body that
+    /// version covered.
+    ///
+    /// The version-2 body has no refusals in it, so a version-2 log still
+    /// verifies against the hashes it was written with.
+    pub fn compute_hash(&self) -> u64 {
+        let body = postcard::to_allocvec(&SegmentBodyV2 {
+            first_tick: self.first_tick,
+            last_tick: self.last_tick,
+            decisions: &self.decisions,
+            hashes: &self.hashes,
+        })
+        .expect("postcard encoding of a segment cannot fail");
+        let mut h = Fnv64::new();
+        h.u64(self.prev);
+        h.write(&body);
+        h.finish()
+    }
+
+    /// The segment as the current version writes it: the same decisions and
+    /// the same state hashes, and no refusals — a version-2 log recorded none.
+    pub fn migrate(self) -> Segment {
+        Segment {
+            first_tick: self.first_tick,
+            last_tick: self.last_tick,
+            decisions: self.decisions,
+            hashes: self.hashes,
+            refusals: Vec::new(),
+            prev: self.prev,
+            hash: self.hash,
+        }
     }
 }
 
@@ -193,7 +293,7 @@ pub struct RoundLogV1 {
     /// The header as it was written.
     pub header: HeaderV1,
     /// The segments as they were written.
-    pub segments: Vec<Segment>,
+    pub segments: Vec<SegmentV2>,
 }
 
 impl RoundLogV1 {
@@ -208,7 +308,7 @@ impl RoundLogV1 {
         let header = self.header.migrate();
         let mut log = RoundLog {
             header,
-            segments: self.segments,
+            segments: self.segments.into_iter().map(SegmentV2::migrate).collect(),
         };
         log.reroot_chain();
         log
@@ -220,7 +320,7 @@ impl RoundLog {
     /// length-prefixed postcard blobs.
     ///
     /// The version is the header's own, not the build's constant: a log that
-    /// was migrated from version 1 writes back as a valid version-2 log.
+    /// was migrated from version 1 writes back as a valid version-3 log.
     pub fn write(&self, w: &mut impl Write) -> io::Result<()> {
         w.write_all(&MAGIC)?;
         w.write_all(&self.header.proto_version.to_le_bytes())?;
@@ -240,13 +340,15 @@ impl RoundLog {
     ///
     /// A version-1 log is migrated on the way in: the header gains the talk
     /// params and the current version, and the chain is re-rooted over it.
-    /// The state hashes inside the segments are not touched.
+    /// A version-2 log is migrated the same way: its segments gain no
+    /// refusals, because it recorded none. The state hashes inside the
+    /// segments are not touched.
     pub fn read(r: &mut impl Read) -> Result<RoundLog, LogError> {
         let blobs = read_blobs(r)?;
-        let log = if blobs.version == MIN_READABLE_VERSION {
-            decode_v1(&blobs)?.migrate()
-        } else {
-            decode_v2(&blobs)?
+        let log = match blobs.version {
+            MIN_READABLE_VERSION => decode_v1(&blobs)?.migrate(),
+            2 => decode_v2(&blobs)?.migrate(),
+            _ => decode_v3(&blobs)?,
         };
         log.verify()?;
         Ok(log)
@@ -334,6 +436,32 @@ impl RoundLog {
         }
         out
     }
+
+    /// Every refusal in the log, in tick order.
+    ///
+    /// This is the record the score view replays its hollow marks from (E7)
+    /// and the record the telemetry counts its refusals by kind from: a
+    /// refusal that is not in the log is a refusal nobody can learn from.
+    pub fn refusals(&self) -> Vec<Refused> {
+        let mut out = Vec::new();
+        for segment in &self.segments {
+            out.extend_from_slice(&segment.refusals);
+        }
+        out.sort_by_key(|refused| refused.tick);
+        out
+    }
+
+    /// The refusals of the log, counted by kind.
+    ///
+    /// This is what the telemetry reads to split its refusals column: the
+    /// count comes from the record, so a replay and a live round agree.
+    pub fn refusal_counts(&self) -> RefusalCounts {
+        let mut counts = RefusalCounts::new();
+        for refused in self.refusals() {
+            counts.count(refused.kind);
+        }
+        counts
+    }
 }
 
 /// The blobs of a log file, read but not yet interpreted.
@@ -392,12 +520,47 @@ fn read_blobs(r: &mut impl Read) -> Result<Blobs, LogError> {
 fn decode_v1(blobs: &Blobs) -> Result<RoundLogV1, LogError> {
     let header: HeaderV1 =
         postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
-    let segments = decode_segments(&blobs.segments)?;
+    let segments = decode_segments_v2(&blobs.segments)?;
     Ok(RoundLogV1 { header, segments })
 }
 
+/// A version-2 log: the current header shape and the segments without the
+/// refusals.
+struct RoundLogV2 {
+    /// The header as it was written.
+    header: Header,
+    /// The segments as they were written.
+    segments: Vec<SegmentV2>,
+}
+
+impl RoundLogV2 {
+    /// Migrate the log to the current version.
+    ///
+    /// The segments gain no refusals — a version-2 log recorded none — and
+    /// the version moves, so the chain is re-rooted over the new header.
+    /// The state hashes inside the segments stay exactly as they were.
+    fn migrate(self) -> RoundLog {
+        let mut header = self.header;
+        header.proto_version = PROTO_VERSION;
+        let mut log = RoundLog {
+            header,
+            segments: self.segments.into_iter().map(SegmentV2::migrate).collect(),
+        };
+        log.reroot_chain();
+        log
+    }
+}
+
+/// Decode a version-2 log's blobs.
+fn decode_v2(blobs: &Blobs) -> Result<RoundLogV2, LogError> {
+    let header: Header =
+        postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
+    let segments = decode_segments_v2(&blobs.segments)?;
+    Ok(RoundLogV2 { header, segments })
+}
+
 /// Decode a current-version log's blobs.
-fn decode_v2(blobs: &Blobs) -> Result<RoundLog, LogError> {
+fn decode_v3(blobs: &Blobs) -> Result<RoundLog, LogError> {
     let header: Header =
         postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
     let segments = decode_segments(&blobs.segments)?;
@@ -410,6 +573,18 @@ fn decode_segments(blobs: &[Vec<u8>]) -> Result<Vec<Segment>, LogError> {
     for (index, blob) in blobs.iter().enumerate() {
         // The blobs are numbered from 1: blob 0 is the header.
         let segment: Segment =
+            postcard::from_bytes(blob).map_err(|_| LogError::Decode { segment: index + 1 })?;
+        segments.push(segment);
+    }
+    Ok(segments)
+}
+
+/// Decode the version-2 segment blobs, in order.
+fn decode_segments_v2(blobs: &[Vec<u8>]) -> Result<Vec<SegmentV2>, LogError> {
+    let mut segments = Vec::with_capacity(blobs.len());
+    for (index, blob) in blobs.iter().enumerate() {
+        // The blobs are numbered from 1: blob 0 is the header.
+        let segment: SegmentV2 =
             postcard::from_bytes(blob).map_err(|_| LogError::Decode { segment: index + 1 })?;
         segments.push(segment);
     }
@@ -505,7 +680,10 @@ impl Recorder {
     /// The ticks are grouped into segments of `segment_ticks` ticks; the
     /// segment is closed and sealed as soon as it is full.
     pub fn record(&mut self, tick: Tick, applied: &[Stamped], hash: Option<u64>) {
-        if self.current_ticks == 0 {
+        if self.current_ticks == 0 && self.current.refusals.is_empty() {
+            // The segment holds no tick yet, so this tick opens it. A segment
+            // that a refusal opened keeps the refusal's tick as its first
+            // one: the refusal happened on that tick too.
             self.current.first_tick = tick;
         }
         self.current.last_tick = tick;
@@ -519,6 +697,30 @@ impl Recorder {
         }
     }
 
+    /// Record one refusal: the model that did not answer, the gate the
+    /// backend was unsure about, the request that expired in the queue.
+    ///
+    /// The refusal goes into the segment that is being filled, so it is
+    /// sealed with the rest of that segment's contents: a refusal cannot be
+    /// edited after the fact without breaking the chain.
+    ///
+    /// The refusal is recorded on the tick it happened on, so it belongs to
+    /// the segment of that tick.
+    pub fn record_refusal(&mut self, refused: Refused) {
+        if self.current.is_empty() {
+            // The refusal opened the segment: the tick it happened on is the
+            // segment's first tick.
+            self.current.first_tick = refused.tick;
+            self.current.last_tick = refused.tick;
+        } else {
+            // The segment already holds ticks. The refusal happened on its own
+            // tick, which is never before the segment's first tick, so only
+            // the last one can move.
+            self.current.last_tick = self.current.last_tick.max(refused.tick);
+        }
+        self.current.refusals.push(refused);
+    }
+
     /// Close the last segment and hand back the log.
     pub fn finish(mut self) -> RoundLog {
         self.close_segment();
@@ -530,7 +732,9 @@ impl Recorder {
 
     /// Seal the segment being filled and start the next one.
     fn close_segment(&mut self) {
-        if self.current_ticks == 0 {
+        // A segment that holds a refusal and no tick is still a segment: the
+        // refusal has to be sealed into the chain like everything else.
+        if self.current.is_empty() {
             return;
         }
         let prev = self.segments.last().map_or(self.root, |s| s.hash);
@@ -547,6 +751,7 @@ mod tests {
     use super::*;
     use crate::decision::{Action, Decision, Kind, Provenance, Source};
     use crate::hash::StateHash;
+    use crate::refusal::RefusalKind;
     use crate::talk::TalkParams;
 
     /// A stamped decision: agent `agent` holds still on `tick`.
@@ -620,7 +825,41 @@ mod tests {
         out.extend_from_slice(&MIN_READABLE_VERSION.to_le_bytes());
         write_blob(&mut out, &v1).unwrap();
         for segment in &log.segments {
-            let mut segment = segment.clone();
+            let segment = segment_v2(segment);
+            let mut segment = segment;
+            segment.prev = prev;
+            segment.hash = segment.compute_hash();
+            prev = segment.hash;
+            write_blob(&mut out, &segment).unwrap();
+        }
+        out
+    }
+
+    /// A segment as the version-2 build wrote it: the same contents, without
+    /// the refusals.
+    fn segment_v2(segment: &Segment) -> SegmentV2 {
+        SegmentV2 {
+            first_tick: segment.first_tick,
+            last_tick: segment.last_tick,
+            decisions: segment.decisions.clone(),
+            hashes: segment.hashes.clone(),
+            prev: segment.prev,
+            hash: segment.hash,
+        }
+    }
+
+    /// The bytes of a version-2 log: the current header with the old version,
+    /// and the segments without the refusals.
+    fn to_v2_bytes(log: &RoundLog) -> Vec<u8> {
+        let mut header = log.header.clone();
+        header.proto_version = 2;
+        let mut prev = header.hash();
+        let mut out = Vec::new();
+        out.extend_from_slice(&MAGIC);
+        out.extend_from_slice(&2u16.to_le_bytes());
+        write_blob(&mut out, &header).unwrap();
+        for segment in &log.segments {
+            let mut segment = segment_v2(segment);
             segment.prev = prev;
             segment.hash = segment.compute_hash();
             prev = segment.hash;
@@ -828,6 +1067,7 @@ mod tests {
             last_tick: seg.last_tick,
             decisions: &seg.decisions,
             hashes: &seg.hashes,
+            refusals: &seg.refusals,
         })
         .unwrap();
         let full = postcard::to_allocvec(seg).unwrap();
@@ -866,5 +1106,118 @@ mod tests {
         log.segments[0].decisions[0].d.seq = 999;
         let err = log.verify().unwrap_err();
         assert_eq!(err, LogError::ChainBroken { segment: 1 });
+    }
+
+    /// A round with a refusal in it: one refusal every 100 ticks.
+    fn recorded_with_refusals(ticks: u64, per_segment: u32) -> RoundLog {
+        let mut rec = Recorder::new(header(), per_segment);
+        for t in 0..ticks {
+            let agent = u16::try_from(t % 4).unwrap();
+            let seq = u32::try_from(t).unwrap();
+            let applied = vec![stamped(agent, t, seq)];
+            rec.record(t, &applied, None);
+            if t % 100 == 0 {
+                rec.record_refusal(Refused::new(t, agent, RefusalKind::Timeout));
+            }
+        }
+        rec.finish()
+    }
+
+    #[test]
+    fn a_refusal_is_in_the_record_and_in_the_chain() {
+        let log = recorded_with_refusals(900, 300);
+        let refusals = log.refusals();
+        assert_eq!(refusals.len(), 9);
+        assert_eq!(refusals[0], Refused::new(0, 0, RefusalKind::Timeout));
+        assert_eq!(refusals[8].tick, 800);
+
+        // The refusals travel with the log, byte for byte.
+        let bytes = to_bytes(&log);
+        let read = RoundLog::read(&mut io::Cursor::new(bytes)).expect("the log reads");
+        assert_eq!(read.refusals(), refusals);
+        assert!(read.verify().is_ok());
+
+        // And they are sealed: an edited refusal breaks the chain.
+        let mut edited = log.clone();
+        edited.segments[0].refusals[0].detail = 7;
+        assert_eq!(
+            edited.verify().unwrap_err(),
+            LogError::ChainBroken { segment: 1 }
+        );
+    }
+
+    #[test]
+    fn a_refusal_only_segment_is_still_a_segment() {
+        // A refusal that happens between two ticks opens its own segment:
+        // it must not be dropped on the way into the chain.
+        let mut rec = Recorder::new(header(), 0);
+        rec.record_refusal(Refused::new(5, 1, RefusalKind::Budget));
+        let log = rec.finish();
+        assert_eq!(log.segments.len(), 1);
+        assert_eq!(log.segments[0].first_tick, 5);
+        assert_eq!(log.segments[0].refusals.len(), 1);
+        assert!(log.verify().is_ok());
+    }
+
+    #[test]
+    fn a_v2_log_reads_and_migrates() {
+        let log = recorded_with_refusals(900, 300);
+        let bytes = to_v2_bytes(&log);
+
+        let read = RoundLog::read(&mut io::Cursor::new(bytes)).expect("the v2 log reads");
+        assert_eq!(read.header.proto_version, PROTO_VERSION);
+        // A version-2 log recorded no refusals, so the migration has none.
+        assert!(read.refusals().is_empty());
+        // The state hashes are the ones the log recorded.
+        assert_eq!(read.hashes(), log.hashes());
+        // The chain is re-rooted over the migrated header.
+        assert_eq!(read.segments[0].prev, read.header.hash());
+        assert!(read.verify().is_ok());
+
+        // And it writes back as a log of the current version.
+        let mut again = Vec::new();
+        read.write(&mut again).unwrap();
+        assert_eq!(
+            &again[MAGIC.len()..MAGIC.len() + 2],
+            &PROTO_VERSION.to_le_bytes()
+        );
+        let reread = RoundLog::read(&mut io::Cursor::new(again)).expect("the v3 log reads");
+        assert_eq!(reread, read);
+    }
+
+    /// The pinned bytes of one refusal, and the pinned hash of the segment
+    /// that holds it (D69): the log is a contract between machines, so the
+    /// bytes have to be the same on x86-64 and aarch64 or the chain breaks
+    /// the moment a log crosses machines.
+    ///
+    /// The record is whole numbers in postcard varints and the hash is
+    /// FNV-1a over them — machine-independent by construction, and pinned
+    /// here so a refactor that breaks the promise cannot pass quietly. The
+    /// constants were produced on the aarch64 box (Jetson Thor); an x86-64
+    /// run of this same test reads the same ones (D69's pattern). If this
+    /// fails after an intentional format change, re-pin by running
+    /// `REFUSAL_PRINT=1 cargo test -p lm-core --lib refusal -- --nocapture`
+    /// and pasting what it prints — and say so in the commit.
+    #[test]
+    fn a_refusals_bytes_and_chain_hash_are_pinned() {
+        let refused = Refused::new(40, 3, RefusalKind::Timeout).with_detail(503);
+        let bytes = postcard::to_allocvec(&refused).expect("a refusal encodes");
+        let segment = Segment {
+            first_tick: 40,
+            last_tick: 40,
+            decisions: Vec::new(),
+            hashes: Vec::new(),
+            refusals: vec![refused],
+            prev: 0x1234_5678_9abc_def0,
+            hash: 0,
+        };
+        let hash = segment.compute_hash();
+        if std::env::var("REFUSAL_PRINT").is_ok() {
+            println!("bytes: {bytes:?}");
+            println!("hash: 0x{hash:016x}");
+        }
+        // tick 40, agent 3, kind 0 (Timeout), detail 503 — five varint bytes.
+        assert_eq!(bytes, vec![40, 3, 0, 247, 3]);
+        assert_eq!(hash, 0x7bbe_6854_6322_a489);
     }
 }

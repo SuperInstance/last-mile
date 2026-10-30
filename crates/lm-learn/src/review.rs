@@ -471,6 +471,9 @@ pub fn build_review_prompt(
         "- refusals: refused {}, out of fuel {}, errors {}",
         metrics.refusals.refused, metrics.refusals.out_of_fuel, metrics.refusals.error
     );
+    // The model path's refusals, by name: one column cannot tell four
+    // different problems apart, so the kinds are named one by one.
+    let _ = writeln!(p, "- model refusals: {}", metrics.model_refusals);
     for (agent, dial) in &metrics.dial {
         let _ = writeln!(
             p,
@@ -613,6 +616,7 @@ mod tests {
             decisions: Default::default(),
             timeliness: Default::default(),
             refusals: Default::default(),
+            model_refusals: Default::default(),
             dial: Default::default(),
             moments: vec![Moment {
                 tick: 300,

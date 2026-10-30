@@ -17,7 +17,13 @@ use std::collections::BTreeMap;
 /// Version 2 added the talk params to the header and the utterance to the
 /// decision kinds. Both were **appended**, so every phase-1 header and every
 /// phase-1 decision still decodes, and the phase-1 state hashes still hold.
-pub const PROTO_VERSION: u16 = 2;
+///
+/// Version 3 added the refusals to the log's segments. That one is not an
+/// append: a postcard blob is read positionally, so a version-2 segment
+/// cannot be read as a version-3 one. The old shape has its own type
+/// ([`crate::log::SegmentV2`]) and is migrated on the way in, so an old log
+/// still reads and still replays to the state hashes it recorded.
+pub const PROTO_VERSION: u16 = 3;
 
 /// An agent's role inside its squad.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -489,7 +495,11 @@ mod tests {
         let h = Header::default_round(1, "src");
         assert_eq!(h.talk, TalkParams::default());
         assert_eq!(h.proto_version, PROTO_VERSION);
-        assert_eq!(PROTO_VERSION, 2);
+        // Version 3 is the one that put the refusals in the log's segments.
+        // A version-2 segment cannot be read as a version-3 one — a postcard
+        // blob is read positionally — so the version had to move with the
+        // shape.
+        assert_eq!(PROTO_VERSION, 3);
     }
 
     #[test]

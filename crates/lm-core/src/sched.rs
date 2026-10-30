@@ -40,14 +40,34 @@ pub enum Reject {
 }
 
 /// How the sequencer is coping.
+///
+/// The four counters are the round's decision ledger: every decision that was
+/// asked for ends in exactly one of **accepted** (stamped on the tick it
+/// asked for), **late** (stamped on its arrival tick instead) or **refused**
+/// (dropped, by a named reason). `asked == accepted + late + refused` holds
+/// for every round, and it is the assertion that keeps a lost decision from
+/// disappearing without a word.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SchedStats {
+    /// Decisions asked for: every submission, whether it was taken or not.
+    pub asked: u64,
     /// Decisions stamped on the tick they asked for.
     pub on_time: u64,
     /// Decisions stamped on their arrival tick instead.
     pub late: u64,
     /// Decisions dropped for being too late.
+    ///
+    /// A stale decision is refused, so it is also counted in `refused`.
     pub stale: u64,
+    /// Decisions the sequencer refused, by any reason.
+    pub refused: u64,
+}
+
+impl SchedStats {
+    /// The decisions that were taken: stamped, on time or late.
+    pub fn accepted(&self) -> u64 {
+        self.on_time + self.late
+    }
 }
 
 /// The sequencer: the authority that decides which tick each decision lands on.
@@ -101,19 +121,25 @@ impl Sequencer {
     /// refused. A decision from a source that is not in the roster is refused,
     /// and so is one that claims to have arrived before the round started.
     pub fn submit(&mut self, d: Decision, arrived: Tick) -> Result<Tick, Reject> {
+        // Every decision that was asked for is counted, so the ledger adds up:
+        // a decision that is refused is still a decision that was asked for.
+        self.stats.asked += 1;
         // An unknown source is never applied: it cannot be attributed to an
         // agent of this round.
         if !self.known_source(&d.source) {
+            self.stats.refused += 1;
             return Err(Reject::UnknownSource);
         }
         // The `seq` of a source must strictly increase.
         if let Some(&last) = self.last_seq.get(&d.source) {
             if d.seq <= last {
+                self.stats.refused += 1;
                 return Err(Reject::DuplicateSeq);
             }
         }
         // A decision cannot arrive before the round it belongs to.
         if arrived < self.start_tick {
+            self.stats.refused += 1;
             return Err(Reject::BeforeStart);
         }
         // The decision is well formed from here on, so its `seq` is spent
@@ -128,6 +154,7 @@ impl Sequencer {
             let late_by = arrived - d.apply_tick;
             if late_by > u64::from(self.stale_window_ticks) {
                 self.stats.stale += 1;
+                self.stats.refused += 1;
                 return Err(Reject::Stale { late_by });
             }
             self.stats.late += 1;
@@ -290,6 +317,47 @@ mod tests {
     fn rejects_unknown_source() {
         let mut s = seq();
         assert_eq!(s.submit(dec(99, 10, 1), 1), Err(Reject::UnknownSource));
+    }
+
+    #[test]
+    fn every_decision_asked_for_ends_in_exactly_one_place() {
+        let mut s = seq();
+        // On time, late, stale, a reused seq and a source out of the round:
+        // five ways for a decision to end.
+        assert_eq!(s.submit(dec(0, 10, 1), 1), Ok(10));
+        assert_eq!(s.submit(dec(1, 10, 1), 12), Ok(12));
+        assert_eq!(
+            s.submit(dec(2, 10, 1), 26),
+            Err(Reject::Stale { late_by: 16 })
+        );
+        assert_eq!(s.submit(dec(3, 10, 1), 1), Ok(10));
+        assert_eq!(s.submit(dec(3, 11, 1), 1), Err(Reject::DuplicateSeq));
+        assert_eq!(s.submit(dec(99, 10, 1), 1), Err(Reject::UnknownSource));
+
+        let stats = s.stats();
+        assert_eq!(stats.asked, 6, "every submission is asked for");
+        assert_eq!(stats.on_time, 2);
+        assert_eq!(stats.late, 1);
+        assert_eq!(stats.refused, 3, "stale, duplicate and unknown");
+        assert_eq!(stats.stale, 1);
+        assert_eq!(
+            stats.asked,
+            stats.on_time + stats.late + stats.refused,
+            "the ledger does not add up"
+        );
+        assert_eq!(stats.accepted(), stats.on_time + stats.late);
+    }
+
+    #[test]
+    fn a_refused_decision_is_still_a_decision_that_was_asked_for() {
+        let mut s = seq();
+        assert_eq!(s.submit(dec(0, 10, 1), 1), Ok(10));
+        assert_eq!(s.submit(dec(0, 10, 1), 1), Err(Reject::DuplicateSeq));
+        let stats = s.stats();
+        assert_eq!(stats.asked, 2);
+        assert_eq!(stats.refused, 1);
+        assert_eq!(stats.on_time, 1);
+        assert_eq!(stats.asked, stats.on_time + stats.late + stats.refused);
     }
 
     #[test]

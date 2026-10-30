@@ -28,11 +28,11 @@
 //!
 //! Everything on the voice, intent, gaze and tier staves comes from the log
 //! or from replaying it, so a replayed round scores exactly as a live one.
-//! The hollow marks are the one exception: a refusal is an outcome the
-//! *mind* records (D26), and the round log carries no refusals, so the
-//! hollows are drawn only while the round is being played. That gap is
-//! named in `docs/notes/score-view.md`; filling it is a logging change, not
-//! a view change.
+//! The hollow marks used to be the one exception: a refusal is an outcome the
+//! *mind* records (D26), and the round log carried no refusals, so the
+//! hollows were drawn only while the round was being played. The log keeps
+//! the refusals now (N2), so a replay draws the same marks a live round did:
+//! the record is the one place both read from.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -41,6 +41,7 @@ use lm_agents::sysone::Refusal;
 use lm_core::decision::{Kind, Tick};
 use lm_core::header::Role;
 use lm_core::log::RoundLog;
+use lm_core::refusal::RefusalKind;
 use lm_core::sim::Sim;
 use lm_core::utterance::{
     Addressee, Affect, Channel, Intent as TalkIntent, SpeechAct, Subject, Word,
@@ -194,6 +195,11 @@ pub struct Gesture {
 /// Why a hollow mark stands on the intent staff: the named shape of a mind
 /// that hesitated (D26). `Unsure` is the D72 case — a gate the backend was
 /// not sure about, which made no decision of its own.
+///
+/// The score's own vocabulary: it is the *mark* that is drawn, not the rule
+/// that failed. Every rule that can fail has a mark, and the mapping from
+/// the record's vocabulary ([`RefusalKind`]) to this one is total, so no
+/// refusal is ever lost by the view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HollowKind {
     /// The model did not answer before the deadline.
@@ -202,6 +208,9 @@ pub enum HollowKind {
     Unreachable,
     /// The answer did not match the schema.
     Malformed,
+    /// The pack does not fit the API's schema: a bug in the pack, not in the
+    /// model.
+    InvalidPack,
     /// The gate's answer was below the confidence threshold (D72's
     /// `Answers::unsure`): the gate made no decision of its own.
     Unsure,
@@ -209,6 +218,16 @@ pub enum HollowKind {
     MenuChanged,
     /// The agent's budget for the round was spent.
     Budget,
+    /// The wording did not follow the plan (D37).
+    OffPlan,
+    /// The request expired while it was queued.
+    Expired,
+    /// A newer question replaced this one before it was sent.
+    Superseded,
+    /// The second opinion did not answer before the decision's tick.
+    EscalationLate,
+    /// The backend crashed answering the question.
+    Panicked,
 }
 
 impl HollowKind {
@@ -218,9 +237,15 @@ impl HollowKind {
             HollowKind::Timeout => "timeout",
             HollowKind::Unreachable => "down",
             HollowKind::Malformed => "malformed",
+            HollowKind::InvalidPack => "pack",
             HollowKind::Unsure => "unsure",
             HollowKind::MenuChanged => "menu",
             HollowKind::Budget => "budget",
+            HollowKind::OffPlan => "off-plan",
+            HollowKind::Expired => "expired",
+            HollowKind::Superseded => "superseded",
+            HollowKind::EscalationLate => "escalation-late",
+            HollowKind::Panicked => "panicked",
         }
     }
 }
@@ -232,19 +257,40 @@ pub struct Hollow {
     pub tick: Tick,
     /// The named shape of the hesitation.
     pub why: HollowKind,
+    /// The number the rule cares about: the HTTP status, the confidence in
+    /// Q16, the ticks late.
+    pub detail: u32,
+}
+
+impl From<&RefusalKind> for HollowKind {
+    /// The mark for a rule that failed.
+    ///
+    /// The total mapping: every kind of refusal has a mark, so the view can
+    /// never lose one. The two kinds that share a mark — a call that never
+    /// reached an HTTP status and an endpoint that answered an error — are
+    /// the same mark with different numbers, and the number is in the mark's
+    /// own `detail`.
+    fn from(kind: &RefusalKind) -> HollowKind {
+        match kind {
+            RefusalKind::Timeout => HollowKind::Timeout,
+            RefusalKind::Unreachable | RefusalKind::Http => HollowKind::Unreachable,
+            RefusalKind::Malformed => HollowKind::Malformed,
+            RefusalKind::InvalidPack => HollowKind::InvalidPack,
+            RefusalKind::LowConfidence => HollowKind::Unsure,
+            RefusalKind::MenuChanged => HollowKind::MenuChanged,
+            RefusalKind::Budget => HollowKind::Budget,
+            RefusalKind::OffPlan => HollowKind::OffPlan,
+            RefusalKind::Expired => HollowKind::Expired,
+            RefusalKind::Superseded => HollowKind::Superseded,
+            RefusalKind::EscalationLate => HollowKind::EscalationLate,
+            RefusalKind::Panicked => HollowKind::Panicked,
+        }
+    }
 }
 
 impl From<&Refusal> for HollowKind {
     fn from(refusal: &Refusal) -> HollowKind {
-        match refusal {
-            Refusal::Timeout => HollowKind::Timeout,
-            Refusal::Http(_) => HollowKind::Unreachable,
-            Refusal::Malformed(_) => HollowKind::Malformed,
-            Refusal::InvalidPack(_) => HollowKind::Malformed,
-            Refusal::LowConfidence(_) => HollowKind::Unsure,
-            Refusal::MenuChanged => HollowKind::MenuChanged,
-            Refusal::Budget => HollowKind::Budget,
-        }
+        HollowKind::from(&RefusalKind::from(refusal))
     }
 }
 
@@ -255,6 +301,7 @@ pub fn hollows_of(refusals: &[(Tick, Refusal)]) -> Vec<Hollow> {
         .map(|&(tick, ref refusal)| Hollow {
             tick,
             why: HollowKind::from(refusal),
+            detail: refusal.detail(),
         })
         .collect()
 }
@@ -386,15 +433,37 @@ impl ScoreModel {
             }
         }
 
-        // The hollow marks: the hesitations of the minds that are playing
-        // the round (a replay's log carries none).
-        for (agent, marks) in hollow {
-            let Some(&system) = index.get(agent) else {
+        // The hollow marks: the hesitations of the minds. The log keeps them
+        // (N2), so a replay draws the same marks a live round did: the
+        // record is the one place both read from. The live round's own marks
+        // are added for the ones the log does not carry — a live round's log
+        // is written as the round runs, so a mark the mind has just made can
+        // be here before the log has it.
+        let mut marks: BTreeMap<u16, Vec<Hollow>> = BTreeMap::new();
+        for refused in log.refusals() {
+            marks.entry(refused.agent).or_default().push(Hollow {
+                tick: refused.tick,
+                why: HollowKind::from(&refused.kind),
+                detail: refused.detail,
+            });
+        }
+        for (agent, live) in hollow {
+            let known = marks.entry(*agent).or_default();
+            for mark in live {
+                let seen = known.iter().any(|old| {
+                    old.tick == mark.tick && old.why == mark.why && old.detail == mark.detail
+                });
+                if !seen {
+                    known.push(*mark);
+                }
+            }
+        }
+        for (agent, live) in marks {
+            let Some(&system) = index.get(&agent) else {
                 continue;
             };
             systems[system].hollow.extend(
-                marks
-                    .iter()
+                live.iter()
                     .copied()
                     .filter(|mark| window.contains(&mark.tick)),
             );
@@ -517,5 +586,44 @@ fn subject_word(subject: Subject) -> Option<String> {
         Subject::Enemy(enemy) => Some(format!("e{enemy}")),
         Subject::Direction(direction) => Some(format!("dir{direction}")),
         Subject::None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lm_core::refusal::RefusalKind;
+
+    #[test]
+    fn every_kind_of_refusal_has_a_mark() {
+        // The mapping is total: no refusal is lost by the view.
+        for kind in RefusalKind::ALL {
+            let mark = HollowKind::from(&kind);
+            assert!(!mark.as_str().is_empty(), "{kind:?} has no mark");
+        }
+    }
+
+    #[test]
+    fn the_marks_have_their_own_words() {
+        // Two kinds may share a mark — a call that never reached an HTTP
+        // status and an endpoint that answered an error are the same mark
+        // with different numbers — but two *marks* never share a word.
+        let mut marks: Vec<HollowKind> = RefusalKind::ALL.iter().map(HollowKind::from).collect();
+        marks.sort_by_key(|mark| mark.as_str());
+        marks.dedup();
+        let mut words: Vec<&str> = marks.iter().map(|mark| mark.as_str()).collect();
+        let count = words.len();
+        words.sort_unstable();
+        words.dedup();
+        assert_eq!(words.len(), count, "two marks share a word");
+    }
+
+    #[test]
+    fn a_low_confidence_refusal_carries_its_number() {
+        // The record's number reaches the mark: the confidence in Q16.
+        let refusal = lm_agents::sysone::Refusal::LowConfidence(0.5);
+        let hollow = hollows_of(&[(7u64, refusal)]);
+        assert_eq!(hollow[0].why, HollowKind::Unsure);
+        assert_eq!(hollow[0].detail, 32_768, "half confidence is 0.5 in Q16");
     }
 }

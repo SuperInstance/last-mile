@@ -9,6 +9,16 @@
 # These numbers are the contract. A change to the simulation moves them, and
 # the commit that touches this file has to say why the world changed.
 #
+# These are the **world's** hashes, not the log's. A round's state hash is
+# the simulation's own accounting of the game; the log's framing — the
+# header's identity, the chain of segment hashes, the events a segment
+# carries — is a different thing and moves on its own schedule. When the
+# refusals were added to the log's segments (version 3, N2), the header's
+# hash moved with the protocol version and the whole segment chain was
+# re-rooted over it, and not one of the numbers below moved: the world did
+# not change, so the world's hash did not change. The check that says so is
+# `lm golden` itself — it says `OK 3/3` without this file being touched.
+#
 # Re-pinned for the fairness work: the beacons now come in 180-degree
 # rotated pairs (an even count, the old layout put the centre beacon one
 # cell closer to squad 1), the motor alternates its leading axis (the

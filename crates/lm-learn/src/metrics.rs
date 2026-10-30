@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, VecDeque};
 use lm_core::decision::{Provenance, Tick};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
+use lm_core::refusal::RefusalCounts;
 use lm_core::rules::Event;
 use lm_core::sim::Sim;
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,14 @@ pub struct RoundMetrics {
     pub timeliness: Timeliness,
     /// Refusals seen in the replay.
     pub refusals: Refusals,
+    /// The model path's refusals, by name.
+    ///
+    /// These are the *model's* refusals, read from the log's own record
+    /// (N2): a model that timed out, a model that answered 503 and a gate
+    /// the backend was unsure about are three different problems, and one
+    /// counter cannot tell them apart. The rules layer's own refusals are in
+    /// `refusals` above — they are a different thing.
+    pub model_refusals: RefusalCounts,
     /// The model-vs-code dial per agent, in agent-id order (D25/D40).
     pub dial: BTreeMap<u16, Dial>,
     /// The ticks worth a reviewer's attention, in tick order.
@@ -111,8 +120,10 @@ pub struct Timeliness {
 
 /// Refusals the round produced, recovered from the replay.
 ///
-/// M1's log carries no refusal records of its own; the replayed sim counts
-/// what its reflexes refused, which is what the log implies.
+/// The **rules layer's** refusals: what the reflex refused when the sim asked
+/// it. The model path has its own vocabulary, counted by kind in
+/// [`RoundMetrics::model_refusals`] — the two are different things and
+/// neither is folded into the other.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Refusals {
     /// Reflex calls that refused to answer (D26: a refusal is an outcome).
@@ -231,6 +242,7 @@ impl RoundMetrics {
             decisions: ProvenanceCounts::default(),
             timeliness: Timeliness::default(),
             refusals: Refusals::default(),
+            model_refusals: RefusalCounts::new(),
             dial: dial_of(header),
             moments: Vec::new(),
         };
@@ -359,6 +371,10 @@ impl RoundMetrics {
             out_of_fuel: stats.reflex_out_of_fuel,
             error: stats.reflex_error,
         };
+        // The model path's own refusals, by name, from the log's record: the
+        // replay reads the same record the live round wrote, so the two
+        // agree (N2).
+        metrics.model_refusals = log.refusal_counts();
         // The reflex never logs decisions; its count is implied by the ticks
         // it drove (D8/D10).
         metrics.decisions.reflex += metrics

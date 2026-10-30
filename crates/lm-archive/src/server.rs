@@ -457,6 +457,9 @@ mod tests {
             protocol::write_frame(stream, &Msg::StateHash { tick, hash })
                 .expect("the hash goes out");
         }
+        for refused in log.refusals() {
+            protocol::write_frame(stream, &Msg::Refused(refused)).expect("the refusal goes out");
+        }
         protocol::write_frame(
             stream,
             &Msg::Bye {

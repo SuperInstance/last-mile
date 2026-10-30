@@ -23,7 +23,9 @@ pub use gates::Pack;
 pub mod harness;
 pub use harness::Harness;
 pub mod mind;
-pub use mind::{Ask, Mind, Mode, Policy, RttEstimator, Thinker, Thought, Tier, TierTable};
+pub use mind::{
+    Ask, AskOutcome, Mind, Mode, Policy, RttEstimator, Thinker, Thought, Tier, TierTable,
+};
 pub mod phrasebook;
 pub use phrasebook::{Phrasebook, PhrasebookError};
 pub mod queue;

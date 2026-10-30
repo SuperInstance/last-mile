@@ -21,6 +21,8 @@ use lm_agents::Agents;
 use lm_core::decision::{Provenance, Source};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
+use lm_core::refusal::RefusalKind;
+use lm_host_model::score::{AttentionTrace, ScoreModel};
 use lm_host_model::HostLoop;
 use lm_tools::runner;
 
@@ -88,6 +90,30 @@ fn settle(host: &mut HostLoop) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while host.agents_pending() > 0 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+/// Play ticks until the round's ledger closes: every ask that was made has
+/// ended, and nothing is with the models.
+///
+/// A test that reads the counters right after a settle can read a sum that
+/// does not add up — not because a question vanished, but because its answer
+/// came home during the settle and sits in the channel, waiting for the next
+/// tick to drain it. The round is played until it is quiet, and then the
+/// ledger has to hold.
+fn play_until_quiet(host: &mut HostLoop) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        host.tick();
+        settle(host);
+        let stats = host.agent_stats().expect("the round has agents");
+        if stats.asks_add_up() && host.agents_pending() == 0 {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the round never went quiet: {stats:?}"
+        );
     }
 }
 
@@ -199,6 +225,190 @@ fn the_agents_refuse_rather_than_guess() {
     let stats = host.agent_stats().expect("the round has agents");
     assert!(stats.refusals > 0, "the refusals are counted: {stats:?}");
     assert_eq!(stats.decisions, 0, "a refusal is not a decision");
+}
+
+#[test]
+fn every_question_ends_in_exactly_one_place() {
+    // The ledger of the round (N4): every question the minds asked is taken,
+    // late or refused, and it is exactly one of the three. A question that
+    // vanishes on the way would break the sum, and the sum is the assertion
+    // that says so.
+    let header = a_round(7);
+    let harness = default_harness();
+    let agents = stub_agents(&header, &harness);
+
+    let mut host = HostLoop::new(header).expect("the round starts");
+    host.attach_agents(agents);
+
+    for _ in 0..900 {
+        host.tick();
+        settle(&mut host);
+    }
+    // The ledger is asserted when the round is quiet, so an ask whose answer
+    // is still in the channel cannot read as a vanished question.
+    play_until_quiet(&mut host);
+
+    let stats = host.agent_stats().expect("the round has agents");
+    assert!(stats.asked > 0, "the minds asked: {stats:?}");
+    assert!(stats.asks_add_up(), "the ledger does not add up: {stats:?}");
+    assert_eq!(
+        stats.asked,
+        stats.accepted + stats.late + stats.refused,
+        "every question ends in exactly one place"
+    );
+}
+
+#[test]
+fn the_refusals_are_in_the_log_by_name() {
+    // N2: every refusal the round saw is in the log, with the name of the
+    // rule that failed, and the log's own counts agree with the round's.
+    let header = a_round(7);
+    let harness = default_harness();
+    // A round whose policy names a backend nobody serves: every question is
+    // refused, so there is something to record.
+    let agents = Agents::new(&AgentsConfig::default(), &harness, &header, BTreeMap::new());
+
+    let mut host = HostLoop::new(header).expect("the round starts");
+    host.attach_agents(agents);
+
+    for _ in 0..120 {
+        host.tick();
+        settle(&mut host);
+    }
+
+    let log = host.log_so_far();
+    let stats = host.agent_stats().expect("the round has agents");
+
+    // The refusals are in the record, and the record is sealed with them.
+    let refusals = log.refusals();
+    assert!(!refusals.is_empty(), "the refusals are in the log");
+    assert!(log.verify().is_ok(), "the log still chains");
+
+    // The kinds are apart: the record says which rule failed, not just how
+    // many things failed.
+    let counts = log.refusal_counts();
+    assert_eq!(counts.total(), refusals.len() as u64);
+    assert_eq!(
+        counts.total(),
+        stats.refusal_counts.total(),
+        "the record and the counters agree"
+    );
+    assert_eq!(counts.total(), stats.refusals);
+}
+
+#[test]
+fn a_replay_draws_the_hollow_marks() {
+    // E7: the score view reads the refusals from the log, so a replay draws
+    // the same marks a live round did.
+    let header = a_round(7);
+    let harness = default_harness();
+    let agents = Agents::new(&AgentsConfig::default(), &harness, &header, BTreeMap::new());
+
+    let mut host = HostLoop::new(header).expect("the round starts");
+    host.attach_agents(agents);
+
+    for _ in 0..120 {
+        host.tick();
+        settle(&mut host);
+    }
+
+    let log = host.log_so_far();
+    let refusals = log.refusals();
+    assert!(!refusals.is_empty(), "the round refused something");
+
+    let window = 0..u64::MAX;
+    let score = ScoreModel::from_log(&log, &AttentionTrace::default(), &BTreeMap::new(), window);
+    let marks: Vec<_> = score
+        .systems
+        .iter()
+        .flat_map(|system| system.hollow.iter())
+        .collect();
+    assert_eq!(
+        marks.len(),
+        refusals.len(),
+        "every refusal in the record is a mark on the staff"
+    );
+}
+
+#[test]
+fn a_crashed_backend_ends_its_question_in_the_log() {
+    // N2/N4: a backend that panics is a bug, but its question still ends —
+    // named `panicked` in the record, and the round's ledger still adds up.
+    // The worker catches the crash instead of dying with the ask in its
+    // hands, so the lane keeps serving the next question too.
+    struct Panicking;
+    impl SysOne for Panicking {
+        fn ask(
+            &self,
+            _state: &str,
+            _questions: &serde_json::Value,
+            _deadline: Instant,
+        ) -> Result<lm_agents::sysone::Answers, lm_agents::sysone::Refusal> {
+            panic!("the model is on fire");
+        }
+        fn name(&self) -> &str {
+            "panicking"
+        }
+    }
+
+    let header = a_round(7);
+    let harness = default_harness();
+    let policy = Policy::for_harness(&harness.policy_toml);
+    let backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = policy
+        .tiers
+        .tiers()
+        .iter()
+        .filter(|tier| !tier.is_reflex())
+        .map(|tier| {
+            (
+                tier.backend().to_owned(),
+                Box::new(Panicking) as Box<dyn SysOne + Send + Sync>,
+            )
+        })
+        .collect();
+    let agents = Agents::new(&AgentsConfig::default(), &harness, &header, backends);
+
+    let mut host = HostLoop::new(header).expect("the round starts");
+    host.attach_agents(agents);
+
+    // The crash is the worker's to catch. The message it would print is
+    // silenced for the thinker's own threads only — every other panic of
+    // the process keeps its words — and the refusal carries the why.
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thinker = std::thread::current()
+            .name()
+            .is_some_and(|name| name.starts_with("lm-thinker-"));
+        if !thinker {
+            previous(info);
+        }
+    }));
+    for _ in 0..200 {
+        host.tick();
+        settle(&mut host);
+    }
+    play_until_quiet(&mut host);
+
+    let stats = host.agent_stats().expect("the round has agents");
+    assert!(stats.asked > 0, "the minds asked: {stats:?}");
+    assert!(
+        stats.asks_add_up(),
+        "a crashed backend is a refusal, not a lost question: {stats:?}"
+    );
+    assert!(
+        stats.refusal_counts.get(RefusalKind::Panicked) > 0,
+        "the crash is counted by its own name: {stats:?}"
+    );
+
+    // And the record says it too: the log and the counters agree.
+    let log = host.log_so_far();
+    let counts = log.refusal_counts();
+    assert_eq!(
+        counts.get(RefusalKind::Panicked),
+        stats.refusal_counts.get(RefusalKind::Panicked),
+        "the record and the counters agree"
+    );
+    assert!(log.verify().is_ok(), "the log still chains");
 }
 
 /// The live round: the Thor's own d1-2B (the default fast tier since D62), on the LAN.

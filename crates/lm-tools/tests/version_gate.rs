@@ -34,6 +34,17 @@ fn state_hashes(segments: &[lm_core::log::Segment]) -> Vec<(Tick, u64)> {
         .collect()
 }
 
+/// The same, for the version-2 segments a version-1 log is read into.
+///
+/// The refusals were added to a segment in version 3, so a version-1 file
+/// carries the version-2 segment shape: the one without them.
+fn state_hashes_v2(segments: &[lm_core::log::SegmentV2]) -> Vec<(Tick, u64)> {
+    segments
+        .iter()
+        .flat_map(|segment| segment.hashes.clone())
+        .collect()
+}
+
 #[test]
 fn v1_log_replays_under_v2() {
     let bytes = phase1_log();
@@ -71,6 +82,9 @@ fn v1_log_migration_keeps_the_state_hashes() {
 
     // ...and not one state hash moved: the world the log records did not
     // change.
-    assert_eq!(state_hashes(&v1.segments), state_hashes(&migrated.segments));
-    assert_eq!(state_hashes(&v1.segments), migrated.hashes());
+    assert_eq!(
+        state_hashes_v2(&v1.segments),
+        state_hashes(&migrated.segments)
+    );
+    assert_eq!(state_hashes_v2(&v1.segments), migrated.hashes());
 }

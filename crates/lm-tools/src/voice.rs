@@ -408,7 +408,10 @@ fn play_round(header: &Header, ticks: u64) -> Vec<Collected> {
                 quiet_ticks += 1;
             }
         }
-        agents.on_tick(tick, &sim);
+        // This harness keeps no round log, so the tick's refusals are
+        // counted and let go of on purpose: there is no record to put them
+        // in, and the voice only wants the lines.
+        let _ = agents.on_tick(tick, &sim);
         for (decision, arrived) in inbox.drain() {
             let _ = sequencer.submit(decision, arrived);
         }

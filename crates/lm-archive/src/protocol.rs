@@ -43,6 +43,7 @@ use std::path::PathBuf;
 use lm_core::decision::{Stamped, Tick};
 use lm_core::header::Header;
 use lm_core::log::{RoundLog, Segment};
+use lm_core::refusal::Refused;
 use lm_proto::{Msg, ProtoError};
 
 use crate::store::{self, Store};
@@ -332,6 +333,7 @@ pub fn reconstruct(
     header: &Header,
     decisions: &[Stamped],
     hashes: &[(Tick, u64)],
+    refusals: &[Refused],
 ) -> Result<RoundLog, ReconstructError> {
     let mut by_tick: BTreeMap<Tick, Vec<Stamped>> = BTreeMap::new();
     for stamped in decisions {
@@ -344,10 +346,18 @@ pub fn reconstruct(
     for (tick, hash) in hashes {
         hash_by_tick.entry(*tick).or_default().push(*hash);
     }
+    let mut refusal_by_tick: BTreeMap<Tick, Vec<Refused>> = BTreeMap::new();
+    for refused in refusals {
+        refusal_by_tick
+            .entry(refused.tick)
+            .or_default()
+            .push(*refused);
+    }
 
     let last = by_tick
         .keys()
         .chain(hash_by_tick.keys())
+        .chain(refusal_by_tick.keys())
         .copied()
         .max()
         .unwrap_or(header.start_tick);
@@ -377,6 +387,7 @@ pub fn reconstruct(
                 last_tick: tick,
                 decisions: Vec::new(),
                 hashes: Vec::new(),
+                refusals: Vec::new(),
                 prev: 0,
                 hash: 0,
             });
@@ -391,6 +402,9 @@ pub fn reconstruct(
             for hash in hashes {
                 segment.hashes.push((tick, *hash));
             }
+        }
+        if let Some(refused) = refusal_by_tick.get(&tick) {
+            segment.refusals.extend(refused.iter().copied());
         }
         ticks_in_segment += 1;
         if per_segment > 0 && ticks_in_segment >= u64::from(per_segment) {
@@ -508,6 +522,7 @@ pub fn read_push(reader: &mut impl Read, cfg: &ArchiveConfig) -> Result<RoundLog
     let mut header: Option<Header> = None;
     let mut decisions: Vec<Stamped> = Vec::new();
     let mut hashes: Vec<(Tick, u64)> = Vec::new();
+    let mut refusals: Vec<Refused> = Vec::new();
     let mut total: u64 = 0;
 
     loop {
@@ -561,6 +576,15 @@ pub fn read_push(reader: &mut impl Read, cfg: &ArchiveConfig) -> Result<RoundLog
                 }
                 hashes.push((tick, hash));
             }
+            // A refusal: part of the round's record, and it is kept.
+            Msg::Refused(refused) => {
+                if header.is_none() {
+                    return Err(IngestError::OutOfOrder {
+                        what: "a refusal before the header",
+                    });
+                }
+                refusals.push(refused);
+            }
             // A decision the sequencer never stamped: this build does not
             // know what to do with it, and it will not guess.
             Msg::Decision(_) => {
@@ -588,8 +612,19 @@ pub fn read_push(reader: &mut impl Read, cfg: &ArchiveConfig) -> Result<RoundLog
             what: "a decision from before the round started",
         });
     }
+    // The same goes for a refusal: a round does not refuse anything before
+    // it started, and a refusal the archive cannot place is a refusal the
+    // archive would lose.
+    if refusals
+        .iter()
+        .any(|refused| refused.tick < header.start_tick)
+    {
+        return Err(IngestError::OutOfOrder {
+            what: "a refusal from before the round started",
+        });
+    }
 
-    reconstruct(&header, &decisions, &hashes).map_err(IngestError::Reconstruct)
+    reconstruct(&header, &decisions, &hashes, &refusals).map_err(IngestError::Reconstruct)
 }
 
 /// Write the verdict of a push back to the peer.
@@ -761,6 +796,12 @@ pub fn push_round(addr: &str, log: &RoundLog) -> Result<Msg, PushError> {
     for (tick, hash) in log.hashes() {
         send(&Msg::StateHash { tick, hash })?;
     }
+    // The refusals go with the round: they are the reason for every silence,
+    // and a peer that cannot say why a mind said nothing learns nothing from
+    // it (D64).
+    for refused in log.refusals() {
+        send(&Msg::Refused(refused))?;
+    }
     send(&Msg::Bye {
         reason: "round over".to_owned(),
     })?;
@@ -869,7 +910,8 @@ mod tests {
     #[test]
     fn the_rebuild_is_the_log_the_round_recorded() {
         let log = round(1, 300);
-        let rebuilt = reconstruct(&log.header, &[], &log.hashes()).expect("the round rebuilds");
+        let rebuilt = reconstruct(&log.header, &[], &log.hashes(), &log.refusals())
+            .expect("the round rebuilds");
         assert_eq!(rebuilt, log);
     }
 

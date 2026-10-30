@@ -23,6 +23,7 @@ pub mod lane;
 pub mod log;
 pub mod opal;
 pub mod params;
+pub mod refusal;
 pub mod rng;
 pub mod rules;
 pub mod sched;
@@ -44,9 +45,17 @@ pub use hearing::{
     range_units, DEFAULT_CELL_UNITS,
 };
 pub use lane::LaneConditioner;
-pub use log::{LogError, Recorder, RoundLog, RoundLogV1, Segment, MAGIC, MIN_READABLE_VERSION};
+pub use log::{
+    LogError, Recorder, RoundLog, RoundLogV1, Segment, SegmentV2, MAGIC, MIN_READABLE_VERSION,
+};
 pub use opal::{OpalError, TalkContext};
 pub use params::{ParamError, Params, BRANCH_FIELDS};
+// The model path's refusal vocabulary lives in `refusal`: `refusal::RefusalKind`
+// names what a *model* refused, and `rules::RefusalKind` (above) names what a
+// *script* refused. They are different words for different things, so the
+// model path's is not re-exported here — a use of `RefusalKind` at the crate
+// root is always the rules layer's.
+pub use refusal::{RefusalCounts, Refused};
 pub use rng::{Domain, Rng};
 pub use rules::{Beacons, Event, Outcome, Refusal, RefusalKind, RhaiRuleset, Ruleset, SimError};
 pub use sched::{lead_ticks, Reject, SchedStats, Sequencer};

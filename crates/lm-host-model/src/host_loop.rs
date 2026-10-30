@@ -413,7 +413,13 @@ impl HostLoop {
         let Some(agents) = self.agents.as_mut() else {
             return;
         };
-        agents.on_tick(now, &self.sim);
+        let refused = agents.on_tick(now, &self.sim);
+        // The refusals go into the log, on the tick they happened on: the
+        // reason a mind said nothing is part of the round's record (N2), and
+        // a replay reads it from there.
+        for refusal in refused {
+            self.recorder.record_refusal(refusal);
+        }
 
         // The decisions that came home since the last tick. They are picked
         // up before the sequencer is drained, so one that is due now is

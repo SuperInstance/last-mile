@@ -21,12 +21,13 @@ use std::fmt;
 
 use lm_core::decision::{Decision, Tick};
 use lm_core::header::Header;
+use lm_core::refusal::{RefusalCounts, RefusalKind, Refused};
 use lm_core::sim::Sim;
 use lm_core::view::menu;
 
 use crate::config::AgentsConfig;
 use crate::harness::Harness;
-use crate::mind::{Mind, Thinker, ThoughtRecord};
+use crate::mind::{AskOutcome, Mind, Thinker, ThoughtRecord};
 use crate::queue::{Budgets, LeastUseQueue};
 use crate::sink::DecisionSink;
 use crate::surprise::RoundSurprise;
@@ -42,6 +43,8 @@ pub struct Agents {
     thinker: Thinker,
     sink: Option<Box<dyn DecisionSink>>,
     stats: AgentStats,
+    /// How many of each mind's refusals the round has counted already.
+    counted: BTreeMap<u16, usize>,
 }
 
 impl Agents {
@@ -80,6 +83,7 @@ impl Agents {
             thinker: Thinker::new(backends),
             sink: None,
             stats: AgentStats::default(),
+            counted: BTreeMap::new(),
         }
     }
 
@@ -131,7 +135,15 @@ impl Agents {
     ///
     /// The loop never blocks: a model that is slow costs the round nothing
     /// but a late answer.
-    pub fn on_tick(&mut self, now: Tick, sim: &Sim) {
+    ///
+    /// The tick's refusals come back to the caller, named: they are what the
+    /// round log records (N2) and what the score view draws (E7). A question
+    /// that was asked and never became an answer ends here, with a name —
+    /// nothing is allowed to vanish on the way. A caller that keeps no log
+    /// says so with `let _`, so the drop is a decision and not an oversight.
+    #[must_use = "the refusals are the round's record; dropping them silently loses the why of every silence"]
+    pub fn on_tick(&mut self, now: Tick, sim: &Sim) -> Vec<Refused> {
+        let mut refused: Vec<Refused> = Vec::new();
         // 1. Every mind looks. A mind that is busy with an answer, or that
         //    does not want to think this tick, asks for nothing. The move
         //    pack and the talk pack are asked apart (D70): the talk pack
@@ -142,9 +154,11 @@ impl Agents {
             let menu = menu(&view);
             if let Some(req) = mind.on_tick(now, &view, sim.world(), &menu) {
                 requests.push(req);
+                self.stats.asked += 1;
             }
             if let Some(req) = mind.on_tick_talk(now, &view, sim.world(), &menu) {
                 requests.push(req);
+                self.stats.asked += 1;
             }
         }
         for req in requests {
@@ -157,19 +171,41 @@ impl Agents {
         let popped = self
             .queue
             .pop_batch(now, self.minds.len() * 2, &mut self.budgets);
-        self.stats.refusals += popped.refused_budget.len() as u64;
-        self.stats.expired += popped.expired.len() as u64;
+        // A request the budget refused and a request that expired in the
+        // queue are two different problems, and both are questions that were
+        // asked and never became an answer.
+        for req in &popped.refused_budget {
+            self.stats.refused += 1;
+            self.stats.refusal_counts.count(RefusalKind::Budget);
+            refused.push(Refused::new(now, req.agent, RefusalKind::Budget));
+        }
+        for req in &popped.expired {
+            self.stats.expired += 1;
+            self.stats.refused += 1;
+            self.stats.refusal_counts.count(RefusalKind::Expired);
+            refused.push(Refused::new(now, req.agent, RefusalKind::Expired));
+        }
         for req in popped.send {
-            let Some(ask) = self
+            let ask = self
                 .minds
                 .get_mut(&req.agent)
-                .and_then(|mind| mind.take_flight(&req))
-            else {
+                .and_then(|mind| mind.take_flight(&req));
+            let Some(ask) = ask else {
                 // The mind replaced the request with a newer one; this one is
-                // simply never sent.
+                // never sent. It ends here, and it ends with a name.
+                self.stats.refused += 1;
+                self.stats.refusal_counts.count(RefusalKind::Superseded);
+                refused.push(Refused::new(now, req.agent, RefusalKind::Superseded));
                 continue;
             };
-            self.thinker.send(ask);
+            if !self.thinker.send(ask) {
+                // The worker is gone: the call never reached a model. The
+                // question ends here, and it ends with a name.
+                self.stats.refused += 1;
+                self.stats.refusal_counts.count(RefusalKind::Unreachable);
+                refused.push(Refused::new(now, req.agent, RefusalKind::Unreachable));
+                continue;
+            }
             // The call is made: the model is used, whether it answers or not.
             self.queue.record(req.agent, 1);
             *self.stats.usage.entry(req.agent).or_insert(0) += 1;
@@ -181,16 +217,34 @@ impl Agents {
         self.stats.answered += thoughts.len() as u64;
         let mut decisions: Vec<Decision> = Vec::new();
         for thought in thoughts {
-            if thought.result.is_err() {
-                self.stats.refusals += 1;
-            }
             // The escalations (D71): every gate that was asked of a second
             // model, counted next to the refusals.
             if let Ok(answers) = &thought.result {
                 self.stats.escalations += answers.escalated.len() as u64;
             }
-            if let Some(mind) = self.minds.get_mut(&thought.ask.req.agent) {
-                decisions.extend(mind.on_answer(thought.ask, thought.result));
+            // How the question ended: taken, late, or refused. Every
+            // question ends in exactly one of the three, and the round's
+            // ledger adds up.
+            let (made, outcome) = match self.minds.get_mut(&thought.ask.req.agent) {
+                Some(mind) => mind.on_answer(thought.ask, thought.result),
+                None => {
+                    // The answer belongs to an agent that is not in the
+                    // round: there is no mind to take it home. The question
+                    // ends here, and it ends with a name.
+                    self.stats.refusal_counts.count(RefusalKind::Malformed);
+                    refused.push(Refused::new(
+                        now,
+                        thought.ask.req.agent,
+                        RefusalKind::Malformed,
+                    ));
+                    (Vec::new(), AskOutcome::Refused)
+                }
+            };
+            decisions.extend(made);
+            match outcome {
+                AskOutcome::Accepted => self.stats.accepted += 1,
+                AskOutcome::Late => self.stats.late += 1,
+                AskOutcome::Refused => self.stats.refused += 1,
             }
         }
         // 4. And so do the decisions that needed no model (the verdict cache).
@@ -198,14 +252,20 @@ impl Agents {
             decisions.extend(mind.take_decisions());
         }
 
-        // 5. The wording is counted where it happened: every mind knows
+        // 5. The refusals the minds recorded, by name. Every refusal the
+        //    round saw is counted where it happened, so the record and the
+        //    counters cannot disagree.
+        self.take_mind_refusals(&mut refused);
+        self.stats.refusals = self.stats.refusal_counts.total();
+
+        // 6. The wording is counted where it happened: every mind knows
         //    which realizer wrote its lines.
         self.stats.words = self
             .minds
             .values()
             .fold(WordCounts::default(), |sum, mind| sum.plus(mind.words()));
 
-        // 6. The decisions go to the host, stamped with the tick they landed
+        // 7. The decisions go to the host, stamped with the tick they landed
         //    on. The host puts them in the sequencer.
         if let Some(sink) = self.sink.as_mut() {
             for decision in decisions {
@@ -214,6 +274,35 @@ impl Agents {
             }
         }
         self.stats.queue_len = self.queue.len();
+        refused
+    }
+
+    /// The refusals the minds have recorded that the round has not counted
+    /// yet.
+    ///
+    /// The minds keep their refusals in the order they happened; the round
+    /// counts them once, here, and never counts the same one twice.
+    fn take_mind_refusals(&mut self, refused: &mut Vec<Refused>) {
+        let agents: Vec<u16> = self.minds.keys().copied().collect();
+        for agent in agents {
+            let Some(mind) = self.minds.get_mut(&agent) else {
+                continue;
+            };
+            let all = mind.refusals();
+            let taken = self.counted.entry(agent).or_insert(0);
+            let fresh = all[*taken..].to_vec();
+            *taken = all.len();
+            for (tick, refusal) in fresh {
+                let kind = RefusalKind::from(&refusal);
+                self.stats.refusal_counts.count(kind);
+                refused.push(Refused {
+                    tick,
+                    agent,
+                    kind,
+                    detail: refusal.detail(),
+                });
+            }
+        }
     }
 
     /// How many questions are with the models right now.
@@ -257,8 +346,33 @@ pub struct AgentStats {
     pub thinks: u64,
     /// Answers that came home (accepted or refused).
     pub answered: u64,
+    /// The questions the minds asked.
+    ///
+    /// A question is asked when the mind asks it, before the queue decides
+    /// whether it is sent: a question that the budget refuses or that the
+    /// queue lets expire was still asked.
+    pub asked: u64,
+    /// Answers that came home and were taken.
+    pub accepted: u64,
+    /// Answers that came home after the tick the tier said they would land
+    /// on.
+    pub late: u64,
+    /// Questions that never became an answer.
+    ///
+    /// The budget refused it, the queue let it expire, a newer question
+    /// replaced it, the worker was gone, or the model did not answer.
+    pub refused: u64,
     /// Refusals: a failed call, a low-confidence answer, a spent budget.
+    ///
+    /// This is the number of refusals, of every kind together. The kinds
+    /// themselves are in `refusal_counts`: one column that adds four
+    /// different problems up cannot tell them apart.
     pub refusals: u64,
+    /// The refusals, by name.
+    ///
+    /// Every refusal the round saw is counted here, where it happened, so
+    /// the numbers and the log's record cannot disagree.
+    pub refusal_counts: RefusalCounts,
     /// Gates that were asked of a second model (D71).
     ///
     /// An escalation is not a refusal: it is a second opinion that was paid
@@ -274,6 +388,17 @@ pub struct AgentStats {
     pub usage: BTreeMap<u16, u64>,
     /// The wording: which realizer wrote the lines.
     pub words: WordCounts,
+}
+
+impl AgentStats {
+    /// Whether every question that was asked ended in exactly one place.
+    ///
+    /// A question is taken, late or refused, and it is exactly one of the
+    /// three: this is the assertion that keeps a lost question from
+    /// disappearing without a word (N4).
+    pub fn asks_add_up(&self) -> bool {
+        self.asked == self.accepted + self.late + self.refused
+    }
 }
 
 /// What the wording did, in numbers.

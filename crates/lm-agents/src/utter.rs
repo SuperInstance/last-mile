@@ -225,14 +225,14 @@ fn attention(answers: &Answers, ctx: &GateCtx<'_>) -> Result<Addressee, Refusal>
                 .strip_prefix("agent")
                 .and_then(|digits| digits.parse::<u16>().ok())
             else {
-                return Err(Refusal::Malformed(format!(
+                return Err(Refusal::OffPlan(format!(
                     "the addressee {other} is not one this build knows"
                 )));
             };
             // A line may not name an agent that is not in the round: the
             // target is never a free invention (D37).
             if !ctx.has_agent(agent) {
-                return Err(Refusal::Malformed(format!(
+                return Err(Refusal::OffPlan(format!(
                     "the addressee agent {agent} is not in this round"
                 )));
             }
@@ -535,7 +535,7 @@ fn words_for(
 ) -> Result<String, Refusal> {
     let words = written_words(llm, plan, facts, deadline)?;
     if let Some(other) = other_target(&words, plan.subject) {
-        return Err(Refusal::Malformed(format!(
+        return Err(Refusal::OffPlan(format!(
             "the model named {other}, which the gates did not choose"
         )));
     }
@@ -572,7 +572,7 @@ fn line_for(
 ) -> Result<String, Refusal> {
     let line = phrasebook::line_of(plan, channel, words);
     opal::parse(&empty_context(), &line).map_err(|e| {
-        Refusal::Malformed(format!(
+        Refusal::OffPlan(format!(
             "the model {model} wrote a line that does not compile: {e}"
         ))
     })?;
@@ -1036,7 +1036,7 @@ pub fn utterance_from_text(
     text: &str,
 ) -> Result<Utterance, Refusal> {
     let utterance = opal::parse(ctx, text)
-        .map_err(|e| Refusal::Malformed(format!("the line does not compile: {e}")))?;
+        .map_err(|e| Refusal::OffPlan(format!("the line does not compile: {e}")))?;
     Ok(Utterance {
         act: plan.act,
         addressee: plan.addressee,
@@ -1470,6 +1470,8 @@ mod tests {
         let roster = roster();
         let mut answers = answers();
         answers.per_gate.remove(GATE_INTENT);
+        // The pack did not answer the gate: the answer did not match the
+        // schema.
         assert!(matches!(
             plan_from_gates(&answers, &menu(), &ctx(&roster)),
             Err(Refusal::Malformed(_))
@@ -1519,9 +1521,11 @@ mod tests {
         };
         probs.clear();
         probs.insert("agent9".to_owned(), 0.9);
+        // The wording named a target the gates did not choose: that is the
+        // off-plan wording (D37), not a malformed answer.
         assert!(matches!(
             plan_from_gates(&answers, &menu(), &ctx(&roster)),
-            Err(Refusal::Malformed(_))
+            Err(Refusal::OffPlan(_))
         ));
     }
 
@@ -1592,10 +1596,7 @@ mod tests {
             Duration::from_millis(100),
         );
         assert!(
-            matches!(
-                realizer.realize(&plan, &facts()),
-                Err(Refusal::Malformed(_))
-            ),
+            matches!(realizer.realize(&plan, &facts()), Err(Refusal::OffPlan(_))),
             "a line about another target is refused"
         );
 

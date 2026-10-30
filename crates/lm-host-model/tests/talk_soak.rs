@@ -11,12 +11,26 @@
 //! | 4 | `airtime_ticks` | the ticks of speech the round spent |
 //! | 5 | `utterances_per_1k_ticks` | the utterances per 1000 ticks |
 //! | 6 | `decisions` | the decisions the agents' answers became |
-//! | 7 | `refusals` | the thoughts the model refused |
-//! | 8 | `scores` | the round's scores, as the debug rendering of the map |
+//! | 7 | `asked` | the questions the minds asked |
+//! | 8 | `accepted` | the answers that came home and were taken |
+//! | 9 | `late` | the answers that came home after the tick the tier said |
+//! | 10 | `refused` | the questions that never became an answer |
+//! | … | *one per kind* | the refusals split by kind, in `RefusalKind::ALL`'s order |
+//! | last | `scores` | the round's scores, as the debug rendering of the map |
+//!
+//! The refusals are **split by kind** (N2): "8 refusals" hides four different
+//! fixes, and one column cannot tell them apart. Every kind has a column,
+//! even the kinds that never happened, so the columns do not move when a kind
+//! starts happening. The kinds are the variants of `RefusalKind::ALL`, in
+//! that order — `timeout`, `unreachable`, `http`, `malformed`,
+//! `invalid_pack`, `low_confidence`, `menu_changed`, `budget`, `off_plan`,
+//! `expired`, `superseded`, `escalation_late`, `panicked` — and a kind that
+//! is appended lands at the end of them, before `scores`.
 //!
 //! The last column is the last one: the scores are a debug rendering and
-//! may themselves contain commas, so a parser that wants the first seven
-//! columns splits the line seven times, not eight.
+//! may themselves contain commas, so a parser that wants the columns before
+//! them splits the line as many times as there are kinds, and leaves the
+//! rest whole.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -27,6 +41,7 @@ use lm_agents::mind::Policy;
 use lm_agents::sysone::{StubBackend, SysOne, ThorBackend};
 use lm_agents::Agents;
 use lm_core::header::Header;
+use lm_core::refusal::RefusalKind;
 
 use lm_core::talk::talk_metrics;
 use lm_host_model::HostLoop;
@@ -176,18 +191,26 @@ fn soak(backend: &str, seed: u64) {
     let metrics = talk_metrics(talk_records);
     let stats = host.agent_stats().expect("the round has agents");
 
-    // Print one line per (backend, seed)
-    println!(
-        "{},{},{},{},{},{},{},{:?}",
-        backend,
-        seed,
-        metrics.utterances,
-        metrics.airtime_ticks,
-        metrics.utterances * 1000 / TICKS,
-        stats.decisions,
-        stats.refusals,
-        host.sim().scores()
-    );
+    // Print one line per (backend, seed). The refusals are split by kind,
+    // so a reader can see which rule failed without adding the kinds up
+    // first, and every kind has a column whether it happened or not.
+    let mut columns = vec![
+        backend.to_owned(),
+        seed.to_string(),
+        metrics.utterances.to_string(),
+        metrics.airtime_ticks.to_string(),
+        (metrics.utterances * 1000 / TICKS).to_string(),
+        stats.decisions.to_string(),
+        stats.asked.to_string(),
+        stats.accepted.to_string(),
+        stats.late.to_string(),
+        stats.refused.to_string(),
+    ];
+    for kind in RefusalKind::ALL {
+        columns.push(stats.refusal_counts.get(kind).to_string());
+    }
+    columns.push(format!("{:?}", host.sim().scores()));
+    println!("{}", columns.join(","));
 
     // Assert only that the round finished
     assert!(!host.sim().scores().is_empty());

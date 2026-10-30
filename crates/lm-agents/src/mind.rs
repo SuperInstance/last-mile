@@ -64,7 +64,7 @@ pub use crate::gates::Pack;
 use crate::harness::Harness;
 use crate::phrasebook::Phrasebook;
 use crate::queue::ThinkReq;
-use crate::sysone::{Answers, Escalation, Refusal, SysOne};
+use crate::sysone::{Answers, Escalation, EscalationOutcome, Refusal, SysOne};
 use crate::utter::{
     pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
     WordSource, GATE_GESTURE, UTTERANCE_GATES,
@@ -651,6 +651,25 @@ pub struct Thought {
     pub rtt_ms: u32,
 }
 
+/// How an ask ended.
+///
+/// Every ask ends in exactly one of these three, and the round counts them
+/// apart: a question that was asked must not vanish between the mind and the
+/// log. A question that was refused before it was sent, a question whose
+/// answer never came back and a question that came back too late are three
+/// different problems, and one counter cannot tell them apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AskOutcome {
+    /// The answer came back and was taken.
+    Accepted,
+    /// The answer came back, but later than the tick the tier said it would
+    /// land on.
+    Late,
+    /// The ask ended in a refusal: the call did not come back, the pack did
+    /// not fit, the budget was spent, or the answer did not match.
+    Refused,
+}
+
 // ----------------------------------------------------------------- the worker
 
 /// The thinker: the threads that talk to the models.
@@ -679,6 +698,22 @@ struct Lane {
     handle: Option<thread::JoinHandle<()>>,
 }
 
+/// What a panic said, as text.
+///
+/// A payload is `&'static str` for `panic!("…")` and `String` for
+/// `panic!("{}", x)`; anything else says only that it panicked. The message
+/// is a *why*, not a decision: it goes into the refusal's words, where a
+/// reader of the log can see it.
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(text) = payload.downcast_ref::<&'static str>() {
+        (*text).to_owned()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "the backend panicked".to_owned()
+    }
+}
+
 impl Thinker {
     /// A thinker asking `backends` (by backend name) on its own threads.
     pub fn new(backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>) -> Thinker {
@@ -701,7 +736,21 @@ impl Thinker {
                         let started = Instant::now();
                         let deadline = started + ask.timeout;
                         let result = match worker_backends.get(&ask.backend) {
-                            Some(backend) => backend.ask(&ask.state, &ask.questions, deadline),
+                            Some(backend) => {
+                                // A panic is a bug in the backend, but the
+                                // question still has to end somewhere (N4):
+                                // caught here, it becomes a named refusal,
+                                // and the worker keeps serving the lane. Left
+                                // alone it would kill the thread with the
+                                // ask still in its hands — a question that
+                                // vanished without a word.
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    backend.ask(&ask.state, &ask.questions, deadline)
+                                }))
+                                .unwrap_or_else(|payload| {
+                                    Err(Refusal::Panicked(panic_message(&payload)))
+                                })
+                            }
                             None => Err(Refusal::Malformed(format!(
                                 "no backend named {}",
                                 ask.backend
@@ -739,19 +788,25 @@ impl Thinker {
         }
     }
 
-    /// Queue an ask; never blocks and never fails (a dead worker drops the
-    /// ask, and the stale window on the sim side cleans up).
+    /// Send an ask to the worker that owns its pack.
+    ///
+    /// `false` means the ask never reached a worker: the lane is gone, or the
+    /// worker is not listening any more. The question ends there, and the
+    /// caller has to say so — a question that was asked and never sent must
+    /// not disappear without a word.
     ///
     /// The ask goes to its pack's worker (D70), so a talk pack in flight
     /// never delays the move pack.
-    pub fn send(&self, ask: Ask) {
+    pub fn send(&self, ask: Ask) -> bool {
         if let Some(lane) = self.lanes.get(&ask.pack) {
             if let Some(sender) = &lane.to_worker {
                 if sender.send(ask).is_ok() {
                     self.sent.fetch_add(1, Ordering::SeqCst);
+                    return true;
                 }
             }
         }
+        false
     }
 
     /// Every thought that has come home since the last drain.
@@ -1409,8 +1464,15 @@ impl Mind {
     ///
     /// A refusal produces no decision — it is logged, and the reflex keeps
     /// playing (D26). An answer that matches no flight in the mind's hands
-    /// is dropped.
-    pub fn on_answer(&mut self, req: Ask, result: Result<Answers, Refusal>) -> Vec<Decision> {
+    /// is dropped, and the drop is a refusal with a name.
+    ///
+    /// The outcome says how the ask ended, so the round's counters can add
+    /// up: every ask ends in exactly one of accepted, late or refused.
+    pub fn on_answer(
+        &mut self,
+        req: Ask,
+        result: Result<Answers, Refusal>,
+    ) -> (Vec<Decision>, AskOutcome) {
         let now = self.now;
         let pack = req.pack;
         let lane = match pack {
@@ -1418,17 +1480,26 @@ impl Mind {
             Pack::Talk => &mut self.talk_lane,
         };
         let Some(flight) = lane.in_flight.take() else {
-            return Vec::new();
+            // Nothing was in flight for this pack: the answer belongs to an
+            // ask this mind no longer owns. The ask ends here, and it ends
+            // with a name — a lost answer is a refusal, not a silence.
+            self.refusals.push((now, Refusal::Superseded));
+            return (Vec::new(), AskOutcome::Refused);
         };
         if flight.req.agent != req.req.agent
             || flight.req.asked != req.req.asked
             || flight.req.situation_key != req.req.situation_key
         {
             // The answer belongs to an ask this mind no longer owns; the
-            // flight goes back in its hands.
+            // flight goes back in its hands. The ask ends here, and it ends
+            // with a name.
             lane.in_flight = Some(flight);
-            return Vec::new();
+            self.refusals.push((now, Refusal::Superseded));
+            return (Vec::new(), AskOutcome::Refused);
         }
+        // The answer came back after the tick the tier said it would land on:
+        // the ask ended late, and the round counts it apart.
+        let late = now > flight.expected_land;
         if let Some(record) =
             self.thoughts.iter_mut().rev().find(|r| {
                 r.landed.is_none() && r.asked == flight.req.asked && r.tier == flight.tier
@@ -1452,7 +1523,7 @@ impl Mind {
         match result {
             Err(refusal) => {
                 self.refusals.push((now, refusal));
-                Vec::new()
+                (Vec::new(), AskOutcome::Refused)
             }
             Ok(answers) => {
                 // The confidence rule, per gate: a gate the backend was not
@@ -1462,9 +1533,31 @@ impl Mind {
                 // that chose a move refuses the move and leaves the line
                 // alone (D26/D49). Every one of them is a refusal, and a
                 // refusal is logged.
-                for confidence in answers.unsure.values() {
-                    self.refusals
-                        .push((now, Refusal::LowConfidence(*confidence)));
+                //
+                // The refusal is named after the rule that actually failed.
+                // A gate the second opinion could not answer is not a gate
+                // the backend was unsure about: it is a gate whose second
+                // opinion timed out, or whose second model could not be
+                // reached, and those are different problems with different
+                // fixes (D71).
+                for (gate, confidence) in &answers.unsure {
+                    let refusal = match answers.escalated.get(gate) {
+                        // The second opinion failed, and it says how: a
+                        // timeout is a timeout, and an endpoint that
+                        // answered an error is not a call that never
+                        // reached one.
+                        Some(escalation) => match escalation.refusal.clone() {
+                            Some(refusal) => refusal,
+                            None => match escalation.outcome {
+                                EscalationOutcome::Timeout => Refusal::Timeout,
+                                _ => Refusal::LowConfidence(*confidence),
+                            },
+                        },
+                        // No second opinion was asked: the backend was
+                        // simply unsure, and that is what failed.
+                        None => Refusal::LowConfidence(*confidence),
+                    };
+                    self.refusals.push((now, refusal));
                 }
                 // The escalations (D71): the gate, both confidences and the
                 // latency of every second opinion that was asked for.
@@ -1509,7 +1602,14 @@ impl Mind {
                     }
                 }
                 self.restamp(&mut decisions);
-                decisions
+                (
+                    decisions,
+                    if late {
+                        AskOutcome::Late
+                    } else {
+                        AskOutcome::Accepted
+                    },
+                )
             }
         }
     }
@@ -2112,7 +2212,7 @@ mod tests {
                     let result = thought
                         .result
                         .map(|answers| answers_asked(&thought.ask, &answers));
-                    decisions.extend(mind.on_answer(thought.ask, result));
+                    decisions.extend(mind.on_answer(thought.ask, result).0);
                 }
             }
             for mind in self.minds.values_mut() {
@@ -2391,6 +2491,195 @@ mod tests {
     // ------------------------------------------------------ the prethink lever
 
     #[test]
+    fn an_unsure_gate_is_named_after_the_rule_that_failed() {
+        // D72 says an unsure gate makes no decision of its own. Which rule
+        // failed is a different question, and the answer differs: a gate the
+        // backend was unsure about is a low-confidence refusal, a gate whose
+        // second opinion timed out is a timeout, and a gate whose second
+        // model answered an error is that error. They are three different
+        // problems with three different fixes.
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let view_a = view_at(3, 2, 2);
+        let menu_a = menu(&view_a);
+
+        /// One mind, asked once, and answered with `answers`.
+        fn answered(
+            cfg: &AgentsConfig,
+            world: &World,
+            view: &ScoreView,
+            menu: &Menu,
+            answers: Answers,
+        ) -> Mind {
+            let mut m = mind(3, cfg, STUB_POLICY);
+            let req = m
+                .on_tick(0, view, world, menu)
+                .expect("a novel situation asks");
+            let ask = m.take_flight(&req).expect("the ask flies");
+            m.on_answer(ask, Ok(answers));
+            m
+        }
+
+        /// The answers with one unsure gate, and the escalation behind it.
+        fn unsure_with(menu: &Menu, escalation: Option<Escalation>) -> Answers {
+            let mut answers = lane_answers(menu, 0);
+            answers.unsure.insert("move".to_owned(), 0.2);
+            if let Some(escalation) = escalation {
+                answers.escalated.insert("move".to_owned(), escalation);
+            }
+            answers
+        }
+
+        /// A second opinion that came to nothing, in the way it came to it.
+        fn escalation(outcome: EscalationOutcome, refusal: Option<Refusal>) -> Escalation {
+            Escalation {
+                gate: "move".to_owned(),
+                primary_confidence: 0.2,
+                second_confidence: None,
+                latency_ms: 10,
+                outcome,
+                refusal,
+            }
+        }
+
+        // No second opinion: the backend was unsure, and that is what failed.
+        let plain = answered(&cfg, &world, &view_a, &menu_a, unsure_with(&menu_a, None));
+        let (_, refusal) = plain.refusals()[0].clone();
+        assert!(
+            matches!(refusal, Refusal::LowConfidence(_)),
+            "an unsure gate is a low-confidence refusal"
+        );
+
+        // The second opinion timed out.
+        let timed_out = answered(
+            &cfg,
+            &world,
+            &view_a,
+            &menu_a,
+            unsure_with(
+                &menu_a,
+                Some(escalation(
+                    EscalationOutcome::Timeout,
+                    Some(Refusal::Timeout),
+                )),
+            ),
+        );
+        let (_, refusal) = timed_out.refusals()[0].clone();
+        assert!(
+            matches!(refusal, Refusal::Timeout),
+            "a second opinion that timed out is a timeout"
+        );
+
+        // The second model answered an error: that is the error, not a call
+        // that never reached one.
+        let errored = answered(
+            &cfg,
+            &world,
+            &view_a,
+            &menu_a,
+            unsure_with(
+                &menu_a,
+                Some(escalation(
+                    EscalationOutcome::Unavailable,
+                    Some(Refusal::Http(503)),
+                )),
+            ),
+        );
+        let (_, refusal) = errored.refusals()[0].clone();
+        assert!(
+            matches!(refusal, Refusal::Http(503)),
+            "a second opinion that answered 503 is that error"
+        );
+    }
+
+    #[test]
+    fn a_backend_that_panics_does_not_take_the_question_with_it() {
+        // N4: a panic in a backend is a bug, but the question it was asked
+        // still has to end somewhere. The worker catches the crash, answers
+        // with a refusal of its own name, and keeps serving — the ask does
+        // not vanish with the thread, and the lane does not die with it.
+        struct Panicking;
+        impl SysOne for Panicking {
+            fn ask(
+                &self,
+                _state: &str,
+                _questions: &Value,
+                _deadline: Instant,
+            ) -> Result<Answers, Refusal> {
+                panic!("the model is on fire");
+            }
+            fn name(&self) -> &str {
+                "panicking"
+            }
+        }
+
+        fn ask_of(agent: u16, asked: Tick) -> Ask {
+            Ask {
+                req: crate::queue::ThinkReq {
+                    agent,
+                    squad: 0,
+                    pack: Pack::Move,
+                    asked,
+                    deadline: asked + 30,
+                    situation_key: 1,
+                },
+                pack: Pack::Move,
+                backend: "panicking".to_owned(),
+                state: String::new(),
+                questions: serde_json::json!({}),
+                questions_n: 0,
+                timeout: Duration::from_secs(1),
+                pay_priority: false,
+            }
+        }
+
+        let thinker = Thinker::new(BTreeMap::from([(
+            "panicking".to_owned(),
+            Box::new(Panicking) as Box<dyn SysOne + Send + Sync>,
+        )]));
+
+        // The panic is the worker's to catch. The message it would print is
+        // silenced for the thinker's own threads only — every other panic of
+        // the process keeps its words — and the refusal carries the why.
+        let stop = Instant::now() + Duration::from_secs(5);
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let thinker = std::thread::current()
+                .name()
+                .is_some_and(|name| name.starts_with("lm-thinker-"));
+            if !thinker {
+                previous(info);
+            }
+        }));
+        assert!(thinker.send(ask_of(3, 10)));
+        let first = loop {
+            let drained = thinker.drain();
+            if let Some(thought) = drained.into_iter().next() {
+                break thought;
+            }
+            assert!(Instant::now() < stop, "the crashed ask never came home");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        assert!(
+            matches!(&first.result, Err(Refusal::Panicked(why)) if why.contains("on fire")),
+            "a crashed backend is a refusal that says so, not a lost ask: {:?}",
+            first.result
+        );
+
+        // The worker survived: a second ask comes home the same way, and
+        // nothing is left pending.
+        assert!(thinker.send(ask_of(3, 40)));
+        loop {
+            if !thinker.drain().is_empty() {
+                break;
+            }
+            assert!(Instant::now() < stop, "the second ask never came home");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(thinker.pending(), 0, "the lane kept serving");
+    }
+
+    #[test]
     fn prethink_answer_used_when_situation_arrives() {
         let cfg = AgentsConfig::default();
         let world = tiny_world();
@@ -2407,8 +2696,9 @@ mod tests {
             .on_tick(0, &view_a, &world, &menu_a)
             .expect("a novel situation asks");
         let ask = m.take_flight(&req).expect("the ask flies");
-        let decisions = m.on_answer(ask, Ok(lane_answers(&menu_a, 0)));
+        let (decisions, outcome) = m.on_answer(ask, Ok(lane_answers(&menu_a, 0)));
         assert_eq!(decisions.len(), 1, "the move gate becomes a lane");
+        assert_eq!(outcome, AskOutcome::Accepted);
 
         // A quiet tick on the same situation asks nothing.
         assert!(m.on_tick(1, &view_a, &world, &menu_a).is_none());
@@ -2443,7 +2733,9 @@ mod tests {
             .on_tick(0, &view_a, &world, &menu_a)
             .expect("a novel situation asks");
         let ask = m.take_flight(&req).expect("the ask flies");
-        assert!(m.on_answer(ask, Err(Refusal::Timeout)).is_empty());
+        let (decisions, outcome) = m.on_answer(ask, Err(Refusal::Timeout));
+        assert!(decisions.is_empty());
+        assert_eq!(outcome, AskOutcome::Refused);
         let req = m
             .on_tick(8, &view_a, &world, &menu_a)
             .expect("prethink asks about the quiet situation");
@@ -2643,12 +2935,12 @@ mod tests {
         if let Some(req) = mind.on_tick(0, view, world, &menu) {
             let ask = mind.take_flight(&req).expect("the ask flies");
             let answers = answers_asked(&ask, &answers);
-            decisions.extend(mind.on_answer(ask, Ok(answers)));
+            decisions.extend(mind.on_answer(ask, Ok(answers)).0);
         }
         if let Some(req) = mind.on_tick_talk(0, view, world, &menu) {
             let ask = mind.take_flight(&req).expect("the ask flies");
             let answers = answers_asked(&ask, &answers);
-            decisions.extend(mind.on_answer(ask, Ok(answers)));
+            decisions.extend(mind.on_answer(ask, Ok(answers)).0);
         }
         decisions
     }

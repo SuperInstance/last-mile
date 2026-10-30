@@ -38,6 +38,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use lm_core::refusal::RefusalKind;
+
 /// The path every backend posts to.
 pub const SYSTEMONE_PATH: &str = "/v1/systemone";
 
@@ -167,6 +169,14 @@ pub struct Escalation {
     pub latency_ms: u32,
     /// What the second opinion came to.
     pub outcome: EscalationOutcome,
+    /// The refusal behind the outcome, when the second opinion failed.
+    ///
+    /// The outcome says *that* the second opinion failed; this says how. An
+    /// endpoint that answered 503 and a call that never reached an endpoint
+    /// are two different problems with two different fixes, and the name of
+    /// the rule that failed is only worth having if it is the right one.
+    #[serde(default)]
+    pub refusal: Option<Refusal>,
 }
 
 /// What the second opinion came to (D71).
@@ -223,6 +233,69 @@ pub enum Refusal {
     MenuChanged,
     /// The agent's budget for this round is spent.
     Budget,
+    /// The wording did not follow the plan (D37).
+    ///
+    /// The gates chose a line and the model wrote a different one: the
+    /// notation did not compile, or the reply was not a line at all. The
+    /// choice stands and the line is dropped, so this is a refusal of the
+    /// *wording*, not of the choice.
+    OffPlan(String),
+    /// A newer question replaced this one before the answer came home.
+    ///
+    /// The answer belongs to an ask this mind no longer owns, so it is
+    /// dropped: the question ended before it could be answered.
+    Superseded,
+    /// The backend crashed answering the question.
+    ///
+    /// A panic is a bug in the backend, not a decision by the model, but the
+    /// question still has to end somewhere (N4): the worker catches the
+    /// panic, names it here and keeps serving, so one crashing answer does
+    /// not take the lane down with it.
+    Panicked(String),
+}
+
+impl Refusal {
+    /// The number this refusal's rule cares about.
+    ///
+    /// The HTTP status, and the confidence in Q16 — the confidence is a
+    /// float here, but the record is whole numbers only (D69), so it is
+    /// scaled on the way in.
+    pub fn detail(&self) -> u32 {
+        match self {
+            Refusal::Http(code) => u32::from(*code),
+            Refusal::LowConfidence(confidence) => {
+                let scaled = confidence.clamp(0.0, 1.0) * 65_536.0;
+                scaled.round() as u32
+            }
+            _ => 0,
+        }
+    }
+}
+
+impl From<&Refusal> for RefusalKind {
+    /// The name of the rule that failed.
+    ///
+    /// This is the one place the runtime's refusal becomes the record's
+    /// refusal: every refusal that reaches the log goes through here, so
+    /// there is exactly one name for every rule that can fail.
+    fn from(refusal: &Refusal) -> RefusalKind {
+        match refusal {
+            Refusal::Timeout => RefusalKind::Timeout,
+            // The call that never reached an HTTP status never reached the
+            // model at all: that is a different failure from a model that
+            // answered 503.
+            Refusal::Http(0) => RefusalKind::Unreachable,
+            Refusal::Http(_) => RefusalKind::Http,
+            Refusal::Malformed(_) => RefusalKind::Malformed,
+            Refusal::InvalidPack(_) => RefusalKind::InvalidPack,
+            Refusal::LowConfidence(_) => RefusalKind::LowConfidence,
+            Refusal::MenuChanged => RefusalKind::MenuChanged,
+            Refusal::Budget => RefusalKind::Budget,
+            Refusal::OffPlan(_) => RefusalKind::OffPlan,
+            Refusal::Superseded => RefusalKind::Superseded,
+            Refusal::Panicked(_) => RefusalKind::Panicked,
+        }
+    }
 }
 
 impl fmt::Display for Refusal {
@@ -238,6 +311,9 @@ impl fmt::Display for Refusal {
             Refusal::LowConfidence(c) => write!(f, "the answer was only {c} confident"),
             Refusal::MenuChanged => f.write_str("the menu changed under the question"),
             Refusal::Budget => f.write_str("the budget is spent"),
+            Refusal::OffPlan(why) => write!(f, "the wording did not follow the plan: {why}"),
+            Refusal::Superseded => f.write_str("a newer question replaced this one"),
+            Refusal::Panicked(why) => write!(f, "the backend crashed: {why}"),
         }
     }
 }
@@ -530,7 +606,7 @@ impl SysOne for EscalatingBackend {
             // one call, so its pack always fits.
             let one = one_question(questions, &gate);
             let started = Instant::now();
-            let (second_answer, outcome) = match self.second.ask(state, &one, deadline) {
+            let (second_answer, outcome, refusal) = match self.second.ask(state, &one, deadline) {
                 Ok(second) => {
                     let answer = second.per_gate.get(&gate).cloned();
                     let outcome = if answer.is_some() {
@@ -538,10 +614,13 @@ impl SysOne for EscalatingBackend {
                     } else {
                         EscalationOutcome::Unsure
                     };
-                    (answer, outcome)
+                    (answer, outcome, None)
                 }
-                Err(Refusal::Timeout) => (None, EscalationOutcome::Timeout),
-                Err(_) => (None, EscalationOutcome::Unavailable),
+                Err(Refusal::Timeout) => (None, EscalationOutcome::Timeout, Some(Refusal::Timeout)),
+                // The second model could not answer, and the refusal keeps
+                // the reason: an endpoint that answered 503 and a call that
+                // never reached one are two different problems.
+                Err(refusal) => (None, EscalationOutcome::Unavailable, Some(refusal)),
             };
             let latency_ms = ms(started.elapsed());
             let second_confidence = second_answer.as_ref().and_then(answer_confidence);
@@ -563,6 +642,7 @@ impl SysOne for EscalatingBackend {
                 second_confidence,
                 latency_ms,
                 outcome,
+                refusal,
             };
             answers.escalated.insert(gate, escalation.clone());
             self.escalations

@@ -51,8 +51,9 @@ whose hand made it (the roll's own colours: green human, blue System One).
 **Hollow marks** — stroke-only rectangles, amber when the reason was
 confidence — are the refusals and the unsure gates (D72's `Answers::unsure`,
 which reaches the mind as a per-gate `LowConfidence` refusal): a tick where a
-mind asked and did not answer. *Data: the log for the gestures; the live
-minds' own refusal records for the hollows — see "what's missing".*
+mind asked and did not answer. *Data: the log for the gestures and for the
+hollows — the log keeps the refusals now, with the name of the rule that
+failed (N2), so a replay draws the same marks a live round did.*
 
 **Gaze** — the agent's attention target over time, as a lane of colours and
 ids: the move its lanes hold (`lane_cmd`: `b2`, `hold`, `follow`, `retreat`,
@@ -128,11 +129,14 @@ marks read it apart.
   scale. E7's pass needs either a round where squads fight while the gate is
   being asked (the Thor serves ~9 asks/s for the whole match, D68, so the
   asks are sparse), or a model that scores urgency less flatly.
-- **The hollow marks are live-only.** A refusal is an outcome the *mind*
-  records (D26); the round log carries no refusals, so a replay opened from a
-  file shows none (a round the app played and reopened keeps the ones it
-  collected). Making them replayable is a logging change — a refusal event in
-  the log — not a view change.
+- **The hollow marks were live-only; they are not any more.** A refusal is an
+  outcome the *mind* records (D26), and the round log used to carry none of
+  them, so a replay opened from a file showed no marks at all. The log keeps
+  the refusals now, each with the name of the rule that failed, and the score
+  reads them from there: a replay draws the same marks a live round did. The
+  mark's own shape is still the view's vocabulary — a call that never reached
+  an HTTP status and an endpoint that answered 503 are the same mark with
+  different numbers.
 - **The fight itself is on the roll, not the score.** Tags and stuns are
   world events; the roll draws their spans, the score (by design, per the
   brief's four staves) does not. Through the seed-7 fight the score shows the
