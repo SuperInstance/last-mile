@@ -582,6 +582,7 @@ mod tests {
     /// A view of two beacons: beacon 0 unheld, beacon 1 held by squad 1.
     fn view() -> ScoreView {
         ScoreView {
+            paint: Vec::new(),
             heard: Vec::new(),
             tick: 100,
             me: AgentSnap {

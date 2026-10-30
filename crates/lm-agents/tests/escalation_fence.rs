@@ -106,6 +106,7 @@ fn fence_harness() -> Harness {
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
+        facts_toml: String::new(),
     }
 }
 

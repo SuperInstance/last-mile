@@ -28,6 +28,7 @@ fn view() -> ScoreView {
         holder,
     };
     ScoreView {
+        paint: Vec::new(),
         heard: Vec::new(),
         tick: 100,
         me: AgentSnap {
@@ -53,6 +54,7 @@ fn view() -> ScoreView {
 /// A 128x128 open map.
 fn world() -> World {
     World {
+        paint: lm_core::world::Paint::new(),
         grid: Grid {
             w: 128,
             h: 128,

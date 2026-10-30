@@ -1059,6 +1059,7 @@ fn the_facts_parser_reads_the_shared_target() {
         CellXY { x: 95, y: 64 },
     ];
     let view = ScoreView {
+        paint: Vec::new(),
         heard: Vec::new(),
         tick: 100,
         me: AgentSnap {
@@ -1081,6 +1082,7 @@ fn the_facts_parser_reads_the_shared_target() {
         squad_id: 0,
     };
     let world = World {
+        paint: lm_core::world::Paint::new(),
         grid: Grid {
             w: 128,
             h: 128,
