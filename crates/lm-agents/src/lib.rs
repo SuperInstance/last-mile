@@ -14,7 +14,7 @@
 //! only as logged decisions. See docs/superpowers/plans/2026-10-28-m1-phase3-agents.md.
 
 pub mod agents;
-pub use agents::{AgentStats, Agents};
+pub use agents::{AgentStats, Agents, WordCounts};
 pub mod config;
 pub use config::AgentsConfig;
 pub mod facts;
@@ -37,5 +37,5 @@ pub use sysone::{
 pub mod utter;
 pub use utter::{
     pick_realizer, pick_realizer_with, AutoRealizer, GateCtx, Llm, LlmRealizer, Realizer, StubLlm,
-    TemplateRealizer, UtterPlan,
+    TemplateRealizer, UtterPlan, WordSource, Worded,
 };

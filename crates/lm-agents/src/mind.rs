@@ -53,6 +53,7 @@ use lm_core::{Decision, Tick};
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::agents::WordCounts;
 use crate::config::AgentsConfig;
 use crate::facts::Facts;
 use crate::gates::{answers_to_decisions, GateSet};
@@ -65,7 +66,7 @@ use crate::queue::ThinkReq;
 use crate::sysone::{Answers, Escalation, Refusal, SysOne};
 use crate::utter::{
     pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
-    GATE_GESTURE, UTTERANCE_GATES,
+    WordSource, GATE_GESTURE, UTTERANCE_GATES,
 };
 
 /// The shipped default policy, the single source of `Policy`'s defaults.
@@ -922,6 +923,10 @@ pub struct Mind {
     spoken_ticks: u32,
     /// The line that was pre-drafted for a reply (D31), by its id.
     pre_drafted: Option<u64>,
+    /// What the wording did, in numbers: how many lines the model worded,
+    /// how many the phrasebook worded, and how many the model missed its
+    /// deadline on.
+    words: WordCounts,
 }
 
 impl Mind {
@@ -975,6 +980,7 @@ impl Mind {
             realizer: pick_realizer_with(cfg, &phrasebook),
             spoken_ticks: 0,
             pre_drafted: None,
+            words: WordCounts::default(),
         }
     }
 
@@ -1007,6 +1013,15 @@ impl Mind {
     pub fn with_realizer(mut self, realizer: Box<dyn Realizer>) -> Self {
         self.realizer = realizer;
         self
+    }
+
+    /// Set the realizer: how this mind's lines are worded.
+    ///
+    /// [`Mind::with_realizer`] is the builder's version of this; this one
+    /// replaces the realizer of a mind that is already in a round, which
+    /// is what a caller that watches the wording needs.
+    pub fn set_realizer(&mut self, realizer: Box<dyn Realizer>) {
+        self.realizer = realizer;
     }
 
     /// The tick a reply to a line now being spoken should be applied on
@@ -1555,13 +1570,24 @@ impl Mind {
         if u64::from(self.spoken_ticks) >= budget {
             return None;
         }
-        let text = match self.realizer.realize(&plan, &flight.facts) {
-            Ok(text) => text,
+        let worded = match self.realizer.realize(&plan, &flight.facts) {
+            Ok(worded) => worded,
             Err(refusal) => {
                 self.refusals.push((now, refusal));
                 return None;
             }
         };
+        // The wording is counted where it happens: the round's numbers say
+        // which realizer wrote the lines, and how many lines the model
+        // missed its deadline on.
+        match worded.source {
+            WordSource::Llm => self.words.llm += 1,
+            WordSource::Phrasebook => self.words.phrasebook += 1,
+        }
+        if worded.late {
+            self.words.late += 1;
+        }
+        let text = worded.text;
         let talk_ctx = TalkContext {
             speaker: self.agent,
             roster: &self.roster,
@@ -1636,6 +1662,11 @@ impl Mind {
     /// The refusals so far, with the tick they landed on.
     pub fn refusals(&self) -> &[(Tick, Refusal)] {
         &self.refusals
+    }
+
+    /// What this mind's wording did, in numbers.
+    pub fn words(&self) -> WordCounts {
+        self.words
     }
 
     /// Teach a tier's estimator a measured call (used to pre-seed estimates
@@ -2715,9 +2746,9 @@ mod tests {
         let cfg = AgentsConfig::default();
         let world = tiny_world();
         let view = view_at(1, 2, 2);
-        // The model answers with something that is not the notation.
+        // The model writes no words at all: there is no line to say.
         let mut m = speaking_mind(1, &cfg).with_realizer(Box::new(LlmRealizer::new(
-            Box::new(StubLlm::new("stub", "hold on")),
+            Box::new(StubLlm::new("stub", "   ")),
             Duration::from_millis(50),
         )));
 
@@ -2726,7 +2757,7 @@ mod tests {
             decisions
                 .iter()
                 .all(|d| !matches!(d.kind, Kind::Utterance(_))),
-            "a line that does not compile is not said: {decisions:?}"
+            "a line with no words is not said: {decisions:?}"
         );
         assert!(
             m.refusals()
@@ -2735,6 +2766,37 @@ mod tests {
             "the refusal is logged: {:?}",
             m.refusals()
         );
+    }
+
+    #[test]
+    fn the_wording_is_counted_where_it_happened() {
+        let cfg = AgentsConfig::default();
+        let world = tiny_world();
+        let view = view_at(1, 2, 2);
+
+        // The model words the line: the count says so.
+        let mut m = speaking_mind(1, &cfg).with_realizer(Box::new(LlmRealizer::new(
+            Box::new(StubLlm::new("stub", "hold on")),
+            Duration::from_millis(50),
+        )));
+        think_once(&mut m, &view, &world, talk_answers(&menu(&view), 0));
+        assert_eq!(m.words().llm, 1, "the model worded the line");
+        assert_eq!(m.words().phrasebook, 0);
+        assert_eq!(m.words().late, 0);
+
+        // The model is late: the phrasebook words the line, and the line is
+        // counted late.
+        let mut m = speaking_mind(1, &cfg).with_realizer(Box::new(AutoRealizer::new(
+            TemplateRealizer::shipped(),
+            LlmRealizer::new(
+                Box::new(StubLlm::refusing("stub", Refusal::Timeout)),
+                Duration::from_millis(50),
+            ),
+        )));
+        think_once(&mut m, &view, &world, talk_answers(&menu(&view), 0));
+        assert_eq!(m.words().llm, 0);
+        assert_eq!(m.words().phrasebook, 1, "the phrasebook worded the line");
+        assert_eq!(m.words().late, 1, "the model missed the deadline");
     }
 
     #[test]

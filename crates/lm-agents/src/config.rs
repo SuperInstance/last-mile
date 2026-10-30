@@ -126,13 +126,31 @@ pub struct AgentsConfig {
 #[serde(default)]
 pub struct UterConfig {
     /// Which realizer words the lines: `template` (the phrasebook),
-    /// `llm` (the model on the Thor) or `auto` (the phrasebook first, the
-    /// model only for a line the phrasebook does not have).
+    /// `llm` (the model on the Thor) or `auto` (the model first, the
+    /// phrasebook for the lines the model misses its deadline on).
     pub realizer: String,
     /// The model that writes the lines, on the Thor.
     pub llm_model: String,
     /// The port that model serves on.
     pub llm_port: u16,
+    /// The deadline of one line's wording, in milliseconds.
+    ///
+    /// This is how long the model may take to write a line: the wording
+    /// is asked on the realizer's own thread, and a line whose words are
+    /// not in hand when it is due is worded by the phrasebook instead.
+    ///
+    /// It is not a wait the game pays: the model is asked in the
+    /// background, and the round plays on while it writes. It is the
+    /// model's own budget, and it has to cover what the model actually
+    /// takes -- on a busy Thor that is about six hundred milliseconds,
+    /// because the decision tier is on the same GPU (see
+    /// `tests/realizer_on_thor.md`).
+    pub deadline_ms: u32,
+    /// The deadline of the startup probe of the model, in milliseconds.
+    ///
+    /// The probe asks the model for a line before the round starts, so
+    /// that `auto` can say which realizer it chose and why.
+    pub probe_ms: u32,
 }
 
 impl Default for UterConfig {
@@ -141,7 +159,26 @@ impl Default for UterConfig {
             realizer: "auto".to_owned(),
             llm_model: "LFM2-1.2B".to_owned(),
             llm_port: 8092,
+            deadline_ms: 1_000,
+            probe_ms: 2_000,
         }
+    }
+}
+
+impl UterConfig {
+    /// The same rules with a different deadline for a line's wording.
+    pub fn with_deadline_ms(mut self, deadline_ms: u32) -> Self {
+        self.deadline_ms = deadline_ms;
+        self
+    }
+
+    /// The same rules with a different deadline for the startup probe.
+    ///
+    /// The probe is a startup check, so a caller that wants it to be quick
+    /// -- a test, a box whose model is known to be down -- sets its own.
+    pub fn with_probe_ms(mut self, probe_ms: u32) -> Self {
+        self.probe_ms = probe_ms;
+        self
     }
 }
 

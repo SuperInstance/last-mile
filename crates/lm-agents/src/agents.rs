@@ -30,6 +30,7 @@ use crate::mind::{Mind, Thinker, ThoughtRecord};
 use crate::queue::{Budgets, LeastUseQueue};
 use crate::sink::DecisionSink;
 use crate::sysone::SysOne;
+use crate::utter::Realizer;
 
 /// The round's agents: one mind per roster entry, one queue, one budget set
 /// and one worker thread asking the models.
@@ -85,6 +86,19 @@ impl Agents {
     pub fn with_sink(mut self, sink: Box<dyn DecisionSink>) -> Agents {
         self.sink = Some(sink);
         self
+    }
+
+    /// Give every mind a realizer of its own.
+    ///
+    /// The mind picks its realizer when it is built: the configuration's
+    /// `utter.realizer` over the harness's phrasebook. This replaces it,
+    /// so a caller that wants to watch the wording -- a measurement -- can
+    /// put its own in and read the lines afterwards.
+    pub fn with_realizer(&mut self, make: impl Fn(u16) -> Box<dyn Realizer>) {
+        for (agent, mind) in self.minds.iter_mut() {
+            let realizer = make(*agent);
+            mind.set_realizer(realizer);
+        }
     }
 
     /// The round's agents, by id.
@@ -172,7 +186,14 @@ impl Agents {
             decisions.extend(mind.take_decisions());
         }
 
-        // 5. The decisions go to the host, stamped with the tick they landed
+        // 5. The wording is counted where it happened: every mind knows
+        //    which realizer wrote its lines.
+        self.stats.words = self
+            .minds
+            .values()
+            .fold(WordCounts::default(), |sum, mind| sum.plus(mind.words()));
+
+        // 6. The decisions go to the host, stamped with the tick they landed
         //    on. The host puts them in the sequencer.
         if let Some(sink) = self.sink.as_mut() {
             for decision in decisions {
@@ -239,6 +260,40 @@ pub struct AgentStats {
     pub queue_len: usize,
     /// Model calls per agent.
     pub usage: BTreeMap<u16, u64>,
+    /// The wording: which realizer wrote the lines.
+    pub words: WordCounts,
+}
+
+/// What the wording did, in numbers.
+///
+/// The HUD shows these: how many lines the model on the Thor worded, how
+/// many the harness's phrasebook worded, and how many of those the model
+/// missed its deadline on. A round that ran with the phrasebook says so
+/// here, and so does a round where the model was late.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WordCounts {
+    /// Lines the model on the Thor worded.
+    pub llm: u64,
+    /// Lines the harness's phrasebook worded.
+    pub phrasebook: u64,
+    /// Lines the model was asked for and did not word in time.
+    pub late: u64,
+}
+
+impl WordCounts {
+    /// The counts of two minds, added together.
+    pub fn plus(self, other: WordCounts) -> WordCounts {
+        WordCounts {
+            llm: self.llm + other.llm,
+            phrasebook: self.phrasebook + other.phrasebook,
+            late: self.late + other.late,
+        }
+    }
+
+    /// The lines that were worded at all.
+    pub fn lines(&self) -> u64 {
+        self.llm + self.phrasebook
+    }
 }
 
 /// The squad weight in per-mille, so the queue's ordering stays integer.

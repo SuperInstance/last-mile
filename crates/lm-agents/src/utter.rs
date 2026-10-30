@@ -13,10 +13,16 @@
 //! and the realizer only ever writes *how* the line says it. The tags of
 //! the score are the gates' answer, whatever the wording says.
 //!
+//! The **words** and the **notation** are apart too. A realizer writes
+//! words; the notation is written here, from the plan's tags and the
+//! words, so that a line the model words and a line the phrasebook words
+//! are the same shape. A small model on the Thor writes words well and
+//! notation badly, and the split is what lets it be used at all.
+//!
 //! ```text
 //! ScoreView --facts--> plain-language facts
 //!          --gates--> the choice: act, addressee, intent, affect, subject
-//!          --realize--> the wording, in the notation (lm_core::opal)
+//!          --realize--> the words, and the notation around them
 //!          --parse--> the score: an utterance, with its words timed
 //!          --decide--> a logged decision the sim applies (D12)
 //! ```
@@ -27,11 +33,19 @@
 //! realizer or to silence, and says nothing rather than something made up.
 //! Silence is an outcome (D53): a presence gate that says "this is not even
 //! here" produces no line at all, and costs no airtime.
+//!
+//! The **automatic** realizer is honest about what it does: the model is
+//! asked for every line, with the line's deadline, and a line the model
+//! did not answer in time is worded by the phrasebook instead -- for that
+//! line, and only for that line. The round's counters say how often that
+//! happened ([`WordCounts`]).
 
 #![forbid(unsafe_code)]
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use lm_core::header::RosterEntry;
@@ -92,7 +106,7 @@ pub const AFFECT_UNCERTAIN_Q16: u32 = 32_768;
 
 /// The choice the decision model made: what the line is, before it is
 /// worded.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UtterPlan {
     /// The gesture of the line.
     pub act: SpeechAct,
@@ -352,6 +366,54 @@ fn kind_of(answer: &Answer) -> &'static str {
 
 // ---------------------------------------------------------------- the wording
 
+/// Where a line's words came from.
+///
+/// The realizer says which: a line is worded by the model on the Thor or by
+/// the harness's phrasebook, and the round's counters ([`crate::agents::
+/// WordCounts`]) say how many of each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WordSource {
+    /// The small language model on the Thor.
+    Llm,
+    /// The harness's phrasebook.
+    Phrasebook,
+}
+
+/// A worded line: the words, and where they came from.
+///
+/// The `late` flag says the model was asked for this line's words and did
+/// not bring them in time: the phrasebook worded the line instead, because
+/// the line's deadline passed first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Worded {
+    /// The line, in the notation.
+    pub text: String,
+    /// Where the words came from.
+    pub source: WordSource,
+    /// Whether the model's wording missed the line's deadline.
+    pub late: bool,
+}
+
+impl Worded {
+    /// A line the phrasebook worded.
+    pub fn phrasebook(text: String) -> Worded {
+        Worded {
+            text,
+            source: WordSource::Phrasebook,
+            late: false,
+        }
+    }
+
+    /// A line the model worded.
+    pub fn llm(text: String) -> Worded {
+        Worded {
+            text,
+            source: WordSource::Llm,
+            late: false,
+        }
+    }
+}
+
 /// The wording of a line.
 ///
 /// The realizer writes the words; the gates wrote the tags. The two are
@@ -362,8 +424,10 @@ pub trait Realizer: Send + Sync {
     ///
     /// A realizer that cannot word the line **refuses**: it never invents
     /// a fallback phrase and never writes a line that does not compile
-    /// (D26).
-    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<String, Refusal>;
+    /// (D26). The automatic realizer is the exception that is not an
+    /// exception: it falls back to the phrasebook for that one line, and
+    /// says so in the [`Worded`] it returns.
+    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<Worded, Refusal>;
 }
 
 /// The realizer of the phrasebook: the default.
@@ -395,7 +459,7 @@ impl TemplateRealizer {
 }
 
 impl Realizer for TemplateRealizer {
-    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<String, Refusal> {
+    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<Worded, Refusal> {
         let entry = self
             .phrasebook
             .entry(plan.act, plan.intent, plan.subject)
@@ -406,78 +470,434 @@ impl Realizer for TemplateRealizer {
                     phrasebook::intent_name(plan.intent)
                 ))
             })?;
-        Ok(entry.render(plan, facts.key))
+        Ok(Worded::phrasebook(entry.render(plan, facts.key)))
     }
 }
 
 /// The realizer of a small language model on the Thor.
 ///
-/// The model is asked for the notation and nothing else, and the line it
-/// writes is **compiled before it is used**: a line that does not compile
+/// The model is asked for the **words** and nothing else, and the line it
+/// words is **compiled before it is used**: a line that does not compile
 /// is a refusal (D26), and the bad line never reaches the log. The tags
-/// are the gates' answer, whatever the model wrote: the header is rebuilt
-/// from the plan, so a model may never choose a target (D37).
+/// are the gates' answer, whatever the model wrote: the notation is
+/// written here, from the plan, so a model may never choose a target
+/// (D37).
+///
+/// The model's own words are checked against the plan as well: a wording
+/// that names a beacon or an enemy the gates did not choose is a refusal,
+/// for the same reason the header is ours (D37).
 pub struct LlmRealizer {
     llm: Box<dyn Llm>,
-    timeout: Duration,
+    deadline: Duration,
 }
 
 impl LlmRealizer {
-    /// A realizer that asks `llm`.
-    pub fn new(llm: Box<dyn Llm>, timeout: Duration) -> Self {
-        LlmRealizer { llm, timeout }
+    /// A realizer that asks `llm`, with `deadline` for a line's words.
+    pub fn new(llm: Box<dyn Llm>, deadline: Duration) -> Self {
+        LlmRealizer { llm, deadline }
+    }
+
+    /// The deadline one line's words get.
+    pub fn deadline(&self) -> Duration {
+        self.deadline
+    }
+
+    /// The model's name, for the log.
+    pub fn model(&self) -> &str {
+        self.llm.model()
+    }
+
+    /// The model itself, for a caller that asks it on its own thread.
+    pub fn into_llm(self) -> Box<dyn Llm> {
+        self.llm
     }
 }
 
 impl Realizer for LlmRealizer {
-    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<String, Refusal> {
-        let deadline = Instant::now() + self.timeout;
-        let written = self.llm.write(&prompt_for(plan, facts), deadline)?;
-        let line = rebuild_with_plan(plan, &written)
-            .ok_or_else(|| Refusal::Malformed("the model wrote no words".to_string()))?;
-        // The line must compile: a line that does not is a refusal, and it
-        // never reaches the log.
-        opal::parse(&empty_context(), &line).map_err(|e| {
-            Refusal::Malformed(format!(
-                "the model {} wrote a line that does not compile: {e}",
-                self.llm.model()
-            ))
-        })?;
-        Ok(line)
+    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<Worded, Refusal> {
+        let words = words_for(&*self.llm, plan, facts, self.deadline)?;
+        let line = line_for(plan, Channel::Voice, &words, self.llm.model())?;
+        Ok(Worded::llm(line))
     }
 }
 
-/// The automatic realizer: the template first, the model only when the
-/// phrasebook has no line for this kind of line.
+/// The model's words for a line, checked against the plan.
 ///
-/// If the model fails, the line is **not** spoken: silence is an outcome
-/// (D26).
+/// The words are the model's own: only the shape of the reply is ours
+/// (the grammar the Thor's server is asked for), and only the *target* is
+/// checked -- a wording that names a beacon or an enemy the gates did not
+/// choose is a refusal (D37).
+fn words_for(
+    llm: &dyn Llm,
+    plan: &UtterPlan,
+    facts: &Facts,
+    deadline: Duration,
+) -> Result<String, Refusal> {
+    let words = written_words(llm, plan, facts, deadline)?;
+    if let Some(other) = other_target(&words, plan.subject) {
+        return Err(Refusal::Malformed(format!(
+            "the model named {other}, which the gates did not choose"
+        )));
+    }
+    Ok(words)
+}
+
+/// The words a model wrote for a line, before they are checked.
+///
+/// A model that does not deliver is a refusal here: the call missed the
+/// deadline, or the model was not there, or its answer was not a line.
+fn written_words(
+    llm: &dyn Llm,
+    plan: &UtterPlan,
+    _facts: &Facts,
+    deadline: Duration,
+) -> Result<String, Refusal> {
+    let written = llm.write(&prompt_for(plan), Instant::now() + deadline)?;
+    let words = words_of(&written);
+    if words.is_empty() {
+        return Err(Refusal::Malformed("the model wrote no words".to_string()));
+    }
+    Ok(words)
+}
+
+/// A line in the notation, from the model's words, checked that it compiles.
+///
+/// The line must compile: a line that does not is a refusal, and it never
+/// reaches the log.
+fn line_for(
+    plan: &UtterPlan,
+    channel: Channel,
+    words: &str,
+    model: &str,
+) -> Result<String, Refusal> {
+    let line = phrasebook::line_of(plan, channel, words);
+    opal::parse(&empty_context(), &line).map_err(|e| {
+        Refusal::Malformed(format!(
+            "the model {model} wrote a line that does not compile: {e}"
+        ))
+    })?;
+    Ok(line)
+}
+
+/// The words of a model's reply.
+///
+/// The reply is trimmed and its surrounding quotes are dropped: the model
+/// writes a line, and a line that is wrapped in quotes is the same line.
+/// Nothing else is touched -- a word is a word, and a word the model wrote
+/// is the model's (D26).
+fn words_of(written: &str) -> String {
+    let trimmed = written.trim();
+    let trimmed = trimmed.strip_prefix('"').unwrap_or(trimmed);
+    let trimmed = trimmed.strip_suffix('"').unwrap_or(trimmed);
+    trimmed.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+/// The target a wording names, when it names one the gates did not choose.
+///
+/// The gates choose the subject; the words may not name another one (D37).
+/// A wording that names the subject the gates chose is fine, and a wording
+/// that names no target at all is fine.
+pub fn other_target(words: &str, subject: Subject) -> Option<String> {
+    let wanted = match subject {
+        Subject::Beacon(beacon) => Some(("beacon", beacon.to_string())),
+        Subject::Enemy(enemy) => Some(("enemy", enemy.to_string())),
+        _ => None,
+    };
+    let mut named: Option<(String, String)> = None;
+    let tokens: Vec<&str> = words.split_whitespace().collect();
+    for pair in tokens.windows(2) {
+        let (kind, number) = (pair[0].to_ascii_lowercase(), pair[1]);
+        if !matches!(kind.as_str(), "beacon" | "enemy") {
+            continue;
+        }
+        let number = number.trim_matches(|c: char| !c.is_ascii_digit());
+        if number.is_empty() {
+            continue;
+        }
+        named = Some((kind, number.to_owned()));
+        break;
+    }
+    let (kind, number) = named?;
+    match &wanted {
+        Some((wanted_kind, wanted_number)) if *wanted_kind == kind && *wanted_number == number => {
+            None
+        }
+        _ => Some(format!("{kind} {number}")),
+    }
+}
+
+/// The automatic realizer: the model words the line, and the phrasebook
+/// words it when the model is late.
+///
+/// This is the honest `auto`. The model is asked for **every** line, and
+/// the phrasebook is not consulted first: a line the model has not
+/// answered yet is worded by the phrasebook instead, for that line and
+/// only for that line, and the round's counters say how often that
+/// happened (`late`).
+///
+/// **The game never waits on the wording.** The model is asked on the
+/// realizer's own thread ([`WordBank`]), and the words are read when they
+/// are in hand. A line that is due before its words are in hand is worded
+/// by the phrasebook, and the model's words are kept for the next line of
+/// the same kind.
 pub struct AutoRealizer {
     template: TemplateRealizer,
-    llm: LlmRealizer,
+    bank: WordBank,
+    model: String,
 }
 
 impl AutoRealizer {
     /// The automatic realizer over a phrasebook and a model.
     pub fn new(template: TemplateRealizer, llm: LlmRealizer) -> Self {
-        AutoRealizer { template, llm }
+        let model = llm.model().to_owned();
+        let deadline = llm.deadline();
+        AutoRealizer {
+            template,
+            bank: WordBank::new(llm.into_llm(), deadline),
+            model,
+        }
+    }
+
+    /// How long the model took for the wordings in the bank, in microseconds.
+    ///
+    /// This is the wording's own latency: the game waits for none of it.
+    pub fn latencies(&self) -> Vec<u64> {
+        self.bank.latencies()
     }
 }
 
 impl Realizer for AutoRealizer {
-    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<String, Refusal> {
-        if self.template.phrasebook().has(plan.act, plan.intent) {
-            return self.template.realize(plan, facts);
+    fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<Worded, Refusal> {
+        // Ask for the wording if it has not been asked for: the bank is
+        // asked once per kind of line, and the answer is kept.
+        self.bank.ask(plan, facts);
+        match self.bank.take(plan, facts) {
+            Some(banked) => {
+                if let Some(other) = other_target(&banked.words, plan.subject) {
+                    // The model answered and named a target the gates did
+                    // not choose: the phrasebook words this line, and the
+                    // line is not late -- it was wrong (D37).
+                    say(&format!(
+                        "the model {} named {other}, which the gates did not choose; the \
+                         phrasebook words the line",
+                        self.model
+                    ));
+                    let worded = self.template.realize(plan, facts)?;
+                    return Ok(Worded {
+                        late: false,
+                        ..worded
+                    });
+                }
+                // The channel is the harness's business, so a line the model
+                // words is spoken where the phrasebook would have spoken it.
+                let channel = self
+                    .template
+                    .phrasebook()
+                    .channel_of(plan.act, plan.intent, plan.subject)
+                    .unwrap_or(Channel::Voice);
+                let line = line_for(plan, channel, &banked.words, &self.model)?;
+                Ok(Worded::llm(line))
+            }
+            None => {
+                // The model's words are not in hand: the line is late, and
+                // the phrasebook words it.
+                let worded = self.template.realize(plan, facts)?;
+                Ok(Worded {
+                    late: true,
+                    ..worded
+                })
+            }
         }
-        self.llm.realize(plan, facts)
+    }
+}
+
+/// The wording's identity: the plan.
+///
+/// The wording is a function of the line's **kind**, and that is what the
+/// harness's own phrasebook does: its templates are keyed by the gesture,
+/// the intent and the kind of subject, not by the situation. The facts
+/// change every tick -- the agents move -- so a key that carried them
+/// would never come round again and the bank would never fill.
+///
+/// The plan carries the gesture, the recipient, the intent, the urgency
+/// and the target, so a wording kept for a plan still says what that line
+/// is about.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct WordKey {
+    /// The plan the line is made from.
+    plan: UtterPlan,
+}
+
+/// The model's words for a line, once they are in.
+#[derive(Clone, Debug)]
+pub struct Banked {
+    /// The words the model wrote.
+    pub words: String,
+    /// How long the model took, in microseconds.
+    pub micros: u64,
+}
+
+/// A job for the wording thread: the line to word, and the prompt.
+struct Job {
+    /// The line the job is for.
+    key: WordKey,
+    /// The prompt the model is asked.
+    prompt: String,
+}
+
+/// How many wordings the bank keeps.
+///
+/// The bank is a cache, not a log: a round has a few hundred kinds of
+/// line, and the bank drops the oldest when it grows past this.
+const BANK_CAPACITY: usize = 512;
+
+/// The bank of prepared wordings, and the thread that fills it.
+///
+/// The game never waits on wording. The model is asked here, on the
+/// realizer's own thread, and the words are read when they are in hand: a
+/// line that is due before its words are in hand is worded by the
+/// phrasebook instead, and the model is asked again for the next line of
+/// the same kind.
+pub struct WordBank {
+    inner: Arc<Mutex<BankInner>>,
+    wake: Arc<Condvar>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+/// What the bank holds.
+#[derive(Default)]
+struct BankInner {
+    /// The wordings that are in, by key, in the order they came in.
+    ready: BTreeMap<WordKey, Banked>,
+    /// The order the wordings came in, so the oldest can go.
+    order: VecDeque<WordKey>,
+    /// The keys that have been asked for.
+    asked: BTreeSet<WordKey>,
+    /// The jobs the thread has to do.
+    queue: VecDeque<Job>,
+    /// Whether the thread is to stop.
+    stop: bool,
+}
+
+impl WordBank {
+    /// A bank that asks `llm` for the wording of a line.
+    ///
+    /// The thread is the realizer's own: it asks the model while the game
+    /// plays on.
+    pub fn new(llm: Box<dyn Llm>, deadline: Duration) -> WordBank {
+        let inner = Arc::new(Mutex::new(BankInner::default()));
+        let wake = Arc::new(Condvar::new());
+        let worker_inner = Arc::clone(&inner);
+        let worker_wake = Arc::clone(&wake);
+        let worker = thread::Builder::new()
+            .name("lm-words".to_owned())
+            .spawn(move || {
+                loop {
+                    let job = {
+                        let mut bank = worker_inner.lock().expect("the word bank");
+                        loop {
+                            if bank.stop {
+                                return;
+                            }
+                            if let Some(job) = bank.queue.pop_front() {
+                                break job;
+                            }
+                            bank = worker_wake.wait(bank).expect("the word bank");
+                        }
+                    };
+                    let started = Instant::now();
+                    let written = llm.write(&job.prompt, started + deadline);
+                    let mut bank = worker_inner.lock().expect("the word bank");
+                    if let Ok(reply) = written {
+                        let words = words_of(&reply);
+                        if !words.is_empty() {
+                            let banked = Banked {
+                                words,
+                                micros: started.elapsed().as_micros() as u64,
+                            };
+                            if bank.ready.insert(job.key, banked).is_none() {
+                                bank.order.push_back(job.key);
+                            }
+                            // The bank is a cache: the oldest wording goes
+                            // when it grows past its capacity.
+                            while bank.order.len() > BANK_CAPACITY {
+                                if let Some(oldest) = bank.order.pop_front() {
+                                    bank.ready.remove(&oldest);
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            .expect("the wording thread starts");
+        WordBank {
+            inner,
+            wake,
+            worker: Some(worker),
+        }
+    }
+
+    /// Ask for the wording of a line, if it has not been asked for.
+    ///
+    /// This never waits: the model is asked on the thread, and the game
+    /// plays on.
+    pub fn ask(&self, plan: &UtterPlan, _facts: &Facts) {
+        let key = WordKey { plan: *plan };
+        let mut bank = self.inner.lock().expect("the word bank");
+        if !bank.asked.insert(key) {
+            return;
+        }
+        bank.queue.push_back(Job {
+            key,
+            prompt: prompt_for(plan),
+        });
+        drop(bank);
+        self.wake.notify_one();
+    }
+
+    /// The wording of a line, if it is in the bank.
+    pub fn take(&self, plan: &UtterPlan, _facts: &Facts) -> Option<Banked> {
+        let key = WordKey { plan: *plan };
+        self.inner
+            .lock()
+            .expect("the word bank")
+            .ready
+            .get(&key)
+            .cloned()
+    }
+
+    /// How long the model took for the wordings in the bank, in microseconds.
+    pub fn latencies(&self) -> Vec<u64> {
+        self.inner
+            .lock()
+            .expect("the word bank")
+            .ready
+            .values()
+            .map(|banked| banked.micros)
+            .collect()
+    }
+}
+
+impl Drop for WordBank {
+    fn drop(&mut self) {
+        // The thread is told to stop before it is joined: it waits for
+        // jobs, and a thread that waits forever is a thread that never
+        // lets go of the round.
+        {
+            let mut bank = self.inner.lock().expect("the word bank");
+            bank.stop = true;
+        }
+        self.wake.notify_all();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
     }
 }
 
 /// The realizer the configuration asks for.
 ///
 /// `utter.realizer` is `template`, `llm` or `auto`; `auto` is the
-/// default: the phrasebook words what it can and the model words the
-/// rest.
+/// default.
 pub fn pick_realizer(cfg: &AgentsConfig) -> Box<dyn Realizer> {
     pick_realizer_with(cfg, &Phrasebook::shipped())
 }
@@ -486,26 +906,122 @@ pub fn pick_realizer(cfg: &AgentsConfig) -> Box<dyn Realizer> {
 ///
 /// The harness's own phrasebook is the one a round plays with: the
 /// shipped one is only the fallback for a caller that has no harness.
+///
+/// `auto` **probes** the model before the round starts, with a short
+/// deadline, and says which realizer it chose and why. A model that is
+/// not serving is named in the log, and the phrasebook words the lines.
 pub fn pick_realizer_with(cfg: &AgentsConfig, phrasebook: &Phrasebook) -> Box<dyn Realizer> {
-    let timeout = Duration::from_millis(u64::from(cfg.request_timeout_ms));
     let template = TemplateRealizer::new(phrasebook.clone());
+    let deadline = Duration::from_millis(u64::from(cfg.utter.deadline_ms));
     match cfg.utter.realizer.as_str() {
-        "template" => Box::new(template),
-        "llm" => Box::new(thor_llm_realizer(cfg, timeout)),
-        _ => Box::new(AutoRealizer::new(template, thor_llm_realizer(cfg, timeout))),
+        "template" => {
+            say("the phrasebook words the lines (utter.realizer = template)");
+            Box::new(template)
+        }
+        "llm" => {
+            say(&format!(
+                "the model {} words the lines (utter.realizer = llm)",
+                cfg.utter.llm_model
+            ));
+            Box::new(thor_llm_realizer(cfg, deadline))
+        }
+        _ => match probe_llm(cfg) {
+            Ok(()) => {
+                say(&format!(
+                    "the model {} on {}:{} is serving, so it words the lines and \
+                     the phrasebook words the ones it misses (utter.realizer = auto)",
+                    cfg.utter.llm_model, cfg.thor_base, cfg.utter.llm_port
+                ));
+                Box::new(AutoRealizer::new(
+                    template,
+                    thor_llm_realizer(cfg, deadline),
+                ))
+            }
+            Err(why) => {
+                say(&format!(
+                    "the model {} on {}:{} did not answer the probe ({}), so the \
+                     phrasebook words the lines (utter.realizer = auto)",
+                    cfg.utter.llm_model, cfg.thor_base, cfg.utter.llm_port, why
+                ));
+                Box::new(template)
+            }
+        },
     }
 }
 
+/// Say what the realizer chose, and why.
+///
+/// The log is where the honesty lives: a round that runs with the
+/// phrasebook says so, and a round that runs with the model says so too.
+fn say(message: &str) {
+    eprintln!("lm-agents: utter: {message}");
+}
+
+/// The probes already made, by the model they were made of.
+///
+/// A round has one mind per agent, and every mind picks its realizer when
+/// it is built: without this the model would be asked for a line eight
+/// times before the round's first tick, and eight times as long when the
+/// model is not serving.
+static PROBES: OnceLock<Mutex<BTreeMap<String, Result<(), String>>>> = OnceLock::new();
+
+/// The probe of the model on the Thor: does it word a line?
+///
+/// The probe asks for a line, not for a health check: a server that
+/// answers `/health` may still not be able to word anything, and `auto`
+/// needs to know the second thing.
+fn probe_llm(cfg: &AgentsConfig) -> Result<(), String> {
+    let key = format!(
+        "{}:{}:{}",
+        cfg.thor_base, cfg.utter.llm_port, cfg.utter.llm_model
+    );
+    let cache = PROBES.get_or_init(|| Mutex::new(BTreeMap::new()));
+    if let Some(outcome) = cache.lock().expect("the probe cache").get(&key).cloned() {
+        return outcome;
+    }
+    let outcome = probe_llm_now(cfg);
+    cache
+        .lock()
+        .expect("the probe cache")
+        .insert(key, outcome.clone());
+    outcome
+}
+
+/// The probe itself, without the cache.
+fn probe_llm_now(cfg: &AgentsConfig) -> Result<(), String> {
+    let timeout = Duration::from_millis(u64::from(cfg.utter.probe_ms));
+    let llm = ThorLlm::new(
+        &cfg.thor_base,
+        cfg.utter.llm_port,
+        &cfg.utter.llm_model,
+        timeout,
+    );
+    let reply = llm
+        .write(PROBE_PROMPT, Instant::now() + timeout)
+        .map_err(|refusal| refusal.to_string())?;
+    if words_of(&reply).is_empty() {
+        return Err("the model wrote no words".to_string());
+    }
+    Ok(())
+}
+
+/// The prompt of the probe: the smallest line there is.
+const PROBE_PROMPT: &str = "\
+You are the voice of an agent of a squad in a field game. Write ONE line in \
+plain words: what the agent says on the radio. Write the words of the line \
+only: no quotes, no explanation, no trailing punctuation. Keep it under four \
+words.";
+
 /// The realizer of the model on the Thor.
-fn thor_llm_realizer(cfg: &AgentsConfig, timeout: Duration) -> LlmRealizer {
+fn thor_llm_realizer(cfg: &AgentsConfig, deadline: Duration) -> LlmRealizer {
     LlmRealizer::new(
         Box::new(ThorLlm::new(
             &cfg.thor_base,
             cfg.utter.llm_port,
             &cfg.utter.llm_model,
-            timeout,
+            deadline,
         )),
-        timeout,
+        deadline,
     )
 }
 
@@ -544,74 +1060,39 @@ fn empty_context() -> TalkContext<'static> {
     }
 }
 
-/// The header of a line, in the notation.
-fn header_of(plan: &UtterPlan, channel: Channel) -> String {
-    let skeleton = Utterance {
-        speaker: 0,
-        channel,
-        addressee: plan.addressee,
-        act: plan.act,
-        intent: plan.intent,
-        affect: plan.affect,
-        subject: plan.subject,
-        prosody: lm_core::utterance::Prosody::Synthesized,
-        words: Vec::new(),
-    };
-    opal::render(&skeleton)
-}
-
-/// Rebuild a written line with the plan's header.
+/// The grammar the Thor's server is asked for.
 ///
-/// The model writes the **words**; the header is ours. That is what keeps
-/// a model from choosing a target: the addressee, the intent, the affect
-/// and the subject of the line are the gates' answer, whatever the model
-/// wrote (D37).
-fn rebuild_with_plan(plan: &UtterPlan, written: &str) -> Option<String> {
-    let mut lines = written.lines().map(str::trim).filter(|l| !l.is_empty());
-    let first = lines.next()?;
-    // A line that starts with the marker has a header; the words are what
-    // follows it. A line without one is all words.
-    let (channel, words) = if first.starts_with('@') {
-        (channel_of(first), lines.collect::<Vec<&str>>())
-    } else {
-        (
-            Channel::Voice,
-            std::iter::once(first).chain(lines).collect::<Vec<&str>>(),
-        )
-    };
-    if words.is_empty() {
-        return None;
-    }
-    let mut out = header_of(plan, channel);
-    for word in words {
-        out.push('\n');
-        out.push_str(word);
-    }
-    Some(out)
-}
-
-/// The channel a written header names, if it names one.
-fn channel_of(header: &str) -> Channel {
-    for token in header.split_whitespace() {
-        if let Some(value) = token.strip_prefix("channel=") {
-            return match value {
-                "shout" => Channel::Shout,
-                "whisper" => Channel::Whisper,
-                "radio" => Channel::Radio,
-                _ => Channel::Voice,
-            };
-        }
-    }
-    Channel::Voice
-}
+/// The **shape** of the model's reply is ours: a handful of words and
+/// nothing else. The words themselves are the model's. Without the
+/// grammar a small model answers a request like this with an explanation
+/// of what it was about to say, and an explanation is not a line.
+pub const WORD_GRAMMAR: &str = r#"
+root ::= line
+line ::= word ( " " word ){0,7}
+word ::= [a-zA-Z0-9']+
+"#;
 
 /// The prompt the model is asked for the wording.
 ///
-/// The model is asked for the notation and nothing else: a line, no
-/// explanation, no quotes. The tags of the plan are in the prompt, so the
-/// model knows what the line is for, but the header it writes is thrown
-/// away and rebuilt from the plan.
-fn prompt_for(plan: &UtterPlan, facts: &Facts) -> String {
+/// The model is asked for the **words**, not for the notation: the
+/// notation is written here, from the plan, so that a model may never
+/// choose a target, and so that a line the model words and a line the
+/// phrasebook words are the same shape.
+///
+/// The prompt asks for one short line and shows what one looks like. The
+/// tags of the plan are in the prompt, so the model knows what the line is
+/// for, but what the line *says* about them is its own.
+///
+/// **The prompt carries the plan and not the facts.** The bank keeps a
+/// wording for the kind of line, so the wording has to be a function of
+/// the kind: the facts change every tick -- the agents move -- and a
+/// wording written for one situation would be the wrong words for the
+/// next. The harness's own phrasebook is keyed the same way: its
+/// templates are keyed by the gesture, the intent and the kind of
+/// subject. Measured, dropping the facts from the prompt takes the model
+/// naming the right target from seven lines in ten to nine (see
+/// `tests/realizer_on_thor.md`).
+fn prompt_for(plan: &UtterPlan) -> String {
     let addressee = match plan.addressee {
         Addressee::Squad => "your squad".to_owned(),
         Addressee::All => "everybody".to_owned(),
@@ -627,33 +1108,38 @@ fn prompt_for(plan: &UtterPlan, facts: &Facts) -> String {
             .to_owned(),
         Subject::None => "nothing in particular".to_owned(),
     };
+    // A line about a target says which one; a line about nothing says
+    // nothing about any.
+    let about = match plan.subject {
+        Subject::None => "The line is about nothing in particular: do not name a beacon \
+             or an enemy."
+            .to_owned(),
+        _ => {
+            format!("The line must talk about {subject}. Do not mention any other beacon or enemy.")
+        }
+    };
     format!(
-        "You are the voice of an agent of a squad in a field game. Write \
-         ONE line in the OPAL notation and nothing else: no explanation, no \
-         quotes, no code fence.\n\n\
-         The line is a header and one line per word:\n\n  \
-         @squad say to=squad intent=order affect=calm subject=none \
-         channel=voice\n    hold p0 a. l1\n    the p0 a. l1\n\n\
-         The gesture after the marker is one of say, ask, order, call.\n\
-         The header's keys are:\n  \
-         to       squad | all | agent<number>\n  \
-         intent   order | ack | warn | query | report\n  \
-         affect   calm | urgent | uncertain\n  \
-         subject  none | beacon<number> | enemy<number> | dir<number>\n  \
-         channel  voice | radio | shout | whisper\n\
-         A word line is two spaces, the word, the pitch from the speaker's \
-         baseline (p0, p+2, p-1), the accent (a. , a! , a!!) and the \
-         length in beats (l1, l2).\n\n\
-         The line must be {act} to the {addressee}, {intent}, {affect}, \
-         about {subject}. Keep it under eight words: it is a call over \
-         the field, not a speech.\n\n\
-         The situation:\n{facts}",
+        "You are the voice of an agent of a squad in a field game. Write ONE \
+         line in plain words: what the agent says on the radio.\n\n\
+         Write a {act} for {addressee}. It is {intent} and {affect}. It is \
+         about {subject}.\n\
+         {about}\n\
+         Write the words of the line only: no quotes, no explanation, no \
+         trailing punctuation.\n\
+         Keep it under eight words: it is a call over the field, not a speech.\n\n\
+         Examples:\n\
+         - move to beacon 2 now\n\
+         - take beacon 3 at once\n\
+         - hold at beacon 0\n\
+         - enemy near beacon 3\n\
+         - beacon 1 is ours\n\
+         - where is beacon 4",
         act = phrasebook::act_name(plan.act),
         addressee = addressee,
         intent = phrasebook::intent_name(plan.intent),
         affect = phrasebook::affect_name(plan.affect),
         subject = subject,
-        facts = facts.text,
+        about = about,
     )
 }
 
@@ -767,7 +1253,9 @@ impl Llm for ThorLlm {
             "model": self.model,
             "messages": [{ "role": "user", "content": prompt }],
             "temperature": 0,
-            "max_tokens": 96,
+            "max_tokens": 64,
+            // The shape of the reply is ours; the words are the model's.
+            "grammar": WORD_GRAMMAR,
         })
         .to_string();
         let (text, _latency_ms) = post_pack(&self.agent, &self.url(), None, &body, deadline)?;
@@ -852,6 +1340,22 @@ mod tests {
     /// The context of the plan: agent 0 of the default round.
     fn ctx(roster: &[RosterEntry]) -> GateCtx<'_> {
         GateCtx { agent: 0, roster }
+    }
+
+    /// Wait for the bank to have the wording of a line.
+    ///
+    /// The wording is asked on the realizer's own thread, so a line that
+    /// is wanted before the answer is in hand is late. The tests wait for
+    /// the answer rather than guess when it lands.
+    fn wait_for_the_bank(auto: &AutoRealizer, plan: &UtterPlan, facts: &Facts) {
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(2) {
+            if auto.bank.take(plan, facts).is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("the bank never had the wording");
     }
 
     /// The answers of a full pack: a command to the squad, urgent, about
@@ -1026,15 +1530,17 @@ mod tests {
         let roster = roster();
         let plan = plan_from_gates(&answers(), &menu(), &ctx(&roster)).expect("the plan is made");
         let realizer = TemplateRealizer::shipped();
-        let text = realizer
+        let worded = realizer
             .realize(&plan, &facts())
             .expect("the line is worded");
+        assert_eq!(worded.source, WordSource::Phrasebook);
+        assert!(!worded.late, "the phrasebook is never late");
         let utterance = opal::parse(
             &TalkContext {
                 speaker: 0,
                 roster: &roster,
             },
-            &text,
+            &worded.text,
         )
         .expect("the line compiles");
         assert_eq!(
@@ -1064,8 +1570,9 @@ mod tests {
     fn bad_realizer_output_is_a_refusal() {
         let roster = roster();
         let plan = plan_from_gates(&answers(), &menu(), &ctx(&roster)).expect("the plan is made");
+        // The model writes no words at all: there is no line to say.
         let realizer = LlmRealizer::new(
-            Box::new(StubLlm::new("stub", "hold on")),
+            Box::new(StubLlm::new("stub", "   ")),
             Duration::from_millis(100),
         );
         assert!(matches!(
@@ -1078,17 +1585,27 @@ mod tests {
     fn the_model_may_not_choose_a_target() {
         let roster = roster();
         let plan = plan_from_gates(&answers(), &menu(), &ctx(&roster)).expect("the plan is made");
-        // The model writes a line for somebody else: the header is thrown
-        // away and rebuilt from the plan.
+        // The model writes a line about another beacon: the gates chose the
+        // subject, so the wording is refused rather than believed (D37).
         let realizer = LlmRealizer::new(
-            Box::new(StubLlm::new(
-                "stub",
-                "@all call to=agent9 intent=warn affect=urgent subject=enemy9 channel=shout\n  \
-                 run p0 a. l1",
-            )),
+            Box::new(StubLlm::new("stub", "move to beacon 9 now")),
             Duration::from_millis(100),
         );
-        let text = realizer
+        assert!(
+            matches!(
+                realizer.realize(&plan, &facts()),
+                Err(Refusal::Malformed(_))
+            ),
+            "a line about another target is refused"
+        );
+
+        // The model writes a line that names no target: the tags of the
+        // score are the gates' answer, whatever the model wrote.
+        let realizer = LlmRealizer::new(
+            Box::new(StubLlm::new("stub", "hold on")),
+            Duration::from_millis(100),
+        );
+        let worded = realizer
             .realize(&plan, &facts())
             .expect("the line is worded");
         let utterance = opal::parse(
@@ -1096,13 +1613,13 @@ mod tests {
                 speaker: 0,
                 roster: &roster,
             },
-            &text,
+            &worded.text,
         )
         .expect("the line compiles");
         assert_eq!(utterance.addressee, Addressee::Squad, "the gate decides");
         assert_eq!(utterance.intent, Intent::Order);
         assert_eq!(utterance.subject, Subject::Beacon(2));
-        assert_eq!(utterance.words[0].text, "run", "the words are the model's");
+        assert_eq!(utterance.words[0].text, "hold", "the words are the model's");
     }
 
     #[test]
@@ -1117,9 +1634,12 @@ mod tests {
             )
         };
 
-        // `auto`: the phrasebook has the line, so the model is never asked.
+        // `auto`: the model missed the line's deadline, so the phrasebook
+        // words the line, and the line is counted late.
         let auto = AutoRealizer::new(template.clone(), down());
-        assert!(auto.realize(&plan, &facts()).is_ok());
+        let worded = auto.realize(&plan, &facts()).expect("the line is worded");
+        assert_eq!(worded.source, WordSource::Phrasebook);
+        assert!(worded.late, "the model missed the deadline");
 
         // `llm` alone: the model is down, so nothing is said.
         assert!(matches!(
@@ -1129,22 +1649,112 @@ mod tests {
     }
 
     #[test]
-    fn the_auto_realizer_asks_the_model_only_when_the_phrasebook_has_no_line() {
+    fn the_auto_realizer_asks_the_model_first() {
         let roster = roster();
         let plan = plan_from_gates(&answers(), &menu(), &ctx(&roster)).expect("the plan is made");
-        let empty = TemplateRealizer::new(Phrasebook::default());
+        // The phrasebook has the line, and the model is asked anyway: `auto`
+        // is the model first, and the phrasebook is the fallback for the
+        // lines the model has not answered yet.
         let model = LlmRealizer::new(
-            Box::new(StubLlm::new(
-                "stub",
-                "@squad order to=squad intent=order affect=urgent subject=beacon2 channel=voice\n  \
-                 move p0 a. l1",
-            )),
+            Box::new(StubLlm::new("stub", "move to beacon 2 now")),
             Duration::from_millis(100),
         );
-        let auto = AutoRealizer::new(empty, model);
-        let text = auto
+        let auto = AutoRealizer::new(TemplateRealizer::shipped(), model);
+
+        // The game does not wait on the wording: the first line of this
+        // kind is worded by the phrasebook, and it is late.
+        let first = auto.realize(&plan, &facts()).expect("the line is worded");
+        assert_eq!(first.source, WordSource::Phrasebook);
+        assert!(first.late, "the model's words were not in hand");
+
+        // The model's words land, and the next line of this kind is
+        // worded by the model.
+        wait_for_the_bank(&auto, &plan, &facts());
+        let worded = auto
             .realize(&plan, &facts())
             .expect("the model words the line");
-        assert!(text.contains("move"), "the model's words are used: {text}");
+        assert_eq!(worded.source, WordSource::Llm);
+        assert!(!worded.late);
+        assert!(
+            worded.text.contains("move"),
+            "the model's words are used: {}",
+            worded.text
+        );
+    }
+
+    #[test]
+    fn a_wording_the_model_got_wrong_is_not_late() {
+        let roster = roster();
+        let plan = plan_from_gates(&answers(), &menu(), &ctx(&roster)).expect("the plan is made");
+        // The model answered, but it named another beacon: the phrasebook
+        // words the line, and the line is not late -- it was wrong.
+        let model = LlmRealizer::new(
+            Box::new(StubLlm::new("stub", "move to beacon 9 now")),
+            Duration::from_millis(100),
+        );
+        let auto = AutoRealizer::new(TemplateRealizer::shipped(), model);
+        // The first line asks the model; the second one has its answer.
+        let _ = auto.realize(&plan, &facts()).expect("the line is worded");
+        wait_for_the_bank(&auto, &plan, &facts());
+        let worded = auto.realize(&plan, &facts()).expect("the line is worded");
+        assert_eq!(worded.source, WordSource::Phrasebook);
+        assert!(!worded.late, "the model was in time, and wrong");
+    }
+
+    #[test]
+    fn the_probe_fails_when_the_model_is_not_serving() {
+        // Nothing listens on port 9.
+        let cfg = AgentsConfig {
+            thor_base: "http://127.0.0.1:9".to_owned(),
+            utter: AgentsConfig::default().utter.with_probe_ms(50),
+            ..AgentsConfig::default()
+        };
+        assert!(probe_llm(&cfg).is_err(), "the model is not there");
+    }
+
+    #[test]
+    fn auto_falls_back_to_the_phrasebook_when_the_probe_fails() {
+        let cfg = AgentsConfig {
+            thor_base: "http://127.0.0.1:9".to_owned(),
+            utter: AgentsConfig::default().utter.with_probe_ms(50),
+            ..AgentsConfig::default()
+        };
+        let roster = roster();
+        let plan = plan_from_gates(&answers(), &menu(), &ctx(&roster)).expect("the plan is made");
+        let realizer = pick_realizer_with(&cfg, &Phrasebook::shipped());
+        let worded = realizer
+            .realize(&plan, &facts())
+            .expect("the line is worded");
+        assert_eq!(
+            worded.source,
+            WordSource::Phrasebook,
+            "a model that is not serving does not word the lines"
+        );
+        assert!(
+            !worded.late,
+            "the model was never asked, so it was never late"
+        );
+    }
+
+    #[test]
+    fn the_model_reply_is_trimmed_of_its_quotes() {
+        assert_eq!(
+            words_of("  \"move to beacon 2 now\"  "),
+            "move to beacon 2 now"
+        );
+        assert_eq!(words_of(""), "");
+    }
+
+    #[test]
+    fn another_target_is_caught() {
+        assert!(other_target("move to beacon 9 now", Subject::Beacon(2)).is_some());
+        assert!(other_target("move to beacon 2 now", Subject::Beacon(2)).is_none());
+        assert!(other_target("hold on", Subject::Beacon(2)).is_none());
+        assert!(
+            other_target("move to beacon 2 now", Subject::None).is_some(),
+            "a line about a target the gates did not choose is refused"
+        );
+        assert!(other_target("enemy 4 is near", Subject::Enemy(4)).is_none());
+        assert!(other_target("enemy 5 is near", Subject::Enemy(4)).is_some());
     }
 }

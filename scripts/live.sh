@@ -29,6 +29,7 @@
 #   lm-host-model  talk_soak                                 d1-2b
 #   lm-voice       live_skald_speaks                         skald :8000
 #   lm-voice       live_skald_round_trip_is_intelligible     skald :8000 (+ whisper venv)
+#   lm-agents      realizer_on_thor                          d1-2b, realizer
 #
 # The Riva tests (lm-voice's live_riva_tts and lm-host-model's
 # live_round_with_riva) are not in this lane: they need a Riva service, not
@@ -103,6 +104,14 @@ port_is_up() {
   curl -sS --noproxy '*' --connect-timeout "$PROBE_TIMEOUT" --max-time "$PROBE_TIMEOUT" \
     -o /dev/null "$url/" >/dev/null 2>&1 && return 0
   return 1
+}
+
+# The port the realizer serves on, as AgentsConfig's default has it.
+#
+# The realizer is not in the `ports` map: it is not a decision model, it is
+# the model that writes the wording of a line, and it has its own port.
+llm_port() {
+  sed -n 's/.*llm_port: \([0-9][0-9]*\).*/\1/p' "$CONFIG" | head -1
 }
 
 # The logs of the runs, in a scratch directory of their own: the repo is
@@ -195,6 +204,11 @@ check_soak_table() {
 
 PORT_D1_3B="$(need_port d1-3b)" || exit 1
 PORT_D1_2B="$(need_port d1-2b)" || exit 1
+PORT_REALIZER="$(llm_port)"
+if [ -z "$PORT_REALIZER" ]; then
+  printf 'FAIL: the config has no llm_port for the realizer\n'
+  exit 1
+fi
 THOR_BASE="$(need_base)" || exit 1
 
 echo "==> the preflight: the Thor's health"
@@ -250,6 +264,17 @@ if port_is_up "$SKALD_PORT"; then
   fi
 else
   printf 'SKIP: the skald lane -- the voice daemon on :%s is not serving\n' "$SKALD_PORT"
+  skipped=$((skipped + 1))
+fi
+
+# The realizer: the model that writes the wording of a line. It needs the
+# decision tier (d1-2b) and its own door, so both are checked.
+if port_is_up "$PORT_REALIZER"; then
+  run_live "lm-agents realizer_on_thor" "$PORT_D1_2B" check_ran \
+    -p lm-agents --test realizer_on_thor realizer_on_thor
+else
+  printf 'SKIP: lm-agents realizer_on_thor -- the realizer is not serving on :%s\n' \
+    "$PORT_REALIZER"
   skipped=$((skipped + 1))
 fi
 

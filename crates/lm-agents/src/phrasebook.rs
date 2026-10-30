@@ -135,20 +135,30 @@ impl Entry {
     pub fn render(&self, plan: &UtterPlan, seed: u64) -> String {
         let template = self.pick(seed);
         let words = fill_placeholders(template, plan.subject);
-        let header = header_line(plan, self.channel);
-        let mut out = header;
-        for word in words.split_whitespace() {
-            out.push('\n');
-            out.push_str("  ");
-            out.push_str(word);
-            // The wording is the phrasebook's business; the lanes are the
-            // notation's: a word of one beat, at the speaker's baseline
-            // pitch, without stress. The affect carries the loudness and
-            // the pace when the notation compiles it.
-            out.push_str(" p0 a. l1");
-        }
-        out
+        line_of(plan, self.channel, &words)
     }
+}
+
+/// A line in the notation: the header the gates chose, and the words.
+///
+/// The **wording** is the realizer's business -- the phrasebook's words or
+/// the model's -- and the notation is the notation's: the header carries
+/// the tags the gates chose (D37), and every word is a word of one beat,
+/// at the speaker's baseline pitch, without stress. The affect carries the
+/// loudness and the pace when the notation compiles it.
+///
+/// Both realizers write their words through here, so a line the model
+/// words and a line the phrasebook words are the same shape and can be
+/// read side by side.
+pub fn line_of(plan: &UtterPlan, channel: Channel, words: &str) -> String {
+    let mut out = header_line(plan, channel);
+    for word in words.split_whitespace() {
+        out.push('\n');
+        out.push_str("  ");
+        out.push_str(word);
+        out.push_str(" p0 a. l1");
+    }
+    out
 }
 
 /// The phrasebook: the wording of every kind of line.
@@ -254,6 +264,17 @@ impl Phrasebook {
     /// Whether the phrasebook holds nothing at all.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    /// The channel a line of this kind is spoken on, if the phrasebook has
+    /// a line for it at all.
+    ///
+    /// The channel is the harness's business, not the model's: a line the
+    /// model words is spoken on the same channel the phrasebook would have
+    /// spoken it on, so the two wordings of one plan differ only in their
+    /// words.
+    pub fn channel_of(&self, act: SpeechAct, intent: Intent, subject: Subject) -> Option<Channel> {
+        self.entry(act, intent, subject).map(|entry| entry.channel)
     }
 }
 

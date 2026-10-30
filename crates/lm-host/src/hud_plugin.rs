@@ -121,6 +121,12 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
                     "agents think {} refused {} escalated {} queue {}",
                     stats.thinks, stats.refusals, stats.escalations, stats.queue_len
                 ));
+                // The wording: which realizer wrote the lines, and how many
+                // of those the model missed its deadline on.
+                ui.label(format!(
+                    "words llm {} / phrasebook {} / late {}",
+                    stats.words.llm, stats.words.phrasebook, stats.words.late
+                ));
                 let usage: Vec<String> = stats
                     .usage
                     .iter()
