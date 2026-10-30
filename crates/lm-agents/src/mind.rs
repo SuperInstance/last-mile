@@ -2065,12 +2065,14 @@ mod tests {
             beacons: vec![CellXY { x: 9, y: 2 }],
             spawns: vec![CellXY { x: 2, y: 2 }, CellXY { x: 9, y: 9 }],
             cell_units: 1024,
+            paint: lm_core::world::Paint::new(),
         }
     }
 
     /// A member's view standing at (x, y) on the tiny world.
     fn view_at(id: u16, x: u16, y: u16) -> ScoreView {
         ScoreView {
+            paint: Vec::new(),
             heard: Vec::new(),
             tick: 0,
             me: lm_core::view::AgentSnap {

@@ -7,7 +7,7 @@
 
 use crate::decision::{Source, Tick};
 use crate::hash::{Fnv64, StateHash};
-use crate::params::Params;
+use crate::params::{Params, ParamsV3};
 use crate::talk::TalkParams;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -23,7 +23,14 @@ use std::collections::BTreeMap;
 /// cannot be read as a version-3 one. The old shape has its own type
 /// ([`crate::log::SegmentV2`]) and is migrated on the way in, so an old log
 /// still reads and still replays to the state hashes it recorded.
-pub const PROTO_VERSION: u16 = 3;
+///
+/// Version 4 added the paint's knobs to the params. That is an append too,
+/// but a postcard blob is read positionally, so a params blob written
+/// before the paint is short by four fields and cannot be read as the
+/// current params. The old shape has its own type ([`crate::params::
+/// ParamsV3`]) and is migrated on the way in, the same way: an old log
+/// still reads, and the paint takes the defaults the current build ships.
+pub const PROTO_VERSION: u16 = 4;
 
 /// An agent's role inside its squad.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,12 +261,13 @@ impl StateHash for Header {
 /// The fields are the phase-1 header's fields, in the same order and with the
 /// same types, so a version-1 header blob decodes through this shim exactly
 /// as it decoded through the phase-1 `Header` — and hashes exactly as it
-/// hashed then.
+/// hashed then. The params are the phase-1 shape too
+/// ([`crate::params::ParamsV3`]): the paint's knobs were not there to decode.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeaderV1 {
     pub proto_version: u16,
     pub seed: u64,
-    pub params: Params,
+    pub params: ParamsV3,
     pub ruleset: String,
     pub roster: Vec<RosterEntry>,
     pub scripts: BTreeMap<String, String>,
@@ -272,15 +280,15 @@ impl HeaderV1 {
     /// Migrate the header to the current version.
     ///
     /// The talk params take their defaults — a phase-1 round had no talk
-    /// rules, and the default talk rules are the ones the plan pins — and
-    /// the version becomes the current one. Nothing else moves: the seed,
-    /// the parameters, the roster, the scripts and the lineage are the round
-    /// that was played.
+    /// rules, and the default talk rules are the ones the plan pins — the
+    /// paint takes its defaults, and the version becomes the current one.
+    /// Nothing else moves: the seed, the parameters, the roster, the scripts
+    /// and the lineage are the round that was played.
     pub fn migrate(self) -> Header {
         Header {
             proto_version: PROTO_VERSION,
             seed: self.seed,
-            params: self.params,
+            params: self.params.migrate(),
             ruleset: self.ruleset,
             roster: self.roster,
             scripts: self.scripts,
@@ -288,6 +296,74 @@ impl HeaderV1 {
             lineage: self.lineage,
             talk: TalkParams::default(),
         }
+    }
+}
+
+/// The version-3 header: the shape a version-3 log carries.
+///
+/// It is the current header — the talk rules are in it — with the params of
+/// version 3 ([`crate::params::ParamsV3`]): the paint's knobs were appended
+/// to the params in version 4, and a postcard blob is read positionally, so
+/// a version-3 params blob is short by four fields and cannot be read as
+/// the current params.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeaderV3 {
+    pub proto_version: u16,
+    pub seed: u64,
+    pub params: ParamsV3,
+    pub ruleset: String,
+    pub roster: Vec<RosterEntry>,
+    pub scripts: BTreeMap<String, String>,
+    pub start_tick: u64,
+    #[serde(default)]
+    pub lineage: Option<Lineage>,
+    pub talk: TalkParams,
+}
+
+impl HeaderV3 {
+    /// Migrate the header to the current version.
+    ///
+    /// The paint takes its defaults — a version-3 round had no paint, and the
+    /// defaults are the ones this build ships — and the version becomes the
+    /// current one. Nothing else moves: the seed, the parameters, the
+    /// roster, the scripts, the lineage and the talk rules are the round
+    /// that was played.
+    pub fn migrate(self) -> Header {
+        Header {
+            proto_version: PROTO_VERSION,
+            seed: self.seed,
+            params: self.params.migrate(),
+            ruleset: self.ruleset,
+            roster: self.roster,
+            scripts: self.scripts,
+            start_tick: self.start_tick,
+            lineage: self.lineage,
+            talk: self.talk,
+        }
+    }
+}
+
+impl StateHash for HeaderV3 {
+    fn hash_into(&self, h: &mut Fnv64) {
+        h.u16(self.proto_version);
+        h.u64(self.seed);
+        self.params.hash_into(h);
+        write_str(h, &self.ruleset);
+        h.u32(self.roster.len() as u32);
+        for r in &self.roster {
+            r.hash_into(h);
+        }
+        h.u32(self.scripts.len() as u32);
+        for (name, src) in &self.scripts {
+            write_str(h, name);
+            write_str(h, src);
+        }
+        h.u64(self.start_tick);
+        if let Some(lineage) = &self.lineage {
+            h.write(&[1]);
+            lineage.hash_into(h);
+        }
+        self.talk.hash_into(h);
     }
 }
 
@@ -495,11 +571,13 @@ mod tests {
         let h = Header::default_round(1, "src");
         assert_eq!(h.talk, TalkParams::default());
         assert_eq!(h.proto_version, PROTO_VERSION);
-        // Version 3 is the one that put the refusals in the log's segments.
-        // A version-2 segment cannot be read as a version-3 one — a postcard
-        // blob is read positionally — so the version had to move with the
-        // shape.
-        assert_eq!(PROTO_VERSION, 3);
+        // Version 3 is the one that put the refusals in the log's segments,
+        // and version 4 the one that put the paint's knobs in the params.
+        // A postcard blob is read positionally, so a blob written in the
+        // older shape cannot be read in the newer one — the version had to
+        // move with the shape, and the older shapes are read through their
+        // own shims and migrated.
+        assert_eq!(PROTO_VERSION, 4);
     }
 
     #[test]
@@ -507,7 +585,7 @@ mod tests {
         let v1 = HeaderV1 {
             proto_version: 1,
             seed: 7,
-            params: Params::default(),
+            params: ParamsV3::from(&Params::default()),
             ruleset: "beacons".to_owned(),
             roster: Vec::new(),
             scripts: BTreeMap::new(),

@@ -9,7 +9,7 @@
 //!
 //! The script is called once per tick, after the agents have moved, with a
 //! map of the world as the rules need to see it. The keys are `agents`,
-//! `beacons`, `order`, `params`, `scores` and `tick`; a Rhai map is a
+//! `beacons`, `grid`, `order`, `params`, `scores` and `tick`; a Rhai map is a
 //! `BTreeMap`, so the keys are always in the same order.
 //!
 //! * `agents` — every agent of the round, in agent order: its `id`, its
@@ -18,6 +18,8 @@
 //!   its `stunned_until` stun ends on (`-1` when there is none).
 //! * `beacons` — every beacon, in beacon order: its `index`, its `cell`, its
 //!   exact `pos`, and the `holder`: the squad holding it, or `-1` for nobody.
+//! * `grid` — the size of the map, `[w, h]`, so a script that writes to the
+//!   map can clip its cells to it.
 //! * `order` — the agents in the order they act this tick: the rotation.
 //! * `params` — the parameters the rules read.
 //! * `scores` — the score of every squad, in squad order.
@@ -39,6 +41,7 @@
 //! | `respawn`     | `agent`             | the agent goes back to its spawn     |
 //! | `hold_beacon` | `beacon`, `squad`   | the beacon is held by `squad` (`-1`: nobody) |
 //! | `score`       | `squad`, `points`   | the squad scores `points`           |
+//! | `splat`       | `cells`, `owner`    | paint is splatted on the `cells`, in `owner`'s colour |
 //! | `round_over`  | —                   | the round ends                      |
 //!
 //! Rust applies the effects and checks every one of them. An effect that
@@ -117,6 +120,14 @@ pub enum Effect {
         /// The points it scores.
         points: i64,
     },
+    /// Paint is splatted on the ground: the cells carry the colour of the
+    /// squad that splatted them.
+    Splat {
+        /// The cells the splat covers.
+        cells: Vec<CellXY>,
+        /// The squad whose paint it is.
+        owner: u8,
+    },
     /// The round is over.
     RoundOver,
 }
@@ -184,9 +195,9 @@ impl RhaiRuleset {
 
     /// The map the script sees: the world as the rules need to see it.
     ///
-    /// The keys are `agents`, `beacons`, `order`, `params`, `scores` and
-    /// `tick`. A Rhai map is a `BTreeMap`, so the keys are always in the same
-    /// order and the script sees the same world every tick.
+    /// The keys are `agents`, `beacons`, `grid`, `order`, `params`, `scores`
+    /// and `tick`. A Rhai map is a `BTreeMap`, so the keys are always in the
+    /// same order and the script sees the same world every tick.
     fn view(
         &self,
         world: &World,
@@ -204,6 +215,7 @@ impl RhaiRuleset {
             "beacons".into(),
             Dynamic::from(beacons_map(world, &self.holders)),
         );
+        map.insert("grid".into(), grid_map(world));
         map.insert("order".into(), Dynamic::from(order_map(order)));
         map.insert("params".into(), params_map(p));
         map.insert("scores".into(), Dynamic::from(score_map(&self.scores)));
@@ -219,7 +231,7 @@ impl RhaiRuleset {
     fn apply(
         &mut self,
         effect: Effect,
-        world: &World,
+        world: &mut World,
         agents: &mut [Agent],
         now: Tick,
         p: &Params,
@@ -296,6 +308,25 @@ impl RhaiRuleset {
                 add_score(&mut self.scores, squad, points);
                 Ok(Vec::new())
             }
+            Effect::Splat { cells, owner } => {
+                if owner >= p.squads {
+                    return Err(format!("there is no squad {owner}"));
+                }
+                // A splat that names a cell off the map is refused whole: the
+                // paint of a round is never on a cell the round does not have.
+                for cell in &cells {
+                    if !world.grid.in_bounds(i32::from(cell.x), i32::from(cell.y)) {
+                        return Err(format!(
+                            "a splat names the cell ({}, {}), which is off the map",
+                            cell.x, cell.y
+                        ));
+                    }
+                }
+                for cell in cells {
+                    world.paint.splat(cell, owner);
+                }
+                Ok(Vec::new())
+            }
             Effect::RoundOver => {
                 let outcome = Outcome {
                     winner: winner(&self.scores),
@@ -320,7 +351,7 @@ impl RhaiRuleset {
 impl Ruleset for RhaiRuleset {
     fn step(
         &mut self,
-        world: &World,
+        world: &mut World,
         agents: &mut [Agent],
         now: Tick,
         order: &[usize],
@@ -474,6 +505,7 @@ fn parse_effect(value: &Dynamic) -> Parsed {
         "respawn" => &["agent"],
         "hold_beacon" => &["beacon", "squad"],
         "score" => &["squad", "points"],
+        "splat" => &["cells", "owner"],
         "round_over" => &[],
         other => {
             return Parsed::Refused(format!(
@@ -574,6 +606,50 @@ fn parse_effect(value: &Dynamic) -> Parsed {
                 );
             };
             Parsed::Effect(Effect::Score { squad, points })
+        }
+        "splat" => {
+            let (Some(owner), Some(cells)) = (int_field(&map, "owner"), map.get("cells")) else {
+                return Parsed::Refused(
+                    "a splat effect needs an integer `owner` and an array of `cells`".to_owned(),
+                );
+            };
+            let Some(owner) = as_u8(owner) else {
+                return Parsed::Refused(
+                    "a splat effect names a squad that no id can be".to_owned(),
+                );
+            };
+            let Some(cells) = cells.as_array_ref().ok() else {
+                return Parsed::Refused("a splat effect needs an array of `cells`".to_owned());
+            };
+            let mut parsed = Vec::with_capacity(cells.len());
+            for cell in cells.iter() {
+                let Some(pair) = cell.as_array_ref().ok() else {
+                    return Parsed::Refused(
+                        "a splat effect names a cell that is not an [x, y] pair".to_owned(),
+                    );
+                };
+                if pair.len() != 2 {
+                    return Parsed::Refused(
+                        "a splat effect names a cell that is not an [x, y] pair".to_owned(),
+                    );
+                }
+                let (Some(x), Some(y)) = (pair[0].as_int().ok(), pair[1].as_int().ok()) else {
+                    return Parsed::Refused(
+                        "a splat effect names a cell that is not an [x, y] pair of integers"
+                            .to_owned(),
+                    );
+                };
+                let (Some(x), Some(y)) = (u16::try_from(x).ok(), u16::try_from(y).ok()) else {
+                    return Parsed::Refused(
+                        "a splat effect names a cell that no id can be".to_owned(),
+                    );
+                };
+                parsed.push(CellXY { x, y });
+            }
+            Parsed::Effect(Effect::Splat {
+                cells: parsed,
+                owner,
+            })
         }
         _ => Parsed::Effect(Effect::RoundOver),
     }
@@ -683,12 +759,27 @@ fn order_map(order: &[usize]) -> Vec<Dynamic> {
         .collect()
 }
 
+/// The size of the map, as the script sees it: `[w, h]`.
+///
+/// The script needs it to clip the cells of a splat to the map, the way the
+/// native rules clip theirs.
+fn grid_map(world: &World) -> Dynamic {
+    Dynamic::from(vec![
+        Dynamic::from(i64::from(world.grid.w)),
+        Dynamic::from(i64::from(world.grid.h)),
+    ])
+}
+
 /// The parameters the rules read.
 fn params_map(p: &Params) -> Dynamic {
     let mut map = Map::new();
     map.insert(
         "beacon_radius_units".into(),
         Dynamic::from(i64::from(p.beacon_radius_units)),
+    );
+    map.insert(
+        "splat_radius_cells".into(),
+        Dynamic::from(i64::from(p.splat_radius_cells)),
     );
     map.insert("squads".into(), Dynamic::from(i64::from(p.squads)));
     map.insert("stun_ticks".into(), Dynamic::from(i64::from(p.stun_ticks)));
@@ -752,6 +843,69 @@ mod tests {
         h.scripts
             .insert("beacons".to_owned(), BEACONS_RHAI.to_owned());
         h
+    }
+
+    /// A flat 32×32 world with one beacon, for a rules test.
+    fn flat_world() -> World {
+        World {
+            grid: crate::world::Grid::new(32, 32),
+            beacons: vec![CellXY { x: 28, y: 28 }],
+            spawns: vec![CellXY { x: 4, y: 4 }, CellXY { x: 20, y: 20 }],
+            cell_units: 1024,
+            paint: crate::world::Paint::new(),
+        }
+    }
+
+    /// Two agents of different squads, one cell apart: the second is in the
+    /// first's sight, so the first tags it.
+    fn two_agents(world: &World) -> Vec<crate::agent::Agent> {
+        use crate::header::Role;
+        vec![
+            crate::agent::Agent::new(
+                0,
+                0,
+                Role::Leader,
+                world.grid.center(CellXY { x: 4, y: 4 }, world.cell_units),
+            ),
+            crate::agent::Agent::new(
+                4,
+                1,
+                Role::Member,
+                world.grid.center(CellXY { x: 5, y: 4 }, world.cell_units),
+            ),
+        ]
+    }
+
+    #[test]
+    fn the_scripted_splat_is_the_native_splat() {
+        // The native rules and the script that mirrors them must leave the
+        // same paint on the same cells, to the same wetness and the same
+        // count. This is the oracle for the splat, on a tag that certainly
+        // happens rather than on a tag that may.
+        let p = Params::default();
+        let mut native_world = flat_world();
+        let mut scripted_world = flat_world();
+        let mut native_agents = two_agents(&native_world);
+        let mut scripted_agents = two_agents(&scripted_world);
+        let mut native = crate::rules::beacons::Beacons::new(&native_world, &p);
+        let mut scripted = RhaiRuleset::new("beacons", BEACONS_RHAI, &scripted_world, &p)
+            .expect("the shipped rules script loads");
+        let order = [0usize, 1];
+
+        let native_events = native.step(&mut native_world, &mut native_agents, 0, &order, &p);
+        let scripted_events =
+            scripted.step(&mut scripted_world, &mut scripted_agents, 0, &order, &p);
+        assert_eq!(native_events, scripted_events);
+        assert!(native_events.contains(&Event::Tagged { by: 0, target: 4 }));
+
+        // The paint of the two rules is the same paint.
+        assert_eq!(native_world.paint.len(), 9, "the splat landed");
+        assert_eq!(native_world.paint, scripted_world.paint);
+        let cell = CellXY { x: 5, y: 4 };
+        let paint = native_world.paint.get(cell).expect("the tagged cell");
+        assert_eq!(paint.owner, 0, "the tagger's colour");
+        assert_eq!(paint.wet_q8, crate::world::paint::WET_Q8_MAX);
+        assert_eq!(paint.splats, 1);
     }
 
     /// What a round of `ticks` ticks produced: the hashes and the events.

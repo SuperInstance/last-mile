@@ -548,6 +548,7 @@ mod tests {
     /// A view with the given scores and squad.
     fn view(scores: &[i64], squad: u8) -> ScoreView {
         ScoreView {
+            paint: Vec::new(),
             tick: 0,
             me: AgentSnap {
                 id: u16::from(squad),

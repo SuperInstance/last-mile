@@ -270,14 +270,16 @@ fn cell_of(value: &Dynamic) -> Option<CellXY> {
 
 /// The map a reflex sees: the score view, with sorted keys.
 ///
-/// The keys are `beacons`, `enemies`, `me`, `score`, `squad` and `tick`,
-/// in that order, because a Rhai map is a `BTreeMap`. Cells are `[x, y]`
-/// arrays; a beacon's holder is the squad holding it, or [`HOLDER_NONE`].
+/// The keys are `beacons`, `enemies`, `me`, `paint`, `score`, `squad` and
+/// `tick`, in that order, because a Rhai map is a `BTreeMap`. Cells are
+/// `[x, y]` arrays; a beacon's holder is the squad holding it, or
+/// [`HOLDER_NONE`].
 fn view_map(view: &ScoreView) -> Dynamic {
     let mut map = Map::new();
     map.insert("beacons".into(), Dynamic::from(beacons(view)));
     map.insert("enemies".into(), Dynamic::from(enemies(view)));
     map.insert("me".into(), agent_map(&view.me, view.squad_id));
+    map.insert("paint".into(), Dynamic::from(paint(view)));
     map.insert("score".into(), Dynamic::from(score(view)));
     map.insert("squad".into(), Dynamic::from(squad(view)));
     map.insert("tick".into(), Dynamic::from(tick(view.tick)));
@@ -336,6 +338,26 @@ fn score(view: &ScoreView) -> Vec<Dynamic> {
     view.score.iter().map(|s| Dynamic::from(*s)).collect()
 }
 
+/// The paint the squad has seen, as reflexes see it.
+///
+/// The paint is world state, and a reflex may read it: the cells carry the
+/// colour of the squad that splatted them, how wet the paint is and how many
+/// splats have landed there. Showing it does not widen the answer contract —
+/// the reflex still answers with one motor command.
+fn paint(view: &ScoreView) -> Vec<Dynamic> {
+    view.paint
+        .iter()
+        .map(|p| {
+            let mut map = Map::new();
+            map.insert("cell".into(), cell_array(p.cell));
+            map.insert("owner".into(), Dynamic::from(i64::from(p.owner)));
+            map.insert("splats".into(), Dynamic::from(i64::from(p.splats)));
+            map.insert("wet_q8".into(), Dynamic::from(i64::from(p.wet_q8)));
+            Dynamic::from_map(map)
+        })
+        .collect()
+}
+
 /// The squad, as reflexes see it.
 fn squad(view: &ScoreView) -> Vec<Dynamic> {
     view.squad
@@ -360,7 +382,7 @@ fn role_name(role: Role) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view::{BeaconSnap, EnemySeen};
+    use crate::view::{BeaconSnap, EnemySeen, PaintSnap};
 
     /// The shipped reflex, compiled into the test binary.
     const DEFAULT_SRC: &str = include_str!("../../../assets/reflexes/default.rhai");
@@ -384,6 +406,7 @@ mod tests {
     /// A score view: one agent of squad 0, the given beacons and enemies.
     fn view(me: CellXY, beacons: &[(CellXY, Option<u8>)], enemies: &[(CellXY, u32)]) -> ScoreView {
         ScoreView {
+            paint: Vec::new(),
             tick: 12,
             me: snap(0, me, Role::Member),
             squad: vec![snap(0, me, Role::Member)],
@@ -660,7 +683,10 @@ mod tests {
         let view = view(cell(1, 1), &[(cell(5, 5), None)], &[(cell(2, 2), 3)]);
         let map = view_map(&view).try_cast::<Map>().expect("a map");
         let keys: Vec<&str> = map.keys().map(|k| k.as_str()).collect();
-        assert_eq!(keys, ["beacons", "enemies", "me", "score", "squad", "tick"]);
+        assert_eq!(
+            keys,
+            ["beacons", "enemies", "me", "paint", "score", "squad", "tick"]
+        );
 
         // The cell of an agent is an [x, y] pair, and a free beacon says so.
         let me = map["me"].clone().try_cast::<Map>().expect("a map");
@@ -677,6 +703,35 @@ mod tests {
         let beacon = beacons[0].clone().try_cast::<Map>().expect("a map");
         assert_eq!(beacon["holder"].as_int().ok(), Some(HOLDER_NONE));
         assert_eq!(map["tick"].as_int().ok(), Some(12));
+    }
+
+    #[test]
+    fn the_view_carries_the_paint() {
+        // The paint is world state and the reflex may read it: the cell, the
+        // colour, how wet it is and how many splats landed there.
+        let mut view = view(cell(1, 1), &[], &[]);
+        view.paint = vec![PaintSnap {
+            cell: cell(3, 4),
+            owner: 1,
+            wet_q8: 200,
+            splats: 3,
+        }];
+        let map = view_map(&view).try_cast::<Map>().expect("a map");
+        let paint = map["paint"]
+            .clone()
+            .try_cast::<Vec<Dynamic>>()
+            .expect("an array");
+        assert_eq!(paint.len(), 1);
+        let splat = paint[0].clone().try_cast::<Map>().expect("a map");
+        assert_eq!(splat["owner"].as_int().ok(), Some(1));
+        assert_eq!(splat["wet_q8"].as_int().ok(), Some(200));
+        assert_eq!(splat["splats"].as_int().ok(), Some(3));
+        let at = splat["cell"]
+            .clone()
+            .try_cast::<Vec<Dynamic>>()
+            .expect("an array");
+        assert_eq!(at[0].as_int().ok(), Some(3));
+        assert_eq!(at[1].as_int().ok(), Some(4));
     }
 
     #[test]

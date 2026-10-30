@@ -22,7 +22,8 @@
 //!    agent always goes first. Each agent turns its lane or roll command
 //!    into a motor command, or runs its reflex for `script_fuel` of script
 //!    fuel, and then walks.
-//! 4. **The rules.** The ruleset scores the tick and reports its events.
+//! 4. **The rules.** The paint dries, then the ruleset scores the tick and
+//!    reports its events.
 //! 5. **The hash.** Every `hash_interval_ticks` ticks the canonical state
 //!    hash is taken, and the tick counter moves on.
 //!
@@ -435,9 +436,18 @@ impl Sim {
         }
 
         // 4. The rules.
+        //
+        // The paint dries first: the medium is not a rule of the round, so
+        // the native rules and the script that mirrors them both see the
+        // same paint on this tick, and the oracle still matches tick for
+        // tick. A splat written by the rules of this tick is still wet when
+        // the tick is hashed.
+        self.world
+            .paint
+            .dry(crate::world::dry_step_q8(self.params.dry_ticks));
         let rule_events =
             self.ruleset
-                .step(&self.world, &mut self.agents, now, &order, &self.params);
+                .step(&mut self.world, &mut self.agents, now, &order, &self.params);
         events.extend(rule_events);
         // A ruleset that applies a script records every effect it refused to
         // apply: the count is how a host sees a broken rules script.
@@ -980,6 +990,7 @@ impl Sim {
                     holder: holders.get(i).copied().flatten(),
                 })
                 .collect(),
+            paint: Vec::new(),
             score: self.ruleset.scores().to_vec(),
             squad_id: 0,
             heard: Vec::new(),
@@ -1061,6 +1072,76 @@ mod tests {
 
     /// The default reflex, the one every agent of a standard round runs.
     const DEFAULT_REFLEX: &str = include_str!("../../../assets/reflexes/default.rhai");
+
+    /// A rules script that splats paint on one cell on the first tick and
+    /// then does nothing, so the paint is left to dry.
+    const SPLAT_ONCE: &str = r#"
+fn rules(v) {
+    if v.tick == 0 {
+        [ #{ kind: "splat", cells: [[2, 3]], owner: 0 } ]
+    } else {
+        []
+    }
+}
+"#;
+
+    #[test]
+    fn the_paint_dries_as_the_round_goes_on() {
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        h.ruleset = "rhai:splat".to_owned();
+        h.scripts.insert("splat".to_owned(), SPLAT_ONCE.to_owned());
+        let mut sim = Sim::new(&h).expect("the round starts");
+        let cell = CellXY { x: 2, y: 3 };
+
+        // The splat of the first tick is wet when the tick is hashed.
+        sim.step(&[]);
+        let paint = sim.world().paint.get(cell).expect("the splat landed");
+        assert_eq!(paint.owner, 0);
+        assert_eq!(paint.wet_q8, crate::world::paint::WET_Q8_MAX);
+        assert_eq!(paint.splats, 1);
+
+        // The paint dries one step per tick.
+        let step = crate::world::dry_step_q8(h.params.dry_ticks);
+        sim.step(&[]);
+        let paint = sim.world().paint.get(cell).expect("the paint is still wet");
+        assert_eq!(paint.wet_q8, crate::world::paint::WET_Q8_MAX - step);
+
+        // And it is dry within `dry_ticks` ticks: the cell leaves the world.
+        for _ in 0..h.params.dry_ticks {
+            sim.step(&[]);
+        }
+        assert!(
+            sim.world().paint.get(cell).is_none(),
+            "the paint dries within dry_ticks ticks"
+        );
+        assert!(sim.world().paint.is_empty());
+    }
+
+    #[test]
+    fn the_paint_is_in_the_state_hash() {
+        // A round that painted and a round that did not are different games:
+        // the paint is world state, and the world is hashed.
+        let mut h = Header::default_round(1, DEFAULT_REFLEX);
+        h.ruleset = "rhai:splat".to_owned();
+        h.scripts.insert("splat".to_owned(), SPLAT_ONCE.to_owned());
+        let mut painted = Sim::new(&h).expect("the round starts");
+        painted.step(&[]);
+        let painted_hash = painted.state_hash();
+
+        let mut clean_h = Header::default_round(1, DEFAULT_REFLEX);
+        clean_h.ruleset = "rhai:clean".to_owned();
+        clean_h
+            .scripts
+            .insert("clean".to_owned(), "fn rules(v) { [] }".to_owned());
+        let mut clean = Sim::new(&clean_h).expect("the round starts");
+        clean.step(&[]);
+        assert_eq!(clean.world().paint.len(), 0);
+        assert_ne!(
+            painted_hash,
+            clean.state_hash(),
+            "the paint is hashed with the world"
+        );
+    }
 
     /// The hashes a round of `ticks` ticks produces.
     fn run(h: &Header, ticks: u64) -> Vec<u64> {

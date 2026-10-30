@@ -58,6 +58,40 @@ fn two_squad_round_replays_bit_exact() {
     assert_eq!(replay(&log).unwrap(), log.hashes());
 }
 
+/// A round that painted replays bit-exact.
+///
+/// The paint is world state, so it is hashed with the world: the replay has
+/// to leave the same paint on the same cells, at the same wetness, or the
+/// hashes would not match. This is the test that says a painted round is
+/// still a round that can be replayed — the point of putting the paint in
+/// the state at all.
+#[test]
+fn a_painted_round_replays_bit_exact() {
+    // The shipped reflex on seed 1 tags inside 3000 ticks, and a tag leaves
+    // a splat: the round paints.
+    let mut sim = Sim::new(&Header::default_round(1, DEFAULT_REFLEX)).expect("the round starts");
+    let mut tags = 0u64;
+    let mut painted_cells = 0usize;
+    for _ in 0..3_000 {
+        let out = sim.step(&[]);
+        tags += out
+            .events
+            .iter()
+            .filter(|e| matches!(e, lm_core::rules::Event::Tagged { .. }))
+            .count() as u64;
+        painted_cells = painted_cells.max(sim.world().paint.len());
+        if sim.outcome().is_some() {
+            break;
+        }
+    }
+    assert!(tags > 0, "the round tagged, so it painted");
+    assert!(painted_cells > 0, "the paint is on the ground");
+
+    // And the recorded round replays bit-exact, paint and all.
+    let (log, _) = run(Header::default_round(1, DEFAULT_REFLEX), 3_000, &[]);
+    assert_eq!(replay(&log).unwrap(), log.hashes());
+}
+
 #[test]
 fn injected_decisions_replay() {
     let inject = vec![
