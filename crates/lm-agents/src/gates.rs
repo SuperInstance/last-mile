@@ -1030,6 +1030,78 @@ beacon = "walk to beacon {beacon}"
     }
 
     #[test]
+    fn the_urgency_gate_is_stated_over_the_facts_the_builder_states() {
+        // The urgency gate is a score gate: the model picks a level and the
+        // index of the level is the score the affect is bucketed from. The
+        // levels are what the model reads, so they have to be phrased over
+        // facts the facts builder actually states — otherwise the model
+        // matches the level against a fact it was never given and answers
+        // the wrong level.
+        //
+        // It did: the levels said "an enemy can see you **within 6 cells**"
+        // and "a beacon your squad holds is **about to be lost**". The
+        // builder states neither: its count line is "no enemy is within 6
+        // cells of you" (the doctrine's own number, for the move gate),
+        // and it says which squad holds a beacon, never that one is about
+        // to be lost. On the Thor's d1-2B that made a tagged agent read as
+        // calm (p(urgent) = 0.005) and an enemy watching the agent from
+        // eleven cells read as ordinary — see
+        // crates/lm-agents/tests/urgency_on_thor.md.
+        let set = default_set();
+        let gate = set.gate("intention").expect("the urgency gate is there");
+        assert_eq!(gate.kind, GateKind::Score);
+
+        // The scale is still three levels, lowest score first, and the
+        // scores are the ones the affect buckets are read from.
+        let levels = gate.levels_by_score();
+        let keys: Vec<&str> = levels.iter().map(|level| level.key.as_str()).collect();
+        assert_eq!(keys, vec!["idle", "ordinary", "urgent"]);
+        let scores: Vec<u32> = levels.iter().map(|level| level.score).collect();
+        assert_eq!(scores, vec![0, 1, 2]);
+
+        // The two ends of the scale name the facts the builder states:
+        // the enemy lines say "can see you", the stun says "You are
+        // stunned." and an ally's line says "and is stunned". The middle
+        // is the "otherwise", so it names nothing.
+        for level in levels.iter().filter(|level| level.key != "ordinary") {
+            assert!(
+                level.description.contains("can see you"),
+                "the level {} does not name the enemy's line: {}",
+                level.key,
+                level.description
+            );
+            assert!(
+                level.description.contains("stunned"),
+                "the level {} does not name the stun: {}",
+                level.key,
+                level.description
+            );
+        }
+
+        // And no level asks for a fact the builder cannot state: it says
+        // which squad holds a beacon, never that a beacon is about to be
+        // lost, and it counts the enemies within six cells for the move
+        // gate, not for the tone.
+        for level in &levels {
+            assert!(
+                !level.description.contains("about to be lost"),
+                "the level {} asks for a fact the builder never states: {}",
+                level.key,
+                level.description
+            );
+        }
+        assert!(!gate.instructions.contains("about to be lost"));
+        assert!(!gate.instructions.contains("not moving together"));
+
+        // The instructions are the rule over the same facts.
+        assert!(gate.instructions.contains("an enemy can see you"));
+        assert!(gate.instructions.contains("you are stunned"));
+        assert!(gate
+            .instructions
+            .contains("an ally within 4 cells of you is stunned"));
+    }
+
+    #[test]
     fn a_noul_gate_makes_no_decision() {
         // The call-out is logged in phase 3; the utterance arrives in
         // phase 4. It never becomes a decision.
@@ -1177,15 +1249,15 @@ beacon = "walk to beacon {beacon}"
         assert_eq!(criteria.len(), 3);
         assert_eq!(
             criteria[0],
-            "the moment is quiet: no enemy is within 6 cells and your squad is where it should be"
+            "idle: no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned"
         );
         assert_eq!(
             criteria[1],
-            "the moment is ordinary: the usual play goes on and nothing has to be said now"
+            "ordinary: nothing is happening that your squad has to know about now"
         );
         assert_eq!(
             criteria[2],
-            "the moment is urgent: an enemy can see you within 6 cells, or a beacon your squad holds is about to be lost"
+            "urgent: an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned"
         );
 
         // The order is the score's and not the file's: a file that writes

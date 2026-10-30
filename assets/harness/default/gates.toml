@@ -129,7 +129,26 @@ instructions = "Is there anyone this line is for?"
 id = "intention"
 type = "score"
 options_from = "fixed"
-instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. Use the facts: an enemy you can see, a beacon your squad is about to lose and a squad that is not moving together make the moment urgent; a quiet moment makes it idle."
+# The urgency gate: how urgent is this moment, on a scale of three.
+#
+# The scale is stated as a rule over the facts the builder states, the
+# way the move gate states its doctrine, because the levels are what the
+# model reads. The levels below used to name "an enemy can see you
+# **within 6 cells**" and "a beacon your squad holds is about to be
+# lost" — and the builder states neither: the count line it states is
+# "no enemy is within 6 cells of you" (the doctrine's own number, for
+# the move gate), and it says which squad holds a beacon, never that a
+# beacon is about to be lost. So the model read the scale against a
+# count line that contradicts it, and answered "idle" for an enemy
+# watching the agent from eleven cells away, and for an agent that had
+# just been tagged (crates/lm-agents/tests/urgency_on_thor.md).
+#
+# The rule is now over the facts that are there: the enemy lines say
+# "can see you (clear line of sight)" at any distance, the stun says
+# "You are stunned.", and an ally's line says "and is stunned". A squad
+# under fire, or a squad that has just been hit, is urgent; a moment
+# with nothing in it is idle.
+instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. The rule, in order: (1) if an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned, the moment is urgent. (2) if no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned, the moment is idle. (3) otherwise the moment is ordinary."
 
 # A score gate's levels are an ordered scale, not a map of options. The
 # API takes them as an array of 2 to 10 descriptions, lowest score first,
@@ -140,20 +159,26 @@ instructions = "How urgent is this moment? Answer with the level and its score, 
 # is decided by that score and never by the order of this file. The index
 # the model answers is the score, which is what the affect of the line is
 # bucketed from (idle 0, ordinary 1, urgent 2).
+#
+# Every level is phrased over the facts the builder states, so that the
+# model matches one of them to what it is told. Measured on the Thor's
+# d1-2B over the game's own facts: a moment with an enemy watching the
+# agent is urgent (p = 0.98), a tagged agent is urgent (p = 0.99), and a
+# quiet moment is calm (p(urgent) = 0.004).
 [[gates.levels]]
 key = "idle"
 score = 0
-description = "the moment is quiet: no enemy is within 6 cells and your squad is where it should be"
+description = "idle: no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned"
 
 [[gates.levels]]
 key = "ordinary"
 score = 1
-description = "the moment is ordinary: the usual play goes on and nothing has to be said now"
+description = "ordinary: nothing is happening that your squad has to know about now"
 
 [[gates.levels]]
 key = "urgent"
 score = 2
-description = "the moment is urgent: an enemy can see you within 6 cells, or a beacon your squad holds is about to be lost"
+description = "urgent: an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned"
 
 [[gates]]
 id = "intention_present"
