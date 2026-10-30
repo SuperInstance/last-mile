@@ -1,0 +1,177 @@
+{
+  "arms": {
+    "l2-v3": {
+      "urgency": {
+        "n": 180,
+        "accuracy": 0.45,
+        "majority_baseline": 0.3333,
+        "answered": 180,
+        "predictions": {
+          "calm": 74,
+          "urgent": 45,
+          "ordinary": 61
+        },
+        "median_latency_ms": 201.5,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.9056
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "accuracy": 0.5,
+        "majority_baseline": 0.5,
+        "answered": 340,
+        "predictions": {
+          "question": 340
+        },
+        "median_latency_ms": 201.5
+      }
+    },
+    "l2-v3-read": {
+      "urgency": {
+        "n": 180,
+        "accuracy": 0.45,
+        "majority_baseline": 0.3333,
+        "answered": 180,
+        "predictions": {
+          "calm": 74,
+          "urgent": 45,
+          "ordinary": 61
+        },
+        "median_latency_ms": 423.0,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.9056
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "accuracy": 0.5,
+        "majority_baseline": 0.5,
+        "answered": 340,
+        "predictions": {
+          "question": 340
+        },
+        "median_latency_ms": 423.1
+      },
+      "pitch_end": {
+        "n": 340,
+        "accuracy": 0.8824,
+        "majority_baseline": 0.7765,
+        "answered": 340,
+        "predictions": {
+          "lower": 262,
+          "higher": 78
+        },
+        "median_latency_ms": 423.1
+      }
+    },
+    "marks": {
+      "urgency": {
+        "n": 180,
+        "accuracy": 0.45,
+        "majority_baseline": 0.3333,
+        "answered": 180,
+        "predictions": {
+          "calm": 65,
+          "urgent": 68,
+          "ordinary": 47
+        },
+        "median_latency_ms": 433.8,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.8
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "accuracy": 0.5471,
+        "majority_baseline": 0.5,
+        "answered": 340,
+        "predictions": {
+          "question": 260,
+          "order": 80
+        },
+        "median_latency_ms": 436.0
+      }
+    },
+    "marks-vocab": {
+      "urgency": {
+        "n": 180,
+        "accuracy": 0.45,
+        "majority_baseline": 0.3333,
+        "answered": 180,
+        "predictions": {
+          "calm": 65,
+          "urgent": 68,
+          "ordinary": 47
+        },
+        "median_latency_ms": 458.3,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.8
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "accuracy": 0.6735,
+        "majority_baseline": 0.5,
+        "answered": 340,
+        "predictions": {
+          "order": 151,
+          "question": 189
+        },
+        "median_latency_ms": 457.6
+      }
+    },
+    "marks-read": {
+      "urgency": {
+        "n": 180,
+        "accuracy": 0.45,
+        "majority_baseline": 0.3333,
+        "answered": 178,
+        "predictions": {
+          "calm": 64,
+          "urgent": 68,
+          "ordinary": 46,
+          "": 2
+        },
+        "median_latency_ms": 728.8,
+        "binary_urgent_vs_not": {
+          "accuracy": 0.7889
+        }
+      },
+      "order_or_question": {
+        "n": 340,
+        "accuracy": 0.5382,
+        "majority_baseline": 0.5,
+        "answered": 336,
+        "predictions": {
+          "": 4,
+          "question": 257,
+          "order": 79
+        },
+        "median_latency_ms": 729.9
+      },
+      "pitch_end": {
+        "n": 340,
+        "accuracy": 0.6971,
+        "majority_baseline": 0.7765,
+        "answered": 336,
+        "predictions": {
+          "": 4,
+          "lower": 204,
+          "higher": 132
+        },
+        "median_latency_ms": 729.9
+      }
+    }
+  },
+  "length": {
+    "marks_line_words": 6.0,
+    "marks_line_words_min": 6,
+    "marks_line_words_max": 6,
+    "l2_v3_line_words": 24.0,
+    "marks_legend_words": 152,
+    "l2_v3_legend_words": 149,
+    "marks_state_words": 158.0,
+    "l2_v3_state_words": 173.0
+  }
+}

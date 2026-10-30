@@ -2,16 +2,24 @@
 
 *2026-10-29. **A proposal, not an edit.** `docs/design/vox-score.md` is
 unchanged on disk; the patch below is the exact diff that would apply the
-changes, and it applies cleanly with `git apply`.*
+changes, and it applies cleanly with `git apply`. (One exception: §11, the
+marks layer, was authored in `ac2de4f` on the sibling branches and is
+**already in the working tree** of this branch, uncommitted, because E6
+tests it. The patch below is the change *to* that §11, and it is computed
+against the file as it now stands.)*
 
 Two patches are what the brief asks for — **§4 (the L2 line)** and **§3
 (the novelty claim)** — and a third, **§6.1 (the listening loop)**, is
 included because the E4b findings make §6.1 wrong as written: it describes
 concatenating the L2 line with the words into one gate state, which is the
-arrangement that measured *worse* than either channel alone.
+arrangement that measured *worse* than either channel alone. A fourth,
+**§11 (the marks layer)**, is included because E6 measured that layer and
+three of the six families §11 proposes cannot be measured from the fields
+that survived E4b.
 
 The evidence for every number quoted here is in
-`docs/research/vox/E4-E5.md` §8 and in `evidence/vox-e4b/`.
+`docs/research/vox/E4-E5.md` §8 and `docs/research/vox/E6-marks.md`, and in
+`evidence/vox-e4b/` and `evidence/vox-e6/`.
 
 ---
 
@@ -124,7 +132,92 @@ text line for a 2B gate.
 
 ---
 
-## 4. The patch
+## 4. §11 — the marks layer (L2.5), and the vocabulary the measurement supports
+
+§11 is where the design stops describing the delivery and starts *naming*
+it. E6 tested that layer, and the interesting result is not that the marks
+work — it is **which of §11's words the corpus can actually support**.
+
+§11's draft table has six families and 28 marks. Measured against the skald
+corpus:
+
+| §11's draft mark | what happened | the measurement |
+|---|---|---|
+| **steadiness** (steady · tight · shaking) | **the family is dropped** | `vib` and `trem` read **zero on all 340 clips**. Riva's synthesis has no measurable vibrato or tremolo at a 100 Hz frame rate, so none of the three marks could ever fire. |
+| `trailing` (articulation) | dropped | `release_ms` is **zero on 327 of 340 clips**: the envelope almost never falls below the release threshold, and the soft-release class fires on 2 of them, so a trailing mark cannot be seen in practice. |
+| `halting` (pace) | dropped | `pause_count` is **0 on every clip of the corpus**. There is no pause to be halting about. |
+| `breathy`, `strained` (colour) | dropped | they need a noise and tilt channel. The L0 frame layer carries `hnr_db` and `tilt_db_per_octave`, so this is an extension and not a closed door — but the L2 layer carries neither, so the marks cannot be quantized from it today. |
+| `even` (pace) | renamed `regular` | §11 lists "even" in two families, and the mark set is a flat list. Articulation keeps "even"; pace takes "regular". |
+| the other 21 marks | kept | every one of them fires on at least six clips. |
+
+So the shipped vocabulary is **5 families and 21 marks**: dynamics (hushed ·
+soft · level · strong · shouted), articulation (clipped · pressed · even ·
+drawn), contour (falling · flat · lifting · rise-fall · questioning), pace
+(rushed · brisk · regular · measured) and colour (dark · plain · bright).
+
+The rule the evidence forces is short and worth stating in the design:
+
+> **A mark that cannot fire is not in the vocabulary.**
+
+A family whose words never appear teaches the reader a vocabulary they will
+never use. This is the marks-layer version of the rule E4 already applies
+to the L2 line — a field that does not move does not get a place in the
+format — and it is the same reason the release measurement survived E4b as
+a measurement but did not survive as a *dial*.
+
+Three things E6 measured about the layer as it now stands:
+
+1. **The marks are above chance against the intended label on all five
+   families** (κ +0.06 … +0.26), so §11's own rule — families below chance
+   are reworked or dropped — does not fire, and nothing was dropped on this
+   evidence.
+2. **The contour family carries the intent, not the style** (72.3% at
+   telling order from question), and the other four carry the delivery.
+   The dynamics family is weak on Riva's *ordinary* style (18.3%) because
+   Riva's Neutral render is quieter than its Calm one — the marks side with
+   the measurement, which is what they are for.
+3. **The marks are the notation, not the measurement.** Against the 7-field
+   L2 line they were quantized from, the marks **win** the lexical axis
+   (67.3% against 65.6%) and **lose** the delivery axis (80.0% against
+   90.6%) and the pitch read (69.7% against 88.2%). The marks line is 6
+   words against 24. A 30B reasoning model, shown the marks of two
+   deliveries and no audio at all, picked the urgent one 14 times out of 20
+   against a 50% chance line — and used the marks' own words to say why.
+
+Point 3 is the important one for the design. §11 as written implies the
+marks might *replace* the dials. They do not, and E6 says so plainly: they
+are a **different view of the same measurement**, kept because it is a
+vocabulary rather than a set of numbers, and therefore because a small model
+can be told what to look for in it. The L2 line stays the fallback for the
+delivery axis; the marks are what the loop reads when it wants to *say*
+something about the delivery, and what System Two reads when it wants to
+reason about it in words.
+
+**One arm of E6 did not finish, and the patch says so.** The inter-rater
+arm against LFM3 — the "same closed question per family" of §11's own
+experiment — was infrastructure-bound on the box it ran on (the `lm-ears`
+proxy was being restarted underneath it, and other models were sharing the
+GPU) and completed 15 of the 340 clips. At that n every confidence interval
+contains the chance line, so **§11's rule — families below chance are
+reworked or dropped — was not applied and cannot be**. The families this
+patch drops were dropped on the *measurement*, not on that arm. The patch
+therefore records the E6 result as partial.
+
+What the attempt did establish is worth recording in the design, because it
+is a trap rather than a number: **an audio model asked to answer without
+explaining answers with one constant word per question.** On the fifteen
+clips it was asked, LFM3 said `soft` for every dynamics clip, `even` for every
+articulation clip, `flat` for every contour clip and `dark` for every colour
+clip. Such an arm produces a plausible-looking agreement rate that
+measures nothing but the marginal distribution, and any inter-rater test
+against a reasoning model has to let it reason.
+
+The patch also adds the three rules the layer needs, and the E6 result
+itself, to §11's body.
+
+---
+
+## 5. The patch
 
 ````diff
 --- a/docs/design/vox-score.md
@@ -249,11 +342,57 @@ text line for a 2B gate.
  2. **Speaking (squad → player):** an agent's line is the words plus an L2 patch. The decision model **writes** the patch by choosing gesture presets, which are closed-choice gates. Renderers then go down a ladder:
     - skald/Riva with the matching style, when it was pre-rendered in time;
     - an **LPC/formant voice** driven by the same L0/L1, when skald is late (a robot voice saying the right words, not a beep);
+@@ -112,16 +182,33 @@
+ 
+ Vox Score gets the same thing: **L2.5, marks**. It is a closed, small vocabulary, quantized deterministically from the L2 dials and always relative to the speaker profile:
+ 
+-| Family | Marks (draft) | From which dials |
++| Family | Marks | From which dials |
+ |---|---|---|
+ | Dynamics | hushed · soft · level · strong · shouted | level vs. profile |
+-| Articulation | clipped · pressed · even · drawn · trailing | attack, release, sustain |
++| Articulation | clipped · pressed · even · drawn | the loudness envelope vs. profile |
+ | Contour | falling · flat · lifting · rise-fall · questioning | F0 glide, end slope |
+-| Steadiness | steady · tight · shaking | vibrato/tremolo depth and rate |
+-| Pace | rushed · brisk · even · measured · halting | tempo, pause structure |
+-| Colour | dark · plain · bright · breathy · strained | tilt, noise |
++| Pace | rushed · brisk · regular · measured | tempo vs. profile |
++| Colour | dark · plain · bright | the spectral centroid vs. profile |
++
++A line is then written the way a score is: `"hold" [strong, clipped, falling, brisk, bright]`.
++
++**The vocabulary is what the measurement supports, and no more.** E6 measured the draft above against the skald corpus, and four of its marks could never fire. `vib` and `trem` read zero on all 340 clips, so the whole **steadiness** family is gone; the release measurement is zero on 327 of 340 clips, so articulation has no `trailing`; there is no pause in any clip of the corpus, so pace has no `halting`; and `breathy` and `strained` need a noise and tilt channel the L2 layer does not carry. **A mark that cannot fire is not in the vocabulary** — it would teach the reader a word they would never see. Two more changes follow from the measurement: `even` sat in two families at once, so pace's neutral mark is called `regular`, and the marks are quantized from the *loudness envelope* rather than from the attack, release and sustain separately, because the release never happens.
++
++Three rules govern the layer, and each one is a measured result (`docs/research/vox/E6-marks.md`):
+ 
+-A line is then written the way a score is: `"hold" [strong, clipped, falling, tight, brisk]`.
++1. **Every mark is quantized from a profile-relative field.** A mark says how
++   this delivery compares with *this speaker's* own usual delivery, never how
++   it compares with some absolute reference.
++2. **Every threshold is in a config, and the quantizer is deterministic.** The
++   same bytes give the same marks, always.
++3. **The marks are the notation, not the measurement.** Measured against the
++   L2 line they were quantized from, the marks beat it on the lexical axis
++   (67.3% against 65.6% at telling order from question) and lose on the
++   delivery axis (80.0% against 90.6%) and on reading the pitch (69.7%
++   against 88.2%). Both are kept: the line is what the loop reads when it
++   wants the measurement; the marks are what it reads when it wants to *say*
++   something about the delivery, and what System Two reads when it wants to
++   reason about it in words.
+ 
+ What this gives System Two (the slow, deliberate layer: the leader, the between-round learning flow, the human, and Claude):
+ 
+@@ -133,4 +220,4 @@
+ 
+ The vocabulary itself is versioned and learned like the lexicon: a new mark is proposed only when a residual cluster recurs, is sealed with a prediction, and is adopted on evidence. The notation grows the way musical notation did: when performers keep doing something that has no name yet.
+ 
+-**Experiment E6:** inter-rater agreement. Does the marks layer agree with (a) LFM3's answers and (b) a human listener on the skald dataset? Do marks make System Two's proposals more accurate than dials alone? Pass: the agreement is reported per family, and families below chance are reworked or dropped.
++**Experiment E6:** inter-rater agreement. Does the marks layer agree with (a) LFM3's answers and (b) the clip's intended label? Do marks make System Two's proposals more accurate than dials alone? Pass: the agreement is reported per family, and families below chance are reworked or dropped. **E6's answer, in part: all five families are above chance against the clip's intended label (κ +0.06 … +0.26), so nothing was dropped on that evidence; the contour family carries the order/question signal (72.3%) and the other four carry the delivery; and a 30B reasoning model told which of two deliveries was the urgent one from the marks alone, with no audio, 14 times out of 20 against a 50% chance line — while the 7-field L2 line got 18 out of 20 on the same pairs.** The inter-rater arm against LFM3 is **not yet measured**: it was infrastructure-bound and completed 15 of 340 clips, which is not enough to place any family above or below chance. It also turned up a trap worth recording — an audio model asked to answer without explaining answers with one constant word per question, and a constant answer will produce a plausible agreement rate that measures nothing. The evidence is `docs/research/vox/E6-marks.md`.
 ````
 
 ---
 
-## 5. What this patch does not claim
+## 6. What this patch does not claim
 
 * It does not claim that the dials beat the words at reading order from
   question. They do not: 65.6% against 98.5%. The line is the *fallback*,
@@ -265,3 +404,26 @@ text line for a 2B gate.
   §9's experiment list. Those need their own patches, on the same
   evidence, and §9's E4 row should be updated to record that E4b
   re-ran it.
+* It does not claim that the marks beat the dials. They do not, and §11's
+  patch says so: on the delivery axis the marks score 80.0% where the 7-field
+  line scores 90.6%, and at reading the pitch 69.7% where the line scores
+  88.2%. The marks win the lexical axis (67.3% against 65.6%) and they are
+  four times shorter, and that is the whole of the claim. **The marks are a
+  second view of the same measurement, not a better one.**
+* It does not claim the dropped families are worthless. Steadiness, the
+  soft release and the pause all measure zero on a synthetic corpus, and all
+  three are things real voices do. They are dropped *for this corpus*, and
+  the config is where they come back — `tools/vox-ref/marks.config.json` is
+  the file to edit.
+* It does not claim the marks have been shown to agree with an independent
+  audio model. That arm completed 15 of 340 clips and every confidence
+  interval it produced contains the chance line. §11's own rule — families
+  below chance are reworked or dropped — is therefore **not** applied by
+  this patch, and the vocabulary it ships is justified by the measurement
+  (a mark that cannot fire is not in the vocabulary), not by inter-rater
+  agreement.
+* It does not claim anything about human voices, about L3, or about the
+  round trip in the writing direction. E6 measured whether marks can be
+  *read*; whether a decision model can write a mark set that renders back to
+  the delivery it came from is a separate experiment, and E5 already found
+  the L2 round trip lossy.

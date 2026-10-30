@@ -16,6 +16,7 @@ from pathlib import Path
 from .l0 import analyze_l0, frames_to_csv
 from .l1 import apply_profile, segment_gestures
 from .l2 import summarize
+from .marks import MarkConfig, marks_line, quantize_families, quantize_marks
 from .profile import SpeakerProfile, build_profile
 from .wavio import read_wav
 
@@ -71,6 +72,25 @@ def cmd_analyze(args) -> int:
             out = Path(args.l0_csv)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text(frames_to_csv(result["frames"]), encoding="utf-8")
+    return 0
+
+
+def cmd_marks(args) -> int:
+    """The marks layer: L2 -> a closed set of words (design §11)."""
+    profile = _load_profile(args)
+    config = MarkConfig.load(args.config) if args.config else MarkConfig.default()
+    for path in args.wavs:
+        result = analyze_clip(path, profile)
+        patch = result["patch"]
+        marks = quantize_marks(patch, profile, config)
+        print(marks_line(marks))
+        if args.json:
+            payload = {
+                "path": str(path),
+                "marks": marks_line(marks),
+                "families": quantize_families(patch, profile, config),
+            }
+            print(json.dumps(payload), file=sys.stderr)
     return 0
 
 
@@ -141,6 +161,13 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument("wavs", nargs="+")
     profile.add_argument("--out", help="write the profile JSON here")
     profile.set_defaults(func=cmd_profile)
+
+    marks = sub.add_parser("marks", help="write the marks layer for a clip")
+    marks.add_argument("wavs", nargs="+")
+    marks.add_argument("--profile", help="speaker profile JSON")
+    marks.add_argument("--config", help="marks threshold config JSON")
+    marks.add_argument("--json", action="store_true", help="also emit JSON on stderr")
+    marks.set_defaults(func=cmd_marks)
 
     batch = sub.add_parser("batch", help="analyse a directory of clips")
     batch.add_argument("directory")

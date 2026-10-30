@@ -1,0 +1,22 @@
+{
+  "model": "qwen3-coder",
+  "pairs": 20,
+  "encodings": {
+    "marks": {
+      "n": 20,
+      "correct": 14,
+      "accuracy": 0.7,
+      "chance": 0.5,
+      "median_latency_ms": 5000.8,
+      "errors": 0
+    },
+    "l2-v3": {
+      "n": 20,
+      "correct": 18,
+      "accuracy": 0.9,
+      "chance": 0.5,
+      "median_latency_ms": 5071.6,
+      "errors": 0
+    }
+  }
+}

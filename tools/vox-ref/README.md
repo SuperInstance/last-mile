@@ -134,6 +134,45 @@ The legend describes the *format*. It does not say which end of the scale
 means which intent: that mapping is the reader's own knowledge of
 intonation, and giving it away would measure the hint, not the line.
 
+### L2.5 — the marks, a closed vocabulary over the line
+
+```
+marks: [strong, clipped, falling, brisk, bright]
+```
+
+`vox_ref.marks` quantizes the measured, profile-relative L2 fields into one
+mark per family. It is the notation layer of design §11: the words System
+Two thinks in, over the same measurements the line carries.
+
+| family | marks | quantized from |
+|---|---|---|
+| dynamics | hushed · soft · level · strong · shouted | the level against the profile |
+| articulation | clipped · pressed · even · drawn | the loudness envelope against the profile |
+| contour | falling · flat · lifting · rise-fall · questioning | the pitch track and the boundary tone |
+| pace | rushed · brisk · regular · measured | the tempo against the profile |
+| colour | dark · plain · bright | the spectral centroid against the profile |
+
+Every threshold lives in `MarkConfig`, and the shipped defaults are in
+`marks.config.json` beside this README. A config file only has to carry the
+keys it wants to change:
+
+```bash
+python3 -m vox_ref marks clip.wav --profile profile.json
+python3 -m vox_ref marks clip.wav --profile profile.json --config marks.config.json
+```
+
+The quantizer is deterministic: the same bytes give the same marks, always.
+`tests/test_marks.py` checks that, the bands, and that every mark it can
+emit is in the vocabulary.
+
+**The vocabulary is what the measurement supports.** E6 measured §11's draft
+against the skald corpus and dropped what could not fire: the whole
+steadiness family (`vib` and `trem` read zero on every clip), `trailing`
+(the release is zero on 327 of 340 clips), `halting` (there is no pause in
+any clip) and `breathy`/`strained` (no noise or tilt channel in L2). A mark
+that cannot fire is not in the vocabulary. The evidence is
+`docs/research/vox/E6-marks.md`.
+
 ## The speaker profile
 
 `vox_ref.profile.SpeakerProfile` is a small JSON file: the speaker's median
@@ -157,11 +196,14 @@ vox_ref/
   l1.py        gesture segmentation
   l2.py        the patch and the line format
   eop.py       the end of the phrase: the boundary tone and its neighbours
+  marks.py     L2.5: the marks layer, a closed vocabulary over the line
   profile.py   the speaker profile
   wavio.py     WAV reading and writing
   cli.py       the command line
+marks.config.json  the thresholds the marks layer uses, with the defaults
 tests/
   test_synth.py  the E1 checks against synthetic signals with known truth
+  test_marks.py  the E6 checks on the marks quantizer
 ```
 
 ## Known limits

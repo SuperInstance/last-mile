@@ -1,0 +1,388 @@
+{
+  "clips": 340,
+  "families": {
+    "dynamics": {
+      "n_pairs": 14,
+      "n_unanswered": 1,
+      "n_errors": 0,
+      "agreement": 0.2857,
+      "agreement_ci95": [
+        0.1172,
+        0.5465
+      ],
+      "cohens_kappa": 0.0,
+      "chance_uniform": 0.2,
+      "vocabulary_size": 5,
+      "mark_distribution": {
+        "soft": 4,
+        "strong": 4,
+        "level": 3,
+        "hushed": 1,
+        "shouted": 2
+      },
+      "lfm3_distribution": {
+        "soft": 14
+      },
+      "confusion": {
+        "hushed": {
+          "soft": 1
+        },
+        "level": {
+          "soft": 3
+        },
+        "shouted": {
+          "soft": 2
+        },
+        "soft": {
+          "soft": 4
+        },
+        "strong": {
+          "soft": 4
+        }
+      },
+      "median_latency_ms": 13436.2,
+      "by_prompt_style": {
+        "direct": {
+          "n": 14,
+          "agreement": 0.2857
+        }
+      }
+    },
+    "articulation": {
+      "n_pairs": 10,
+      "n_unanswered": 5,
+      "n_errors": 0,
+      "agreement": 0.0,
+      "agreement_ci95": [
+        0.0,
+        0.2775
+      ],
+      "cohens_kappa": 0.0,
+      "chance_uniform": 0.25,
+      "vocabulary_size": 4,
+      "mark_distribution": {
+        "clipped": 2,
+        "drawn": 5,
+        "pressed": 3
+      },
+      "lfm3_distribution": {
+        "even": 10
+      },
+      "confusion": {
+        "clipped": {
+          "even": 2
+        },
+        "drawn": {
+          "even": 5
+        },
+        "pressed": {
+          "even": 3
+        }
+      },
+      "median_latency_ms": 11289.3,
+      "by_prompt_style": {
+        "direct": {
+          "n": 10,
+          "agreement": 0.0
+        }
+      }
+    },
+    "contour": {
+      "n_pairs": 5,
+      "n_unanswered": 9,
+      "n_errors": 0,
+      "agreement": 0.0,
+      "agreement_ci95": [
+        0.0,
+        0.4345
+      ],
+      "cohens_kappa": 0.0,
+      "chance_uniform": 0.2,
+      "vocabulary_size": 5,
+      "mark_distribution": {
+        "falling": 5
+      },
+      "lfm3_distribution": {
+        "flat": 5
+      },
+      "confusion": {
+        "falling": {
+          "flat": 5
+        }
+      },
+      "median_latency_ms": 86687.7,
+      "by_prompt_style": {
+        "direct": {
+          "n": 5,
+          "agreement": 0.0
+        }
+      }
+    },
+    "colour": {
+      "n_pairs": 7,
+      "n_unanswered": 8,
+      "n_errors": 0,
+      "agreement": 0.4286,
+      "agreement_ci95": [
+        0.1582,
+        0.7495
+      ],
+      "cohens_kappa": 0.0,
+      "chance_uniform": 0.3333,
+      "vocabulary_size": 3,
+      "mark_distribution": {
+        "dark": 3,
+        "bright": 2,
+        "plain": 2
+      },
+      "lfm3_distribution": {
+        "dark": 7
+      },
+      "confusion": {
+        "bright": {
+          "dark": 2
+        },
+        "dark": {
+          "dark": 3
+        },
+        "plain": {
+          "dark": 2
+        }
+      },
+      "median_latency_ms": 7331.5,
+      "by_prompt_style": {
+        "direct": {
+          "n": 7,
+          "agreement": 0.4286
+        }
+      }
+    }
+  },
+  "part_b": {
+    "dynamics": {
+      "n": 340,
+      "agreement": 0.3853,
+      "agreement_ci95": [
+        0.3351,
+        0.438
+      ],
+      "cohens_kappa": 0.1593,
+      "chance_uniform": 0.2,
+      "by_style": {
+        "Angry": {
+          "n": 60,
+          "agreement": 0.2333
+        },
+        "Calm": {
+          "n": 60,
+          "agreement": 0.35
+        },
+        "Default": {
+          "n": 60,
+          "agreement": 0.8833
+        },
+        "Happy": {
+          "n": 60,
+          "agreement": 0.5167
+        },
+        "Neutral": {
+          "n": 60,
+          "agreement": 0.1833
+        },
+        "Sad": {
+          "n": 40,
+          "agreement": 0.025
+        }
+      }
+    },
+    "articulation": {
+      "n": 340,
+      "agreement": 0.3882,
+      "agreement_ci95": [
+        0.338,
+        0.441
+      ],
+      "cohens_kappa": 0.1779,
+      "chance_uniform": 0.25,
+      "by_style": {
+        "Angry": {
+          "n": 60,
+          "agreement": 0.2833
+        },
+        "Calm": {
+          "n": 60,
+          "agreement": 0.7167
+        },
+        "Default": {
+          "n": 60,
+          "agreement": 0.2833
+        },
+        "Happy": {
+          "n": 60,
+          "agreement": 0.3333
+        },
+        "Neutral": {
+          "n": 60,
+          "agreement": 0.4333
+        },
+        "Sad": {
+          "n": 40,
+          "agreement": 0.225
+        }
+      }
+    },
+    "contour": {
+      "n": 340,
+      "agreement": 0.2471,
+      "agreement_ci95": [
+        0.2042,
+        0.2956
+      ],
+      "cohens_kappa": 0.0641,
+      "chance_uniform": 0.2,
+      "by_style": {
+        "Angry": {
+          "n": 60,
+          "agreement": 0.45
+        },
+        "Calm": {
+          "n": 60,
+          "agreement": 0.1667
+        },
+        "Default": {
+          "n": 60,
+          "agreement": 0.5333
+        },
+        "Happy": {
+          "n": 60,
+          "agreement": 0.0167
+        },
+        "Neutral": {
+          "n": 60,
+          "agreement": 0.1167
+        },
+        "Sad": {
+          "n": 40,
+          "agreement": 0.175
+        }
+      }
+    },
+    "pace": {
+      "n": 340,
+      "agreement": 0.3588,
+      "agreement_ci95": [
+        0.3097,
+        0.4111
+      ],
+      "cohens_kappa": 0.1142,
+      "chance_uniform": 0.25,
+      "by_style": {
+        "Angry": {
+          "n": 60,
+          "agreement": 0.1333
+        },
+        "Calm": {
+          "n": 60,
+          "agreement": 0.6833
+        },
+        "Default": {
+          "n": 60,
+          "agreement": 0.45
+        },
+        "Happy": {
+          "n": 60,
+          "agreement": 0.2167
+        },
+        "Neutral": {
+          "n": 60,
+          "agreement": 0.3
+        },
+        "Sad": {
+          "n": 40,
+          "agreement": 0.375
+        }
+      }
+    },
+    "colour": {
+      "n": 340,
+      "agreement": 0.5029,
+      "agreement_ci95": [
+        0.4501,
+        0.5558
+      ],
+      "cohens_kappa": 0.2567,
+      "chance_uniform": 0.3333,
+      "by_style": {
+        "Angry": {
+          "n": 60,
+          "agreement": 0.9
+        },
+        "Calm": {
+          "n": 60,
+          "agreement": 0.4833
+        },
+        "Default": {
+          "n": 60,
+          "agreement": 0.45
+        },
+        "Happy": {
+          "n": 60,
+          "agreement": 0.75
+        },
+        "Neutral": {
+          "n": 60,
+          "agreement": 0.1167
+        },
+        "Sad": {
+          "n": 40,
+          "agreement": 0.225
+        }
+      }
+    },
+    "dynamics_vs_delivery": {
+      "n": 180,
+      "agreement": 0.45,
+      "by_class": {
+        "calm": {
+          "n": 60,
+          "agreement": 0.4333
+        },
+        "ordinary": {
+          "n": 60,
+          "agreement": 0.1833
+        },
+        "urgent": {
+          "n": 60,
+          "agreement": 0.7333
+        }
+      }
+    },
+    "contour_vs_intent": {
+      "all_marks_read_as_speech_act": 0.6647,
+      "decisive_marks_only": 0.7227,
+      "decisive_n": 220,
+      "carry": {
+        "falling": {
+          "n": 140,
+          "question_share": 0.2929
+        },
+        "flat": {
+          "n": 34,
+          "question_share": 0.5294
+        },
+        "lifting": {
+          "n": 6,
+          "question_share": 0.6667
+        },
+        "rise-fall": {
+          "n": 80,
+          "question_share": 0.5875
+        },
+        "questioning": {
+          "n": 80,
+          "question_share": 0.75
+        }
+      }
+    }
+  }
+}

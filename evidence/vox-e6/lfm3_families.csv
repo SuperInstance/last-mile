@@ -1,0 +1,106 @@
+file,family,mark,lfm3,source,prompt_style,latency_ms,error
+evidence/vox-e4/clips/001_Mia_Default_order.wav,dynamics,soft,soft,guided,,18077.2,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,articulation,clipped,even,guided,,85292.5,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,contour,falling,falling,guided,,130468.4,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,pace,regular,regular,guided,,132053.8,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,colour,dark,plain,guided,,86641.1,
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,dynamics,soft,level,guided,,54689.3,
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,articulation,pressed,even,guided,,121566.8,
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,contour,falling,falling,guided,,10853.0,
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,colour,dark,dark,guided,,55372.2,
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,dynamics,soft,level,guided,,135151.9,
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,articulation,drawn,even,guided,,137432.4,
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,contour,falling,falling,guided,,67503.2,
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,pace,measured,regular,guided,,72571.1,
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,colour,dark,plain,guided,,46689.6,
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,dynamics,strong,strong,guided,,54474.8,
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,articulation,pressed,even,guided,,86680.1,
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,articulation,pressed,even,guided,,85034.8,
+evidence/vox-e4/clips/007_Jason_Default_order.wav,articulation,clipped,even,guided,,53306.6,
+evidence/vox-e4/clips/007_Jason_Default_order.wav,colour,dark,dark,guided,,29753.3,
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,colour,plain,dark,guided,,48112.0,
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,contour,falling,flat,guided,,104368.1,
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,dynamics,strong,soft,guided,,41099.2,
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,colour,bright,dark,guided,,56718.9,
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,dynamics,strong,soft,guided,,17015.3,
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,articulation,drawn,even,guided,,64149.7,
+evidence/vox-e4/clips/007_Jason_Default_order.wav,dynamics,level,soft,guided,,37236.7,
+evidence/vox-e4/clips/007_Jason_Default_order.wav,contour,falling,flat,guided,,33323.5,
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,colour,plain,dark,guided,,101214.0,
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,contour,falling,flat,guided,,30215.8,
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,dynamics,hushed,soft,guided,,125854.5,
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,articulation,clipped,even,guided,,139100.2,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,articulation,clipped,even,guided,direct,58535.5,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,dynamics,soft,soft,guided,direct,77706.2,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,colour,dark,dark,guided,direct,97962.8,
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,dynamics,soft,soft,guided,direct,21877.8,
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,articulation,pressed,,no answer (stop),direct,1278.6,no answer (stop)
+evidence/vox-e4/clips/001_Mia_Default_order.wav,pace,regular,,no answer (stop),direct,8066.4,no answer (stop)
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,pace,regular,,no answer (stop),direct,21938.1,no answer (stop)
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,colour,dark,,no answer (stop),direct,1258.3,no answer (stop)
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,dynamics,soft,soft,guided,direct,13436.2,
+evidence/vox-e4/clips/001_Mia_Default_order.wav,contour,falling,,truncated (length),direct,86723.3,truncated (length)
+evidence/vox-e4/clips/002_Mia_Neutral_order.wav,contour,falling,,truncated (length),direct,86687.7,truncated (length)
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,articulation,drawn,even,guided,direct,49939.7,
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,colour,dark,,no answer (stop),direct,1950.5,no answer (stop)
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,pace,measured,,no answer (stop),direct,9360.1,no answer (stop)
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,articulation,pressed,,no answer (stop),direct,802.2,no answer (stop)
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,dynamics,strong,soft,guided,direct,9024.8,
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,pace,measured,,no answer (stop),direct,7535.5,no answer (stop)
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,colour,plain,,no answer (stop),direct,1263.4,no answer (stop)
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,dynamics,strong,soft,guided,direct,13176.8,
+evidence/vox-e4/clips/003_Mia_Calm_order.wav,contour,falling,flat,guided,direct,49134.6,
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,contour,falling,flat,guided,direct,25060.4,
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,pace,brisk,,no answer (stop),direct,19476.1,no answer (stop)
+evidence/vox-e4/clips/004_Mia_Happy_order.wav,contour,falling,,truncated (length),direct,101073.1,truncated (length)
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,colour,bright,dark,guided,direct,26390.8,
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,dynamics,strong,soft,guided,direct,19409.4,
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,articulation,drawn,even,guided,direct,13227.1,
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,pace,measured,,no answer (stop),direct,7364.5,no answer (stop)
+evidence/vox-e4/clips/005_Mia_Angry_order.wav,articulation,pressed,,truncated (length),direct,107857.7,truncated (length)
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,colour,plain,dark,guided,direct,18869.7,
+evidence/vox-e4/clips/007_Jason_Default_order.wav,articulation,clipped,,no answer (stop),direct,1100.3,no answer (stop)
+evidence/vox-e4/clips/007_Jason_Default_order.wav,dynamics,level,soft,guided,direct,20978.1,
+evidence/vox-e4/clips/007_Jason_Default_order.wav,pace,rushed,,no answer (stop),direct,8813.7,no answer (stop)
+evidence/vox-e4/clips/007_Jason_Default_order.wav,colour,dark,,no answer (stop),direct,893.2,no answer (stop)
+evidence/vox-e4/clips/007_Jason_Default_order.wav,contour,falling,flat,guided,direct,29763.5,
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,dynamics,hushed,soft,guided,direct,14307.6,
+evidence/vox-e4/clips/006_Mia_Sad_order.wav,contour,flat,,truncated (length),direct,90418.0,truncated (length)
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,pace,rushed,,no answer (stop),direct,8509.4,no answer (stop)
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,colour,dark,dark,guided,direct,16262.7,
+evidence/vox-e4/clips/009_Jason_Calm_order.wav,dynamics,level,soft,guided,direct,14234.0,
+evidence/vox-e4/clips/009_Jason_Calm_order.wav,articulation,drawn,even,guided,direct,11289.3,
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,articulation,clipped,even,guided,direct,91905.7,
+evidence/vox-e4/clips/008_Jason_Neutral_order.wav,contour,falling,,truncated (length),direct,90872.0,truncated (length)
+evidence/vox-e4/clips/009_Jason_Calm_order.wav,pace,measured,,no answer (stop),direct,8421.8,no answer (stop)
+evidence/vox-e4/clips/009_Jason_Calm_order.wav,colour,dark,dark,guided,direct,7331.5,
+evidence/vox-e4/clips/010_Jason_Happy_order.wav,dynamics,strong,soft,guided,direct,11016.0,
+evidence/vox-e4/clips/010_Jason_Happy_order.wav,articulation,pressed,even,guided,direct,10709.0,
+evidence/vox-e4/clips/010_Jason_Happy_order.wav,pace,measured,,no answer (stop),direct,12563.2,no answer (stop)
+evidence/vox-e4/clips/010_Jason_Happy_order.wav,colour,plain,dark,guided,direct,19745.0,
+evidence/vox-e4/clips/011_Jason_Angry_order.wav,dynamics,shouted,soft,guided,direct,27862.1,
+evidence/vox-e4/clips/009_Jason_Calm_order.wav,contour,falling,,truncated (length),direct,106243.0,truncated (length)
+evidence/vox-e4/clips/010_Jason_Happy_order.wav,contour,falling,,truncated (length),direct,113258.6,truncated (length)
+evidence/vox-e4/clips/011_Jason_Angry_order.wav,contour,falling,flat,guided,direct,39014.1,
+evidence/vox-e4/clips/011_Jason_Angry_order.wav,articulation,drawn,even,guided,direct,58497.9,
+evidence/vox-e4/clips/012_Aria_Default_order.wav,dynamics,level,soft,guided,direct,1033.3,
+evidence/vox-e4/clips/012_Aria_Default_order.wav,articulation,pressed,even,guided,direct,670.3,
+evidence/vox-e4/clips/011_Jason_Angry_order.wav,pace,measured,,no answer (stop),direct,13422.9,no answer (stop)
+evidence/vox-e4/clips/011_Jason_Angry_order.wav,colour,bright,dark,guided,direct,12383.1,
+evidence/vox-e4/clips/012_Aria_Default_order.wav,colour,dark,,no answer (stop),direct,530.7,no answer (stop)
+evidence/vox-e4/clips/013_Aria_Neutral_order.wav,dynamics,soft,soft,guided,direct,613.2,
+evidence/vox-e4/clips/013_Aria_Neutral_order.wav,articulation,clipped,,no answer (stop),direct,721.5,no answer (stop)
+evidence/vox-e4/clips/012_Aria_Default_order.wav,pace,regular,,no answer (stop),direct,6814.0,no answer (stop)
+evidence/vox-e4/clips/013_Aria_Neutral_order.wav,pace,rushed,,no answer (stop),direct,5795.5,no answer (stop)
+evidence/vox-e4/clips/013_Aria_Neutral_order.wav,colour,dark,,no answer (stop),direct,746.9,no answer (stop)
+evidence/vox-e4/clips/014_Aria_Calm_order.wav,dynamics,level,,no answer (stop),direct,797.4,no answer (stop)
+evidence/vox-e4/clips/014_Aria_Calm_order.wav,articulation,drawn,even,guided,direct,432.6,
+evidence/vox-e4/clips/014_Aria_Calm_order.wav,contour,falling,flat,guided,direct,28651.5,
+evidence/vox-e4/clips/012_Aria_Default_order.wav,contour,falling,,truncated (length),direct,51991.5,truncated (length)
+evidence/vox-e4/clips/014_Aria_Calm_order.wav,colour,dark,,no answer (stop),direct,961.7,no answer (stop)
+evidence/vox-e4/clips/014_Aria_Calm_order.wav,pace,measured,,no answer (stop),direct,8401.7,no answer (stop)
+evidence/vox-e4/clips/015_Aria_Happy_order.wav,dynamics,shouted,soft,guided,direct,6868.3,
+evidence/vox-e4/clips/013_Aria_Neutral_order.wav,contour,falling,,truncated (length),direct,52194.3,truncated (length)
+evidence/vox-e4/clips/015_Aria_Happy_order.wav,articulation,pressed,even,guided,direct,12943.1,
+evidence/vox-e4/clips/015_Aria_Happy_order.wav,colour,plain,,no answer (stop),direct,7724.9,no answer (stop)
+evidence/vox-e4/clips/015_Aria_Happy_order.wav,pace,measured,,no answer (stop),direct,33810.5,no answer (stop)
