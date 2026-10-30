@@ -1,11 +1,13 @@
-//! A mock skald daemon for the tests: a loopback HTTP server that answers
-//! exactly what the test scripted.
+//! A mock skald daemon: a loopback HTTP server that answers exactly what
+//! the test scripted.
 //!
 //! `cargo test` never touches a network: the bank, the queue and the
 //! client are proven against this server on `127.0.0.1`, which is a
-//! different process on the same machine and not a service anywhere else.
-//! The live daemon keeps its own lane — the `#[ignore]`d tests — exactly
-//! as `scripts/live.sh` separates the Thor's facts from the build's.
+//! different process on the same machine and not a service anywhere else
+//! — and so is the host model's voice wiring, which is why the module is
+//! `mocks`-gated for downstream test builds too. The live daemon keeps
+//! its own lane — the `#[ignore]`d tests — exactly as `scripts/live.sh`
+//! separates the Thor's facts from the build's.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};

@@ -113,3 +113,18 @@ language = "en"
 riva_base = "http://localhost"
 riva_port = 50000
 whisper_python = "/tmp/whisperenv/bin/python3"
+
+[bank]
+# Where the host keeps the clips the worker rendered, and how big that
+# cache may grow. This is the host machine's own policy, not the Thor's:
+# the daemon address above may be overridden per machine by the
+# environment (LM_SKALD_BASE / LM_SKALD_PORT), while the bank's root here
+# is empty by default — "the per-user cache directory of whatever machine
+# runs the host" (%LOCALAPPDATA% on Windows, ~/.cache elsewhere) — with
+# the command line's --voice-bank as the explicit override.
+#
+# The cap counts both files of an entry (~90 KB a clip) and evicts whole
+# entries oldest-first; 64 MB is years of rounds at six unique lines a
+# round.
+root = ""
+cap_mb = 64

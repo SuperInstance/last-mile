@@ -183,6 +183,33 @@ impl Default for AsrConfig {
     }
 }
 
+/// Where the bank lives and how big it may grow: the host's own policy for
+/// the rendered clips it caches on the machine it runs on.
+///
+/// The `root` is empty by default, which means **the per-user cache
+/// directory of the machine** (the host resolves it: `%LOCALAPPDATA%` on
+/// Windows, `$XDG_CACHE_HOME`/`$HOME/.cache` elsewhere) — the bank is a
+/// cache, not game state, and it does not belong in the round's
+/// directory. The cap counts both files of an entry and evicts whole
+/// entries, oldest first.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct BankConfig {
+    /// Where the bank lives; empty means the machine's per-user cache dir.
+    pub root: String,
+    /// The most megabytes of clips and sidecars the bank may hold.
+    pub cap_mb: u32,
+}
+
+impl Default for BankConfig {
+    fn default() -> Self {
+        BankConfig {
+            root: String::new(),
+            cap_mb: 64,
+        }
+    }
+}
+
 /// The voice map: the whole of `voice.toml`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
@@ -196,6 +223,8 @@ pub struct VoiceMap {
     /// The ears: the one that hears the human, and the ones that verify
     /// the rendered audio.
     pub asr: AsrConfig,
+    /// Where the bank lives and how big it may grow.
+    pub bank: BankConfig,
 }
 
 impl VoiceMap {
@@ -310,6 +339,30 @@ mod tests {
         assert!(map.skald.engine_id.contains("riva"), "the engine is named");
         assert_eq!(map.skald.port, 8000);
         assert!(!map.skald.base.is_empty());
+    }
+
+    #[test]
+    fn the_bank_is_a_per_user_cache_with_a_cap() {
+        // The shipped map holds the defaults: no root of its own (the
+        // machine's per-user cache dir), and a cap in the tens of
+        // megabytes — a handful of rounds' worth of unique lines at
+        // ~90 KB a clip.
+        let map = VoiceMap::shipped();
+        assert_eq!(map.bank.root, "");
+        assert!(
+            map.bank.cap_mb >= 16,
+            "the cap is real: {}",
+            map.bank.cap_mb
+        );
+        // And both are parameters: a map that says so, says so.
+        let named = VoiceMap::parse(
+            r#"[bank]
+root = "D:\\voice"
+cap_mb = 8"#,
+        )
+        .expect("the map parses");
+        assert_eq!(named.bank.root, "D:\\voice");
+        assert_eq!(named.bank.cap_mb, 8);
     }
 
     #[test]

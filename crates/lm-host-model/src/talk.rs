@@ -39,6 +39,8 @@ use lm_core::talk::TalkMetrics;
 use lm_core::utterance::Utterance;
 use lm_voice::{BarkCache, Tts, TtsClip, TtsRequest, VoiceError};
 
+use crate::voices::Spoken;
+
 /// The voice the agents' lines are spoken in when nothing says otherwise.
 pub const DEFAULT_VOICE: &str = "default";
 
@@ -61,7 +63,9 @@ pub enum Listener {
 /// A clip the host asked for, and that is waiting to be played.
 ///
 /// The clip carries the line it speaks, so the player can see who said what
-/// while it is being spoken.
+/// while it is being spoken — and, when the skald path rendered it, how it
+/// was spoken ([`Spoken`]: the ask, the origin and the render's own
+/// measurement).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TalkClip {
     /// The canonical id of the line the clip speaks.
@@ -72,13 +76,19 @@ pub struct TalkClip {
     pub tick: Tick,
     /// The clip itself.
     pub clip: TtsClip,
+    /// How the clip was spoken, when the skald voices rendered it: the
+    /// voice, the style, whether it was the bank's clip or the tone, and
+    /// what the render cost. `None` on the stub and Riva paths, which
+    /// have no bank to speak of.
+    pub spoken: Option<Spoken>,
 }
 
 /// The talk counters the HUD shows.
 ///
 /// Every number here is counted, not estimated: the utterances and the
-/// airtime come from the round's own records, and the clips from the bark
-/// cache's own counters.
+/// airtime come from the round's own records, the clips from the bark
+/// cache's own counters, and the voice path's hits and tones from the
+/// prefetch queue's fallback contract.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TalkCounters {
     /// How many lines the round has spoken.
@@ -97,6 +107,15 @@ pub struct TalkCounters {
     pub bark_hits: u64,
     /// How many clips the bark cache had to synthesize.
     pub bark_misses: u64,
+    /// How many due lines played the rendered clip (the skald path).
+    pub voice_hits: u64,
+    /// How many due lines played the tone (the skald path's fallback).
+    pub voice_tones: u64,
+    /// Of the tones, how many were still in flight when due.
+    pub voice_pending: u64,
+    /// The voices each squad speaks in, in squad order (`s0: mia+jason`),
+    /// read from `voice.toml` so the HUD can colour them by squad.
+    pub squad_voices: Vec<(u8, String)>,
     /// What the voice backend said last, when it said something.
     pub voice: Option<String>,
 }
@@ -122,6 +141,11 @@ pub struct TalkConfig {
     /// `None` means no audio at all: the round still talks, and nobody hears
     /// it. This is the `off` of `--talk off`.
     pub tts: Option<Arc<dyn Tts>>,
+    /// The agents' skald voices (D73): the map, the bank and the prefetch
+    /// queue. When this is here, a line is rendered ahead of time at its
+    /// arrival and looked up at its airtime — a hit plays the WAV, anything
+    /// less plays the tone — and `tts` is not consulted at all.
+    pub voices: Option<Arc<crate::voices::Voices>>,
     /// The bark cache: the same line, in the same voice, with the same tone
     /// never reaches the voice service twice.
     pub bark: BarkCache,
@@ -137,6 +161,7 @@ impl Default for TalkConfig {
     fn default() -> Self {
         TalkConfig {
             tts: None,
+            voices: None,
             bark: BarkCache::default(),
             listener: Listener::Deaf,
             voice: DEFAULT_VOICE.to_owned(),
@@ -152,6 +177,13 @@ impl TalkConfig {
     /// the same handle to every round it plays.
     pub fn with_tts(mut self, tts: Arc<dyn Tts>) -> TalkConfig {
         self.tts = Some(tts);
+        self
+    }
+
+    /// The talk with the agents' skald voices: the map, the bank and the
+    /// prefetch queue, rendered ahead and never waited for.
+    pub fn with_voices(mut self, voices: Arc<crate::voices::Voices>) -> TalkConfig {
+        self.voices = Some(voices);
         self
     }
 

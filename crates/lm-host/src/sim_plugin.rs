@@ -519,6 +519,10 @@ fn write_on_exit(world: &mut World) {
 /// file is the round, exactly as the headless tools write it. It is written
 /// once -- a round that is over and a window that closes in the same frame
 /// are the same round, not two.
+///
+/// Before the loop is taken apart, its own summary is printed: what the
+/// person heard, in hits and tones — the numbers the outside verification
+/// reads off a headless run.
 fn write_round(world: &mut World, reopen: bool) {
     // Already written? Then this is a second chance, not a second file.
     if world.resource::<Recording>().written {
@@ -527,6 +531,29 @@ fn write_round(world: &mut World, reopen: bool) {
     let Some(path) = world.resource::<Recording>().path.clone() else {
         return;
     };
+
+    // The voice's own summary, while the round can still be asked: the
+    // hits and the tones of the skald path, the renders behind them, and
+    // what the half-duplex gate took away.
+    if let Some(host) = world
+        .get_resource::<Round>()
+        .and_then(|round| round.live.as_ref())
+    {
+        let talk = host.talk_counters();
+        if talk.voice_hits + talk.voice_tones > 0 {
+            let queue = host
+                .talk()
+                .and_then(|talk| talk.voices.as_ref())
+                .map(|voices| voices.queue_stats());
+            let (rendered, failed) = queue.map_or((0, 0), |stats| (stats.rendered, stats.failed));
+            let gate = world.get_resource::<crate::audio_plugin::Playback>();
+            let (played, cut) = gate.map_or((0, 0), |gate| (gate.played, gate.dropped));
+            println!(
+                "lm-host: voice hit {} tone {} pending {} — rendered {} failed {} — gate played {} cut {}",
+                talk.voice_hits, talk.voice_tones, talk.voice_pending, rendered, failed, played, cut
+            );
+        }
+    }
 
     // The live round is finished, so its log is sealed.
     let log = {

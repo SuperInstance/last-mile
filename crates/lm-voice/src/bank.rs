@@ -104,23 +104,146 @@ impl From<BankError> for VoiceError {
 /// stores, because a store lands by rename and a lookup only ever sees
 /// files that are whole. It is `Clone` because it *is* its path, and the
 /// prefetch worker keeps a copy of its own.
+///
+/// A bank may carry a **cap** ([`VoiceBank::open_capped`]): the most bytes
+/// of WAV and sidecar it may hold. The cap is the host's policy for a bank
+/// that lives in a per-user cache directory, where nobody is watching it
+/// grow; it is enforced after every store and by
+/// [`VoiceBank::enforce_cap`] on demand, by evicting the oldest entries
+/// whole. A bank with no cap keeps everything, exactly as it did before
+/// the cap existed (D73's word: a round's worth of unique lines is a
+/// handful).
 #[derive(Clone)]
 pub struct VoiceBank {
     root: PathBuf,
+    /// The most bytes the bank may hold; `None` is no cap at all.
+    cap_bytes: Option<u64>,
 }
 
 impl VoiceBank {
     /// The bank rooted at `root`, created if it is not there yet.
+    ///
+    /// This bank has no cap: it grows with every unique ask, as D73
+    /// shipped it.
     pub fn open(root: impl Into<PathBuf>) -> Result<VoiceBank, BankError> {
+        VoiceBank::open_capped(root, None)
+    }
+
+    /// The bank rooted at `root` with a size cap of `cap_bytes`, created
+    /// if it is not there yet, and shrunk to its cap right away — so a
+    /// bank that outgrew its cap under an older, larger one is trimmed
+    /// the moment it is opened, not only when the next render lands.
+    ///
+    /// The cap counts both files of an entry (the WAV and its sidecar),
+    /// and evicts whole entries, oldest first; a cap of zero keeps
+    /// nothing (every store evicts itself, which is the honest reading of
+    /// a bank asked to hold nothing).
+    pub fn open_capped(
+        root: impl Into<PathBuf>,
+        cap_bytes: Option<u64>,
+    ) -> Result<VoiceBank, BankError> {
         let root = root.into();
         fs::create_dir_all(&root)
             .map_err(|err| BankError::Io(format!("{}: {err}", root.display())))?;
-        Ok(VoiceBank { root })
+        let bank = VoiceBank { root, cap_bytes };
+        if bank.cap_bytes.is_some() {
+            bank.enforce_cap();
+        }
+        Ok(bank)
     }
 
     /// The bank's root directory.
     pub fn root(&self) -> &std::path::Path {
         &self.root
+    }
+
+    /// The bank's cap, in bytes, when it has one.
+    pub fn cap_bytes(&self) -> Option<u64> {
+        self.cap_bytes
+    }
+
+    /// How many bytes the bank holds, counted by walking its shards.
+    ///
+    /// This is the cap's own arithmetic (`enforce_cap` walks the same
+    /// entries); a report may ask it too.
+    pub fn bytes(&self) -> u64 {
+        self.entries()
+            .iter()
+            .map(|entry| entry.wav_bytes + entry.sidecar_bytes)
+            .sum()
+    }
+
+    /// Bring the bank under its cap, if it has one, by evicting the
+    /// oldest whole entries. The number of entries evicted is returned.
+    ///
+    /// An entry's age is its WAV's modification time — the moment the
+    /// entry became whole — and ties break by key, so the eviction is the
+    /// same every time it runs. A bank with no cap evicts nothing.
+    pub fn enforce_cap(&self) -> usize {
+        let Some(cap) = self.cap_bytes else {
+            return 0;
+        };
+        let mut entries = self.entries();
+        // Newest first: the entries at the front are the ones that stay.
+        entries.sort_by(|a, b| b.modified.cmp(&a.modified).then(b.key.cmp(&a.key)));
+        let mut held = 0u64;
+        let mut evicted = 0usize;
+        for entry in entries {
+            let size = entry.wav_bytes + entry.sidecar_bytes;
+            if held + size <= cap {
+                held += size;
+                continue;
+            }
+            let _ = fs::remove_file(self.wav_path(entry.key));
+            let _ = fs::remove_file(self.sidecar_path(entry.key));
+            evicted += 1;
+        }
+        evicted
+    }
+
+    /// The whole entries of the bank: their keys, their sizes and the
+    /// modification time of each WAV.
+    fn entries(&self) -> Vec<BankEntry> {
+        let mut out = Vec::new();
+        let Ok(shards) = fs::read_dir(&self.root) else {
+            return out;
+        };
+        for shard in shards.flatten() {
+            for file in fs::read_dir(shard.path()).into_iter().flatten().flatten() {
+                let path = file.path();
+                if path.extension().is_none_or(|x| x != "wav") {
+                    continue;
+                }
+                let Some(key) = path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .and_then(|stem| u64::from_str_radix(stem, 16).ok())
+                else {
+                    continue;
+                };
+                // Only a whole entry counts: a WAV without its sidecar is
+                // already a miss to every lookup, and not an entry to
+                // keep or to spend cap arithmetic on.
+                let (wav_bytes, modified) = match file.metadata() {
+                    Ok(meta) => (
+                        meta.len(),
+                        meta.modified().ok().unwrap_or(std::time::UNIX_EPOCH),
+                    ),
+                    Err(_) => continue,
+                };
+                let sidecar_bytes = fs::metadata(self.sidecar_path(key)).map_or(0, |m| m.len());
+                if sidecar_bytes == 0 {
+                    continue;
+                }
+                out.push(BankEntry {
+                    key,
+                    wav_bytes,
+                    sidecar_bytes,
+                    modified,
+                });
+            }
+        }
+        out
     }
 
     /// The key of a line under this bank's engine: the content-addressed
@@ -173,6 +296,10 @@ impl VoiceBank {
 
     /// Write the two files of an entry: the sidecar, then the WAV, each
     /// through a temporary and a rename.
+    ///
+    /// A capped bank trims itself after the store lands, so the cap is
+    /// kept without a sweeper of its own — and the entry that was just
+    /// written is the newest one, so it is the last thing a cap evicts.
     fn store_meta(&self, key: u64, meta: BankMeta, wav: &[u8]) -> Result<(), BankError> {
         let dir = self.shard_dir(key);
         fs::create_dir_all(&dir)
@@ -187,6 +314,9 @@ impl VoiceBank {
                 .as_slice(),
         )?;
         write_whole(&dir, &wav_path, wav)?;
+        if self.cap_bytes.is_some() {
+            self.enforce_cap();
+        }
         Ok(())
     }
 
@@ -247,6 +377,18 @@ impl VoiceBank {
     pub fn sidecar_path(&self, key: u64) -> PathBuf {
         self.shard_dir(key).join(format!("{key:016x}.json"))
     }
+}
+
+/// One whole entry of the bank, as the cap's arithmetic sees it.
+struct BankEntry {
+    /// The entry's key.
+    key: u64,
+    /// The bytes of its WAV.
+    wav_bytes: u64,
+    /// The bytes of its sidecar.
+    sidecar_bytes: u64,
+    /// When its WAV landed: the moment the entry became whole.
+    modified: std::time::SystemTime,
 }
 
 /// Write `bytes` to `path` through a temporary in the same directory, so
@@ -375,6 +517,107 @@ mod tests {
             let name = entry.file_name().to_string_lossy().into_owned();
             assert!(!name.starts_with('.'), "a temporary was left: {name}");
         }
+        let _ = fs::remove_dir_all(bank.root());
+    }
+
+    /// Store a line and stamp its WAV with an explicit age, so the cap's
+    /// eviction order is the test's own and not the filesystem's.
+    fn store_at(bank: &VoiceBank, key: u64, line: &SpeechLine, age_secs: u64) {
+        let samples = 22_050usize; // one second of WAV, a known size
+        let wav = crate::prosody::wav_bytes(&vec![0i16; samples], 22_050);
+        bank.store(key, line, "engine-a", &rendered(wav, 5))
+            .expect("the store lands");
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(age_secs);
+        let file = fs::File::options()
+            .write(true)
+            .open(bank.wav_path(key))
+            .expect("the WAV is there");
+        file.set_modified(when).expect("the age is stamped");
+    }
+
+    #[test]
+    fn a_capped_bank_evicts_its_oldest_entries_whole() {
+        let dir = std::env::temp_dir().join(format!("lm-voice-bank-cap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        // One WAV is 44 100 bytes + 44 of header; the sidecars are a few
+        // hundred more. A cap of two entries' worth keeps two.
+        let one = fs::metadata({
+            let probe = VoiceBank::open(dir.join("probe")).expect("the bank opens");
+            let line = SpeechLine::new("hold", "mia", "Neutral");
+            store_at(&probe, probe.key(&line, "engine-a"), &line, 0);
+            probe.wav_path(probe.key(&line, "engine-a"))
+        })
+        .expect("the probe WAV exists")
+        .len();
+        let _ = fs::remove_dir_all(&dir);
+
+        let bank = VoiceBank::open_capped(&dir, Some(2 * one + 8_192)).expect("the bank opens");
+        let oldest = SpeechLine::new("oldest", "mia", "Neutral");
+        let middle = SpeechLine::new("middle", "mia", "Neutral");
+        let newest = SpeechLine::new("newest", "mia", "Neutral");
+        store_at(&bank, bank.key(&oldest, "engine-a"), &oldest, 300);
+        store_at(&bank, bank.key(&middle, "engine-a"), &middle, 200);
+        store_at(&bank, bank.key(&newest, "engine-a"), &newest, 100);
+        assert_eq!(bank.len(), 2, "the cap holds two of the three");
+        assert!(
+            bank.lookup(bank.key(&oldest, "engine-a")).is_none(),
+            "the oldest went"
+        );
+        assert!(
+            bank.lookup(bank.key(&middle, "engine-a")).is_some(),
+            "the middle stayed"
+        );
+        assert!(
+            bank.lookup(bank.key(&newest, "engine-a")).is_some(),
+            "the newest stayed"
+        );
+        // Nothing half-evicted: the entry that went left no sidecar behind.
+        assert!(!bank.sidecar_path(bank.key(&oldest, "engine-a")).is_file());
+        assert!(bank.bytes() <= 2 * one + 8_192, "the bank is under its cap");
+        let _ = fs::remove_dir_all(bank.root());
+    }
+
+    #[test]
+    fn a_capped_bank_trims_itself_when_it_opens_over_the_cap() {
+        let dir = std::env::temp_dir().join(format!("lm-voice-bank-open-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        {
+            let uncapped = VoiceBank::open(&dir).expect("the bank opens");
+            for n in 0..4u64 {
+                let line = SpeechLine::new(format!("line {n}"), "mia", "Neutral");
+                store_at(&uncapped, uncapped.key(&line, "engine-a"), &line, 400 - n);
+            }
+            assert_eq!(uncapped.len(), 4);
+        }
+        // A cap of one entry's worth: opening the bank evicts all but the
+        // newest, without waiting for a store of its own.
+        let one = {
+            let bank = VoiceBank::open_capped(&dir, Some(u64::MAX)).expect("the bank opens");
+            let newest = SpeechLine::new("line 3", "mia", "Neutral");
+            let path = bank.wav_path(bank.key(&newest, "engine-a"));
+            let size = fs::metadata(&path).expect("the newest WAV").len();
+            drop(bank);
+            size
+        };
+        let bank = VoiceBank::open_capped(&dir, Some(one + 2_048)).expect("the bank opens");
+        assert_eq!(bank.len(), 1, "only the newest survived the open");
+        let newest = SpeechLine::new("line 3", "mia", "Neutral");
+        assert!(bank.lookup(bank.key(&newest, "engine-a")).is_some());
+        let _ = fs::remove_dir_all(bank.root());
+    }
+
+    #[test]
+    fn an_uncapped_bank_keeps_everything_as_it_always_did() {
+        let dir = std::env::temp_dir().join(format!("lm-voice-bank-nocap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let bank = VoiceBank::open(&dir).expect("the bank opens");
+        assert_eq!(bank.cap_bytes(), None);
+        for n in 0..6u64 {
+            let line = SpeechLine::new(format!("line {n}"), "mia", "Neutral");
+            store_at(&bank, bank.key(&line, "engine-a"), &line, 0);
+        }
+        assert_eq!(bank.len(), 6, "no cap, no eviction");
+        assert_eq!(bank.enforce_cap(), 0, "an uncapped bank evicts nothing");
         let _ = fs::remove_dir_all(bank.root());
     }
 }

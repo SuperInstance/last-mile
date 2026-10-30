@@ -59,8 +59,8 @@ pub use prosody::{ProsodyService, DEFAULT_TIMEOUT_MS as PROSODY_TIMEOUT_MS, SCOR
 
 pub mod asr;
 pub mod bank;
-#[cfg(test)]
-pub(crate) mod mockhttp;
+#[cfg(any(test, feature = "mocks"))]
+pub mod mockhttp;
 pub mod prefetch;
 pub mod skald;
 pub mod voicemap;
@@ -79,12 +79,22 @@ pub const ENV_RIVA_TTS_PORT: &str = "LM_RIVA_TTS_PORT";
 pub const ENV_RIVA_ASR_PORT: &str = "LM_RIVA_ASR_PORT";
 /// The environment variable that names the voice daemon's base URL.
 ///
-/// The daemon is on the Thor, and the live lane runs the tests from
-/// another box: the environment says where the daemon is, and the voice
-/// map's "localhost" is the default for a run on the daemon's own box.
-/// The base is named without the port — the port is the map's, and the
-/// map is the config.
+/// The daemon is on the Thor, and both the live lane and the host itself
+/// run from another box: the environment says where the daemon is, and
+/// the voice map's "localhost" is the default for a run on the daemon's
+/// own box. The harness file is doctrine pinned per round while the
+/// daemon's address is a fact of the machine the host runs on — the
+/// environment is the machine's own word, and it wins over the file, the
+/// same rule the Riva adapters follow. The base is named without the
+/// port: the port is `LM_SKALD_PORT`'s or the map's, and the map is the
+/// config.
 pub const ENV_SKALD_BASE: &str = "LM_SKALD_BASE";
+/// The environment variable that overrides the skald daemon's port.
+///
+/// The map names the port the Thor spells, and the machine the host runs
+/// on may reach the daemon at another one; this is the machine's own
+/// word for it, beside [`ENV_SKALD_BASE`].
+pub const ENV_SKALD_PORT: &str = "LM_SKALD_PORT";
 /// The environment variable that names the ears' base URL.
 ///
 /// The ears are on the Thor too, and the same rule holds: the

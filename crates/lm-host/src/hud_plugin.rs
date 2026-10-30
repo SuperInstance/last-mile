@@ -209,6 +209,25 @@ fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Pl
                 talk.clips, talk.bark_hits, talk.bark_misses
             ));
         }
+        // The skald voices (D73): of the lines that were due in the ear,
+        // how many played the rendered clip, how many fell back to the
+        // tone, and of those how many were still in flight. The round
+        // never waited for any of them.
+        if talk.voice_hits + talk.voice_tones > 0 {
+            ui.label(format!(
+                "voice hit {} / tone {} / pending {}",
+                talk.voice_hits, talk.voice_tones, talk.voice_pending
+            ));
+            // The squad colour maps to the voice through voice.toml: the
+            // legend names each squad's speakers in the squad's own
+            // colour, so a reader knows whose line they are hearing.
+            for (squad, voices) in &talk.squad_voices {
+                ui.colored_label(
+                    egui_color(squad_color(*squad)),
+                    format!("s{squad} {voices}"),
+                );
+            }
+        }
         // The microphone: dead or not. That is the health check, and a dead
         // microphone submits nothing. Before anything has been captured the
         // microphone is simply idle — it has not been heard from yet, which

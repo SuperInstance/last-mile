@@ -179,15 +179,21 @@ facts live behind `#[ignore]` in skald's lane (`scripts/live.sh`):
 `live_skald_speaks` (one render through the daemon) and
 `live_skald_round_trip_is_intelligible` (render + hear back, ≥ 500 ‰).
 
-## What is deliberately not here yet
+## What wired in, and what is still not here
 
-Wiring into the host (`lm-host`'s audio plugin and main) belongs to
-another seat and comes later; nothing in the sim or the host's hot path
-was touched, and the round's hash does not cover any of this — the audio
-is for the human, and the sim never sees it. The roster's own `voice`
-field still says `default`; when the host wires up, `voice.toml` is the
-map it reads.
+The host plays the agents' lines through this crate now (the
+`hearvoices` seat): `--talk on` (skald) attaches a `Voices` handle to
+the round — the map, the bank and the queue — submits every planned line
+at its arrival, looks it up at its airtime, and plays the WAV on a hit
+or the tone on anything less. The bank lives in the machine's per-user
+cache dir with a size cap (`voice.toml`'s `[bank]` section, or
+`--voice-bank` / `--voice-bank-cap-mb`), evicting whole entries
+oldest-first, and a background pre-warm plays the round's seed once
+with the stub minds to warm it from the phrasebook. The measured facts
+of that wiring (hit/tone counts cold and warm, the render latency from
+the ProArt over Wi-Fi) live in `docs/notes/voices-in-host.md`; nothing
+in the sim or the host's hot path waits on any of it, and the round's
+hash still does not cover it.
 
-The bank grows without bound (one entry per unique ask, ~90 KB a clip);
-a cap or an eviction is a harness decision nobody has asked for yet, and
-the numbers above say a round's worth of unique lines is a handful.
+The roster's own `voice` field still says `default`; `voice.toml` is the
+map the host reads.

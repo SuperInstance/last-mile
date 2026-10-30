@@ -304,6 +304,72 @@ impl Default for Playback {
     }
 }
 
+/// The played-clip log: the outside proof of playback.
+///
+/// Nobody in the harness can hear the ProArt's speakers, so when the
+/// question is "did the voices actually play?" the answer is written down:
+/// one line a clip the player was handed, with the samples it was handed,
+/// the tick it aired, whose voice and style it was, whether it was the
+/// bank's clip or the tone, and what the render cost. A clip the gate cut
+/// is logged as cut, not played — the log is honest about what reached
+/// the ear and what the half-duplex gate took away.
+#[derive(Resource)]
+pub struct VoiceLog {
+    file: std::fs::File,
+}
+
+impl VoiceLog {
+    /// The log over an already-created file (a header line is written, so
+    /// an empty log names its own columns).
+    pub fn open(mut file: std::fs::File) -> VoiceLog {
+        use std::io::Write;
+        let _ = writeln!(
+            file,
+            "# tick speaker outcome origin voice style samples rate dur_ms render_ms key text"
+        );
+        VoiceLog { file }
+    }
+
+    /// One line of the log: what the player was handed, or what the gate
+    /// cut. A write that fails is named on the console and then given up
+    /// on — the log is a diagnostic, never a dependency.
+    fn line(
+        &mut self,
+        tick: lm_core::decision::Tick,
+        speaker: u16,
+        outcome: &str,
+        clip: &lm_voice::TtsClip,
+        spoken: &Option<lm_host_model::voices::Spoken>,
+    ) {
+        use std::io::Write;
+        let (origin, voice, style, render_ms, key) = match spoken {
+            Some(spoken) => (
+                spoken.origin.as_str(),
+                spoken.voice.as_str(),
+                spoken.style.as_str(),
+                spoken
+                    .latency_ms
+                    .map_or_else(|| "-".to_owned(), |ms| ms.to_string()),
+                format!("{:016x}", spoken.key),
+            ),
+            None => ("stub", "-", "-", "-".to_owned(), "-".to_owned()),
+        };
+        let text = spoken
+            .as_ref()
+            .map_or_else(|| "-".to_owned(), |spoken| format!("{:?}", spoken.text));
+        let written = writeln!(
+            self.file,
+            "{tick} a{speaker} {outcome} {origin} {voice} {style} {} {} {} {render_ms} {key} {text}",
+            clip.pcm.len(),
+            clip.sample_rate,
+            clip.duration_ms,
+        );
+        if let Err(err) = written {
+            eprintln!("lm-host: the voice log could not be written: {err}");
+        }
+    }
+}
+
 /// The systems of the voice, as one set.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VoiceSet {
@@ -602,11 +668,16 @@ fn cut_the_audio(sinks: Query<&AudioSink>, keys: Res<ButtonInput<KeyCode>>) {
 /// The gate decides: while the human holds the key the agents are quiet, and
 /// for the hang time after the key comes up. A clip the gate drops is
 /// dropped for good — it never comes back, and it is never queued.
+///
+/// Every clip the player is handed is written to the played-clip log when
+/// one is open, with its samples: the outside proof of playback (nobody in
+/// the harness can hear this machine's speakers).
 fn play_the_clips(
     mut round: ResMut<Round>,
     mut playback: ResMut<Playback>,
     mut sources: ResMut<Assets<AudioSource>>,
     mut commands: Commands,
+    mut log: Option<ResMut<VoiceLog>>,
     time: Res<Time>,
 ) {
     let Some(host) = round.live.as_mut() else {
@@ -620,12 +691,18 @@ fn play_the_clips(
     for clip in clips {
         if playback.gate.on_agent_clip(now_ms) == GateAction::Drop {
             playback.dropped += 1;
+            if let Some(log) = log.as_mut() {
+                log.line(clip.tick, clip.speaker, "cut", &clip.clip, &clip.spoken);
+            }
             continue;
         }
         // A clip with no samples is not a sound, and a sound with no rate is
         // not a wave: the player would choke on it, so it is not played.
         if clip.clip.pcm.is_empty() || clip.clip.sample_rate == 0 {
             continue;
+        }
+        if let Some(log) = log.as_mut() {
+            log.line(clip.tick, clip.speaker, "played", &clip.clip, &clip.spoken);
         }
         // The clip is raw samples; the player wants a wave.
         let wave = lm_voice::prosody::wav_bytes(&clip.clip.pcm, clip.clip.sample_rate);

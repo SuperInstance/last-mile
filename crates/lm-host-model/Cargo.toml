@@ -33,3 +33,6 @@ serde_json = "1"
 # The live test asks the Thor's voice for a wave and the Thor's ears for
 # the words of it. The lane is behind `#[ignore]`: it needs the LAN.
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+# The voice wiring's tests prove the prefetch and the fallback against the
+# loopback mock skald daemon, never a network.
+lm-voice = { path = "../lm-voice", features = ["mocks"] }

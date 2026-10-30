@@ -327,6 +327,22 @@ pub fn cmd_voice(args: &VoiceArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// The lines a seeded round speaks with the stub minds of the shipped
+/// harness: what the host's pre-warm asks the bank for before the round's
+/// own lines arrive.
+///
+/// The stub round is the honest enumerator of the phrasebook: the
+/// templates are realized by the same gates and the same world the real
+/// round uses, so the lines that come out are the lines the round will
+/// say — all six of them, in VOICE.md's measurement — rather than a cross
+/// product of every template with every subject the phrasebook can name.
+pub fn stub_round_lines(header: &Header, ticks: u64) -> Vec<Utterance> {
+    play_round(header, ticks)
+        .into_iter()
+        .map(|line| line.utterance)
+        .collect()
+}
+
 /// The voice map: the shipped one, or the file that overrides it.
 fn load_map(path: Option<&Path>) -> Result<VoiceMap, String> {
     match path {

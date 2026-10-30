@@ -142,6 +142,37 @@ marks read it apart.
   edge of it in a screenshot. The pitch lane compresses to a couple of pixels
   per agent at eight systems; it opens up when there are fewer.
 
+## The side issue: squad 1's empty staves — answered (real, not a bug)
+
+A later reading of `score-live-thor.png` and `score-calm-vs-urgent.png`
+asked whether squad 1's systems (a4–a7) being empty was a score-view
+bug. It is not, and the two screenshots say different things:
+
+- **`score-calm-vs-urgent.png` (seed 7's log): real silence.** The log
+  itself — the truth, not the view — holds **zero decisions from a3–a7
+  for the whole round**, and their lanes never held a move (probed by
+  rebuilding the score model from the log: a0/a1/a2 carry 7/1/1 voice
+  notes and a move run each; a3–a7 carry none and one reflex run each).
+  That round's HUD read `agents think 23 refused 14`, and the nine
+  answers that did land all went to a0–a2. The score shows the silence
+  because the round was silent: squad 1's minds (and a3's) never
+  answered. The dark stretch is by design ("the reflex's stretches stay
+  the staff's own dark"), and the tier staff does carry the engine band
+  — an all-reflex system is nearly indistinguishable from an empty one
+  at 720p, which is how the question arose.
+- **`score-live-thor.png` (seed 1's log): not empty at all.** Measured
+  by colour: all eight systems carry full-width gaze and tier runs
+  (squad 0 magenta on b2, squad 1 green on b3, all teal tier). The
+  voice/intent staves are empty for *every* agent in that window
+  (ticks 1412..2011; the round's eight lines were all spoken before
+  tick 533). Squad 1's green (GoToBeacon(3): 140,220,160) sits close to
+  the tier teal (70,170,160), which may read as "nothing drawn" at a
+  glance — a legibility note, not a bug.
+
+So: no fix — the finding is the round's own fact. (The adjacent real
+gap — refusals are live-only, so a replay cannot show *why* a3–a7 went
+quiet — is already in the honest list above.)
+
 ## Where it lives
 
 - `crates/lm-host-model/src/score.rs` — the model: staves, notes, gestures,

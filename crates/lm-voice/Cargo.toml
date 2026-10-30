@@ -6,6 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 description = "the voice service: the TTS/ASR traits, the stub backends, the Riva placeholders, the bark cache (phase 4 Task 5), and the skald sidecar path: the voice bank, the prefetch queue and the ASR round-trip gate (D73)"
 
+[features]
+# The loopback mock skald daemon, for the tests of the crates downstream of
+# this one (the host model's voice wiring, for one). `cargo test` never
+# touches a network: the mock answers on 127.0.0.1, and only test builds
+# ever ask for it.
+mocks = []
+
 [dependencies]
 # The score and the hearing physics: the voice service is told what was
 # said, and whether the human's ear can hear it.
