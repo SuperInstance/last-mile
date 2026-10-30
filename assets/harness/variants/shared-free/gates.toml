@@ -1,0 +1,141 @@
+# The `shared-free` variant's gates: the `advance` gates with the move gate's
+# third branch changed to the shared target.
+#
+# **Design intent**: both squads go for the same beacon — the lowest-numbered
+# one **no squad holds** — so they meet instead of walking to mirrored
+# corners.
+#
+# The doctrine's target is normally set by the facts builder, not by the
+# harness (crates/lm-agents/tests/engagement.md): the builder names "the
+# nearest beacon your squad does not hold", which on a point-symmetric map
+# sends squad 0 to beacon 2 and squad 1 to beacon 3. This variant needs the
+# builder to name a *different* target, and the builder does that only when
+# the harness says so: `facts.toml` turns the shared-target rule on, and the
+# builder then states, per beacon, which one is the shared target.
+#
+# The rule is still a rule over the facts the builder states: "the beacon no
+# squad holds" is the builder's own sentence, said of one beacon.
+
+[[gates]]
+id = "move"
+type = "choice"
+options_from = "menu"
+instructions = "Your squad's doctrine, in order: (1) If an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells, retreat. (2) If you are standing on a beacon your squad holds and an enemy is within 6 cells of you, hold. (3) Otherwise go to the shared target: the beacon no squad holds."
+
+[gates.criteria]
+beacon = "go to beacon {beacon} (the doctrine's third branch: go to the shared target, the beacon no squad holds)"
+hold = "hold position (the doctrine's second branch: you are standing on a beacon your squad holds and an enemy is within 6 cells of you)"
+follow = "follow the squad leader (no branch of the doctrine says to follow the leader)"
+retreat = "retreat to the squad's spawn (the doctrine's first branch: an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells)"
+
+# ------------------------------------------------------------- the talk gates
+#
+# The talk gates are the shipped ones, unchanged: the urgency gate is what the
+# engagement measurement reads, and a doctrine variant must not move it.
+
+[[gates]]
+id = "gesture"
+type = "choice"
+options_from = "fixed"
+instructions = "Your squad's doctrine for speaking, in order: (1) If you can see what your squad has to do and it is not doing it, command it. (2) If you need something the facts do not tell you, question it. (3) If the situation itself is the news, state it. (4) If nobody in particular is being addressed, call out."
+
+[gates.criteria]
+command = "a command: your squad is to do something (the doctrine's first branch: you can see what your squad has to do and it is not doing it)"
+question = "a question: you need something the facts do not tell you (the doctrine's second branch)"
+statement = "a statement: the situation itself is the news (the doctrine's third branch)"
+callout = "a callout: nobody in particular is being addressed (the doctrine's fourth branch)"
+
+[[gates]]
+id = "gesture_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a line worth saying at all right now?"
+
+[[gates]]
+id = "attention"
+type = "choice"
+options_from = "fixed"
+instructions = "Who the line is for, in order: (1) If the whole squad has to act on it, your squad. (2) If one agent in particular needs it, that agent by number. (3) Only if the whole field must hear it, everybody."
+
+[gates.criteria]
+squad = "your squad (the doctrine's first branch: the whole squad has to act on it)"
+all = "everybody who can hear (the doctrine's third branch: the whole field must hear it)"
+agent0 = "agent 0 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent1 = "agent 1 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent2 = "agent 2 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent3 = "agent 3 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent4 = "agent 4 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent5 = "agent 5 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent6 = "agent 6 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent7 = "agent 7 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates]]
+id = "attention_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there anyone this line is for?"
+
+[[gates]]
+id = "intention"
+type = "score"
+options_from = "fixed"
+instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. The rule, in order: (1) if an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned, the moment is urgent. (2) if no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned, the moment is idle. (3) otherwise the moment is ordinary."
+
+[[gates.levels]]
+key = "idle"
+score = 0
+description = "idle: no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned"
+
+[[gates.levels]]
+key = "ordinary"
+score = 1
+description = "ordinary: nothing is happening that your squad has to know about now"
+
+[[gates.levels]]
+key = "urgent"
+score = 2
+description = "urgent: an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned"
+
+[[gates]]
+id = "intention_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there something for your squad to hear about this moment?"
+
+[[gates]]
+id = "intent"
+type = "choice"
+options_from = "fixed"
+instructions = "What the line is for, in order: (1) If the line asks your squad to act, an order. (2) If it says you have heard and understood, an acknowledgement. (3) If it warns of danger, a warning. (4) If it asks for something you do not know, a query. (5) If it reports what has happened, a report."
+
+[gates.criteria]
+order = "an order: the line asks your squad to act (the doctrine's first branch)"
+ack = "an acknowledgement: the line says you have heard and understood (the doctrine's second branch)"
+warn = "a warning: the line warns of danger (the doctrine's third branch)"
+query = "a query: the line asks for something you do not know (the doctrine's fourth branch)"
+report = "a report: the line reports what has happened (the doctrine's fifth branch)"
+
+[[gates]]
+id = "intent_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a point to make?"
+
+[[gates]]
+id = "subject"
+type = "choice"
+options_from = "menu"
+moves = false
+instructions = "What the line is about: the beacon it names, or nothing in particular. The options are the moves you could make, so the beacons are the ones your squad can reach."
+
+[gates.criteria]
+beacon = "beacon {beacon}"
+hold = "nothing in particular"
+follow = "nothing in particular"
+retreat = "nothing in particular"
+
+[[gates]]
+id = "subject_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a thing to talk about?"

@@ -64,6 +64,7 @@ pub use crate::gates::Pack;
 use crate::harness::Harness;
 use crate::phrasebook::Phrasebook;
 use crate::queue::ThinkReq;
+use crate::shared::SharedConfig;
 use crate::sysone::{Answers, Escalation, EscalationOutcome, Refusal, SysOne};
 use crate::utter::{
     pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
@@ -945,6 +946,8 @@ pub struct Mind {
     params: Params,
     gates: GateSet,
     policy: Policy,
+    /// The shared target the facts builder states (off by default).
+    shared: SharedConfig,
     mode: Mode,
     now: Tick,
     last_ask: Option<Tick>,
@@ -1003,7 +1006,7 @@ impl Mind {
         // see, not a silent agent that never thinks: the gates are the
         // questions, and a question that does not fit the API's schema
         // is refused by the model anyway (D26).
-        let (gates, refusals) = match GateSet::parse(&harness.gates_toml) {
+        let (gates, mut refusals) = match GateSet::parse(&harness.gates_toml) {
             Ok(gates) => (gates, Vec::new()),
             Err(error) => (
                 GateSet::default(),
@@ -1014,6 +1017,24 @@ impl Mind {
             ),
         };
         let phrasebook = Phrasebook::parse(&harness.phrasebook_toml).unwrap_or_default();
+        // The shared target is a harness parameter like the gates are: a
+        // harness whose facts file does not load, or asks for a target the
+        // facts cannot state, is a refusal the round can see — not a silent
+        // agent that states the wrong target (D26).
+        let (shared, shared_refusal) = match SharedConfig::parse(&harness.facts_toml)
+            .map_err(|error| format!("the harness facts do not load: {error}"))
+            .and_then(|shared| {
+                shared
+                    .validate()
+                    .map_err(|error| format!("the harness facts cannot be stated: {error}"))?;
+                Ok(shared)
+            }) {
+            Ok(shared) => (shared, None),
+            Err(error) => (SharedConfig::default(), Some(Refusal::Malformed(error))),
+        };
+        if let Some(refusal) = shared_refusal {
+            refusals.push((0, refusal));
+        }
         Mind {
             agent,
             role,
@@ -1022,6 +1043,7 @@ impl Mind {
             params: Params::default(),
             gates,
             policy: Policy::for_harness(&harness.policy_toml),
+            shared,
             mode: Mode::parse(&cfg.mode),
             now: 0,
             last_ask: None,
@@ -1211,7 +1233,7 @@ impl Mind {
             return None;
         }
 
-        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
+        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg, &self.shared);
         let situation = SituationKey::of(view, &facts, &self.params);
         let fresh_threat = view
             .enemies
@@ -1371,7 +1393,7 @@ impl Mind {
             return None;
         }
 
-        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
+        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg, &self.shared);
         let situation = SituationKey::of(view, &facts, &self.params);
         let tier =
             match self
@@ -1931,6 +1953,7 @@ mod tests {
             gates_toml: DEFAULT_GATES.to_owned(),
             policy_toml: policy.to_owned(),
             phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
+            facts_toml: String::new(),
             reflexes: BTreeMap::new(),
             commit: "test".to_owned(),
         }
@@ -2687,7 +2710,7 @@ mod tests {
         let view_b = view_at(3, 5, 5);
         let menu_a = menu(&view_a);
         let menu_b = menu(&view_b);
-        let key_a = Facts::from_view(&view_a, &world, 0, &cfg).key;
+        let key_a = Facts::from_view(&view_a, &world, 0, &cfg, &SharedConfig::default()).key;
 
         let mut m = mind(3, &cfg, STUB_POLICY);
 
@@ -3050,6 +3073,35 @@ mod tests {
                 .1
                 .to_string()
                 .contains("the harness gates do not load"),
+            "got {:?}",
+            m.refusals()[0].1
+        );
+    }
+
+    #[test]
+    fn a_harness_whose_facts_cannot_be_stated_is_a_refusal() {
+        // The shared target is a fact the builder says out loud, and a
+        // repulsor cannot be one: the beacon would be named as the target
+        // and described as pushing away from it. So the round sees the
+        // refusal rather than a silent agent with the wrong target (D26).
+        let mut h = harness(STUB_POLICY);
+        h.facts_toml = r#"
+            [shared]
+            rule = "ghost"
+
+            [shared.ghost]
+            kind = "repulsor"
+        "#
+        .to_owned();
+
+        let m = Mind::new(1, Role::Member, &h, &AgentsConfig::default());
+
+        assert_eq!(m.refusals().len(), 1);
+        assert!(
+            m.refusals()[0]
+                .1
+                .to_string()
+                .contains("the harness facts cannot be stated"),
             "got {:?}",
             m.refusals()[0].1
         );

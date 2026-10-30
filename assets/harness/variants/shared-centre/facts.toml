@@ -1,0 +1,46 @@
+# The shared target this harness's facts builder states.
+#
+# This harness asks for the **most central** beacon: a fixed target, which
+# does not move as the map is taken, so the two squads are sent to the same
+# beacon for the whole round.
+#
+# The facts builder is what sets the doctrine's target: it names "the nearest
+# beacon your squad does not hold", which on a point-symmetric map is
+# mirrored, so the two squads walk to opposite corners and never meet (see
+# crates/lm-agents/tests/engagement.md).
+#
+# This file is the harness parameter that turns on a *shared* target: the
+# beacon both squads are sent to, read off the beacons every agent can see,
+# so both squads get the same one by construction.
+#
+# `rule` is one of:
+#
+#   off      no shared target: the shipped facts, unchanged (the default,
+#            and what a harness without this file gets)
+#   free     the lowest-numbered beacon no squad holds
+#   centre   the most central beacon: the one nearest the middle of the
+#            beacons, which on the round's symmetric map is the one at the
+#            centre of the map
+#   ghost    the same beacon `free` names, but stated as a *field*: an
+#            attractor with a strength, a radius and a falloff, so the
+#            facts say which beacon the agent is pulled toward and how hard
+#            the pull is where it stands
+#
+# The ghost's knobs are read only when `rule` is `ghost`:
+#
+#   kind          attractor or repulsor. The shared target is an attractor:
+#                 a repulsor pushes both squads away from the beacon and
+#                 names no target, so the facts refuse it.
+#   strength_q14  the tile's strength, in Q14 (16384 is 1.0)
+#   radius_cells  how far the tile reaches, in cells
+#   falloff       how the influence falls off: inverse-linear, inverse-square
+#                 or constant
+#   phase         how the strength changes over the round: permanent,
+#                 temporal (fades over max_age_ticks) or recurring (pulses
+#                 over cycle_ticks)
+#
+# Everything is an integer and everything is read off the sim's state, so the
+# same situation always yields the same field.
+
+[shared]
+rule = "centre"

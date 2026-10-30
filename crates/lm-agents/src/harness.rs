@@ -6,6 +6,7 @@
 //! <dir>/gates.toml          the typed questions it asks its decision model (D37)
 //! <dir>/policy.toml         when to think: think rates, novelty and threat thresholds
 //! <dir>/phrasebook.toml     the wording of the lines it speaks (Task 4)
+//! <dir>/facts.toml          the shared target the facts builder states (off by default)
 //! <dir>/reflexes/*.rhai     its sandboxed reflex scripts (run inside lm-core)
 //! <dir>/lexicon.md          what its squad learned about language (phase 5)
 //! ```
@@ -41,6 +42,11 @@ pub struct Harness {
     /// The wording of the lines is doctrine like the gates are, so it
     /// travels with the harness and is pinned by the harness commit.
     pub phrasebook_toml: String,
+    /// `facts.toml` as text (parsed by `shared`), or empty if absent.
+    ///
+    /// The shared target is doctrine like the gates are, so it travels
+    /// with the harness and is pinned by the harness commit.
+    pub facts_toml: String,
     /// Reflex scripts by file stem (`reflexes/flee.rhai` -> `"flee"`).
     pub reflexes: BTreeMap<String, String>,
     /// The pinned identity: a git commit id, or `content:<16 hex>`.
@@ -61,16 +67,24 @@ impl Harness {
         let gates_toml = read_opt("gates.toml")?;
         let policy_toml = read_opt("policy.toml")?;
         let phrasebook_toml = read_opt("phrasebook.toml")?;
+        let facts_toml = read_opt("facts.toml")?;
         let reflexes = read_reflexes(&dir.join("reflexes"))?;
         let commit = match git_head(dir) {
             Some(id) => id,
-            None => content_id(&gates_toml, &policy_toml, &phrasebook_toml, &reflexes),
+            None => content_id(
+                &gates_toml,
+                &policy_toml,
+                &phrasebook_toml,
+                &facts_toml,
+                &reflexes,
+            ),
         };
         Ok(Harness {
             dir: dir.to_path_buf(),
             gates_toml,
             policy_toml,
             phrasebook_toml,
+            facts_toml,
             reflexes,
             commit,
         })
@@ -123,6 +137,7 @@ fn content_id(
     gates: &str,
     policy: &str,
     phrasebook: &str,
+    facts: &str,
     reflexes: &BTreeMap<String, String>,
 ) -> String {
     let mut h = Fnv64::new();
@@ -133,6 +148,12 @@ fn content_id(
     put(gates);
     put(policy);
     put(phrasebook);
+    // Only a harness that states a shared target has a facts file, and an
+    // empty file changes nothing, so it leaves the identity alone: a
+    // harness that does not use the parameter keeps the identity it had.
+    if !facts.trim().is_empty() {
+        put(facts);
+    }
     for (name, src) in reflexes {
         put(name);
         put(src);
