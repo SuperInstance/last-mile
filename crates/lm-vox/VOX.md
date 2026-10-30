@@ -92,6 +92,10 @@ so in the commit.
 
 ## E2 — how small is it? **498 B/s mean: the 300 B/s target is missed on continuous neural speech**
 
+*Superseded by the α-β-γ smoothing pass (two sections down): 288 B/s on
+the same population, every tolerance held. This section is the
+pre-smoothing measurement and the analysis of why it missed.*
+
 Measured by `examples/experiments.rs`: 20 lines (squad speech, three
 voices mia/jason/aria round-robin) rendered by skald
 (`POST :8000/v1/audio/speech`), analyzed, encoded, and the stream's bytes
@@ -164,6 +168,119 @@ coarticulation, or the ladder keeps the LPC rung as "robot voice" and
 the words travel as text alongside the score (which is how §6 draws the
 ladder anyway: the words are the neural rung's job). The per-channel
 table above is the evidence for that decision.
+
+## The α-β-γ smoothing pass — E2 under 300 B/s, E1 and E4 held
+
+*2026-10-29, the branch this file rode in on (fleet 14z nugget N5, the
+independent review's proposal). One new module, `src/smooth.rs`, between
+the voicing pass and the dial quantization: a bank of α-β-γ tracking
+filters, one per dial track (f0, level, F1–F3, tilt, noise), integer/fixed
+point throughout — Q4 state, Q8 gains, one shift-add multiply per gain,
+no table, no float; the frames stay machine-exact and the golden test
+pins them.*
+
+A tracker predicts each dial from where it was and how fast it was
+moving, then corrects by a fraction of the residual. Ramps ride free
+(the velocity state absorbs a declination or a formant glide, so the
+smoothed track follows with no lag — E1's ±10 cents demands this and a
+plain low-pass would fail it) and estimator jitter dies (uncorrelated
+residuals average toward zero instead of reaching the encoder's deltas —
+E2's whole problem). Octave-class pitch jumps, voicing flips, onsets,
+rests and level jumps are **resets, not smoothing targets**: the new
+value states itself whole and tracking restarts, so attacks survive
+bit-exact. On top of the filter, each dial's *emission* is grid-stepped
+(3 cents on pitch, 2 units on the others), slew-limited away from
+boundaries, and hold-banded (the track does not move at all until the
+filter has drifted clear of what it last stated). Every gain, band and
+clamp is a parameter (`SmoothConfig`); `SmoothConfig::off()` is the
+pass as a no-op and the analyzer keeps the pre-smoothing quantization
+path for it, so before/after runs measure one change at a time on the
+same audio. With smoothing on, the analyzer's median/deadband passes are
+replaced by the filter (E2 measured both ways); flags never move.
+
+**E1 re-run: every tolerance still passes.** `--example e1` (release,
+Thor): 34/34 rows, worst errors unchanged from the pre-smoothing table —
+steady-tone F0 0.18 cents, the 1-octave sweep 1.26 cents, formants 4.4 %
+(/u/ F1), onsets 10 ms. The pitch filter's own budget is stated in its
+parameters: hold 6 + grid 3 cents < the ±10-cent gate, and the ramp test
+in `smooth.rs` pins a 3-cents-a-frame declination followed within 9
+cents. `tests/e1_synthetic.rs` asserts it at both rates, debug and
+release.
+
+**E2 re-run: 508 → 288 B/s mean on the same renders** (`--example e2`,
+skald up, renders cached under `target/vox-e2` because Riva's are not
+deterministic — both columns are the same audio, so the delta is the
+smoothing alone; the 498 B/s in the section above was the same harness
+population on its own earlier renders):
+
+| | before (`off`) | after (defaults) |
+|---|---|---|
+| 20 skald lines, mean | 508 B/s | **288 B/s** (target ≤ 300) |
+| per-line range | 470–574 | 240–362 |
+| the 20 joined + 400 ms pauses (32.4 s) | 385 B/s | **218 B/s** |
+| whole-frame fallbacks (20 lines, 24.9 s) | 326 (13.1/s) | **117 (4.7/s)** |
+
+Packet mix, totals over the 20 lines: whole frames 326 → 117, byte-deltas
+1288 → 827, nibble-deltas 837 → 692, repeats 36 → 390, rests 0 (single
+lines carry no rest markers; the neural noise floor sits above the rest
+threshold — unchanged). The smoothing's reads: the hold bands freeze
+plateaus into repeats, the slew bounds keep ramps inside 4-bit deltas,
+and resets state real transients whole. The honest residue: 4 of the 20
+lines (the shortest and the jabbiest) still measure 317–362 B/s — the
+attack-density end of the corpus, where resets are *correct* and cost
+what they cost.
+
+**The golden hash moved twice, both times for the smoothing.**
+`0x6bf5f8521844c847` → `0xeeaa7636e95927ab` when the pass landed, →
+`0x71bdc1287ba9ff0b` after the β fix below; the input WAV hash
+(`0x9c04796558fdd7d2`) did not move. The smoothing changes L0's dials by
+design; the chain hash follows.
+
+**E4 check: the L2 line does not get worse — but the first attempt did,
+and the check earned its keep.** `--example e4_l2` rebuilds E4b's 7-field
+profile-relative line (`docs/research/vox/E4-E5.md` §8.5) from lm-vox's
+own analysis of the 340 clips (at `~/lm-evidence/vox-e4/`, not copied),
+with the smoothing off and on; `tools/vox-e4/evaluate.py --arms l2-v3`
+asks the d1-2B gate (deterministic; :8094) the same questions of both:
+
+| lines | urgent-vs-not | order/question |
+|---|---|---|
+| smoothing off (the E4b line, reproduced) | **90.6 %** (163/180) | 50.0 % (constant, as in E4b) |
+| smoothing on, first defaults (β on level/tilt) | 86.7 % (156/180) | 50.0 % |
+| smoothing on, shipped defaults (no β on level/tilt) | **90.6 %** (163/180, the binary confusion identical to off's) | 50.0 % |
+
+The 86.7 % was a real bug, and the diagnosis is the section's point: the
+level track's velocity state carried a ramp's momentum past its summit —
+on a calm clip whose envelope ramps ~7 units/frame into a plateau, the
+tracker overshot the plateau by 7–11 units (2.6–4.1 dB of *phantom
+peak*; e.g. 071: raw plateau flat at −20.2 dBFS, smoothed emission
+stating 212 against the pre-smoothing analyzer's 201) while the hold
+band kept the overshoot stated for ~10 frames. Angry attacks never
+overshot (they trip the jump reset and state whole), so urgent clips
+read their true level and calm clips read loud — the contrast the
+urgency gate reads (velocity is E4b's strongest urgency axis, LOSO
+binary 0.933) compressed from one side. The fix is structural, not
+tuned: **the level and tilt tracks carry no velocity state** (β = 0) —
+an envelope's fast rises are attacks, which are resets, and everything
+slower is followed by α alone; momentum on an envelope buys lag-freedom
+no envelope needs and pays in phantom peaks. F0 and the formants keep
+their β (their ramps are real and continuous — declination, glides —
+and E1's sweep and formant cases pin them). Residual, reported for
+honesty: 26/340 clips cross a velocity-class word between off and on
+(±1 dB hoverers at the ±3 dB class edges — the gate's binary answers on
+the 180 scored clips are identical to off's; one calm/ordinary 3-class
+answer differs, in smoothing's favor).
+
+Also landed from the same work session: `median_loud` answered in bin
+indices and re-scaled, so every fitted profile read ~248; it now answers
+in the scale's own units (pinned by `median_loud_answers_in_scale_units`).
+
+**Reproduce:** `cargo run -p lm-vox --release --example e2 -- --keep
+target/vox-e2` (skald at :8000; caches renders), `cargo run -p lm-vox
+--release --example e4_l2 -- --manifest evidence/vox-e4/manifest.csv
+--clip-root ~/lm-evidence/vox-e4 --off target/vox-e4/off --on
+target/vox-e4/on` then `python3 tools/vox-e4/evaluate.py --dataset
+<dir-with-manifest+transcripts+l2.csv> --arms l2-v3` (d1-2B at :8094).
 
 ## The protocol surface
 

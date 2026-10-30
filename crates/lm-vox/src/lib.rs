@@ -36,6 +36,7 @@ pub mod profile;
 pub mod render;
 pub mod schedule;
 pub mod segment;
+pub mod smooth;
 pub mod tables;
 pub mod wav;
 
@@ -47,6 +48,7 @@ pub use profile::SpeakerProfile;
 pub use render::{render_l0, render_with_words};
 pub use schedule::WordTiming;
 pub use segment::segment_gestures;
+pub use smooth::{smooth_l0, AbgGains, SmoothConfig};
 
 /// The L0 frame rate in Hz: one frame every 10 ms.
 pub const FRAME_HZ: u32 = 100;

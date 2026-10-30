@@ -25,7 +25,14 @@ use lm_vox::wav::Pcm;
 /// fails after an intentional analyzer change, re-pin it by running
 /// `GOLDEN_PRINT=1 cargo test -p lm-vox --test golden -- --nocapture` and
 /// pasting the printed hash — and say so in the commit.
-const PINNED: u64 = 0x6bf5_f852_1844_c847;
+///
+/// Re-pinned 2026-10-29 for the α-β-γ smoothing pass (fleet 14z N5): the
+/// smoothing changes L0's dials, so the chain hash moved; the input hash
+/// below did not (the utterance is the same bytes). Re-pinned again the
+/// same day when the level and tilt tracks lost their velocity state
+/// (the E4 check caught their ramp overshoot inflating peaks) — the
+/// smoothing defaults are parameters, and the hash follows them.
+const PINNED: u64 = 0x71bd_c128_7ba9_ff0b;
 
 /// The golden utterance, built from whole numbers: a pulse train with a
 /// falling pitch contour, noise bursts, pauses, and a formant sweep —

@@ -184,7 +184,10 @@ impl SpeakerProfile {
         if total == 0 {
             ((u16::from(self.loud_floor) + u16::from(self.loud_ceiling)) / 2) as u8
         } else {
-            (hist_median(&self.loud_hist, LOUD_BIN).clamp(0, 255 / LOUD_BIN) * LOUD_BIN) as u8
+            // hist_median already answers in the quantity's own units
+            // (the bin's lower edge plus half a bin); clamp only against
+            // the scale's ends.
+            hist_median(&self.loud_hist, LOUD_BIN).clamp(0, 255) as u8
         }
     }
 }
@@ -289,6 +292,25 @@ mod tests {
             p.median_f0_cents
         );
         assert_eq!(p.frames_seen, 400);
+    }
+
+    /// The fitted median level answers in the scale's own units: a
+    /// speaker whose frames sit at 150 reads a median near 150, not the
+    /// top of the scale (the bug this pins: the median used to be clamped
+    /// as a bin index and re-scaled, so every fitted profile read 248).
+    #[test]
+    fn median_loud_answers_in_scale_units() {
+        let mut p = SpeakerProfile::default();
+        let frames: Vec<Frame> = (0..400)
+            .map(|_| Frame {
+                rms: 150,
+                flags: FrameFlags::VOICED,
+                ..Frame::default()
+            })
+            .collect();
+        p.update(&frames, &[], &Phrase::default());
+        let m = i32::from(p.median_loud());
+        assert!((144..=156).contains(&m), "median loud read {m}");
     }
 
     /// The same evidence always produces the same profile: two profiles fed

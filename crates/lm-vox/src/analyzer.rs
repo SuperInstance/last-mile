@@ -28,6 +28,7 @@ use crate::fft::{fft_in_place, hamming, hann, power_spectrum};
 use crate::frame::{Frame, FrameFlags, RMS_DB_MIN};
 use crate::math::{exp2, log2};
 use crate::profile::SpeakerProfile;
+use crate::smooth::{smooth_l0, SmoothConfig};
 use crate::wav::Pcm;
 
 /// The analysis knobs. The defaults are the ones the E1 numbers were
@@ -53,6 +54,11 @@ pub struct AnalyzerConfig {
     /// ground the E1 sweep landed on — 0.97 biases a low F1 up by 10-20%
     /// (the classic /u/ failure) and below 0.8 the fit loses F3.
     pub pre_emphasis: f64,
+    /// The α-β-γ tracking filters run on the L0 tracks after the voicing
+    /// pass and before the dial quantization (fleet 14z, N5). The gains
+    /// are the smoothing's parameters; [`SmoothConfig::off`] restores the
+    /// pre-smoothing analyzer exactly.
+    pub smooth: SmoothConfig,
 }
 
 impl AnalyzerConfig {
@@ -65,6 +71,7 @@ impl AnalyzerConfig {
             yin_threshold: 0.15,
             lpc_order: 24,
             pre_emphasis: 0.88,
+            smooth: SmoothConfig::default(),
         }
     }
 
@@ -313,14 +320,22 @@ pub fn analyze_with(pcm: &Pcm, profile: &SpeakerProfile, cfg: &AnalyzerConfig) -
     // no voice does and no renderer can play.
     smooth_voicing(&mut frames);
 
-    // Quantize the dials to their meaningful step. A neural render's noise
-    // channel jitters +-20 units a frame and its formants +-8: motion no
-    // ear hears and no renderer plays, but every unit of it forces the
-    // running-status encoder out of its 4-bit deltas (E2's 300 B/s). The
-    // steps (8 on noise, 2 on tilt, a 3-frame median on the formants) are
-    // an order of magnitude inside E1's tolerances, and the pass is
-    // integer-only, so the frames stay machine-exact.
-    quantize_dials(&mut frames);
+    // The α-β-γ tracking filters: each dial's estimator noise is averaged
+    // toward zero while ramps ride free, so the frame-to-frame deltas the
+    // encoder sees shrink into its 4-bit form (E2's target). Octave jumps,
+    // voicing flips, onsets and rests reset the tracks — real transients
+    // state themselves whole, never slid through the filter. Integer
+    // arithmetic only, so the frames stay machine-exact.
+    smooth_l0(&mut frames, &cfg.smooth);
+
+    // Quantize the dials to their meaningful step. Motion below one step
+    // is jitter no ear hears and no renderer plays, but every unit of it
+    // costs the running-status encoder a packet. With smoothing on, the
+    // filter has already stepped pitch, level and the formants onto their
+    // grids (its slew bounds are stated in those units); with smoothing
+    // off this is the pre-smoothing analyzer's pass, medians and all, so
+    // the before/after columns of E2 measure one change at a time.
+    quantize_dials(&mut frames, cfg.smooth.enabled);
 
     Analysis {
         frames,
@@ -386,70 +401,79 @@ fn smooth_voicing(frames: &mut [Frame]) {
     }
 }
 
-/// The dials' temporal quantization: medians over each dial's neighbors,
-/// then a step grid on the dials whose frame-to-frame jitter carries no
-/// meaning (noise to steps of 8, tilt to 2, formants to 2, which is 2.8% —
-/// a third of E1's 5% tolerance). What is left moves at most a step or two
-/// a frame, which is what the running-status encoder's 4-bit deltas were
-/// sized for (§5).
-fn quantize_dials(frames: &mut [Frame]) {
+/// The dials' temporal quantization. With smoothing on, the pitch, level
+/// and formant grids have already been applied inside the smoothing pass
+/// (whose slew bounds are stated in stepped units); what is left here is
+/// the noise and tilt grids and the noise deadband. With smoothing off,
+/// this is the pre-smoothing analyzer's pass unchanged — the medians, the
+/// f1-f3 grid, and no pitch or level grid — so [`SmoothConfig::off`]
+/// reproduces the pre-brief frames bit for bit.
+fn quantize_dials(frames: &mut [Frame], smooth_on: bool) {
     if frames.len() < 3 {
         return;
     }
-    let original: Vec<Frame> = frames.to_vec();
-    for i in 1..frames.len() - 1 {
-        for (field, key) in [
-            (&mut frames[i].f1, 0usize),
-            (&mut frames[i].f2, 1),
-            (&mut frames[i].f3, 2),
-            (&mut frames[i].rms, 3),
-        ] {
-            let get = |f: &Frame| match key {
-                0 => f.f1,
-                1 => f.f2,
-                2 => f.f3,
-                _ => f.rms,
-            };
-            let (a, b, c) = (
-                get(&original[i - 1]),
-                get(&original[i]),
-                get(&original[i + 1]),
-            );
-            *field = max3(min3(a, b), min3(max3(a, b), c));
+    if !smooth_on {
+        // The pre-smoothing medians: a 3-frame median on the formants and
+        // level, a 5-frame median on the noise dial.
+        let original: Vec<Frame> = frames.to_vec();
+        for i in 1..frames.len() - 1 {
+            for (field, key) in [
+                (&mut frames[i].f1, 0usize),
+                (&mut frames[i].f2, 1),
+                (&mut frames[i].f3, 2),
+                (&mut frames[i].rms, 3),
+            ] {
+                let get = |f: &Frame| match key {
+                    0 => f.f1,
+                    1 => f.f2,
+                    2 => f.f3,
+                    _ => f.rms,
+                };
+                let (a, b, c) = (
+                    get(&original[i - 1]),
+                    get(&original[i]),
+                    get(&original[i + 1]),
+                );
+                *field = max3(min3(a, b), min3(max3(a, b), c));
+            }
+            if i >= 2 && i + 2 < frames.len() {
+                let mut w = [
+                    original[i - 2].noise,
+                    original[i - 1].noise,
+                    original[i].noise,
+                    original[i + 1].noise,
+                    original[i + 2].noise,
+                ];
+                w.sort_unstable();
+                frames[i].noise = w[2];
+            }
         }
-        // The noise dial gets a 5-frame median: of all the channels it is
-        // the one a neural render jitters hardest and the one no listener
-        // follows at 10 ms resolution.
-        if i >= 2 && i + 2 < frames.len() {
-            let mut w = [
-                original[i - 2].noise,
-                original[i - 1].noise,
-                original[i].noise,
-                original[i + 1].noise,
-                original[i + 2].noise,
-            ];
-            w.sort_unstable();
-            frames[i].noise = w[2];
+        for f in frames.iter_mut() {
+            f.f1 = f.f1.div_ceil(2) * 2;
+            f.f2 = f.f2.div_ceil(2) * 2;
+            f.f3 = f.f3.div_ceil(2) * 2;
         }
     }
     for f in frames.iter_mut() {
-        f.noise = ((f.noise + 4) / 8) * 8;
+        if !smooth_on {
+            f.noise = ((f.noise + 4) / 8) * 8;
+        }
         let t = f.tilt;
         f.tilt = ((t as i32 + 1) / 2 * 2).clamp(-127, 127) as i8;
-        f.f1 = f.f1.div_ceil(2) * 2;
-        f.f2 = f.f2.div_ceil(2) * 2;
-        f.f3 = f.f3.div_ceil(2) * 2;
     }
-    // The noise dial's deadband: hold the last value until the quantized
-    // one has moved a full 16 away. The noise channel is the jitteriest
-    // and the least listened-to; a deadband is what lets its changes fit
-    // the encoder's deltas at all.
-    let mut held = frames.first().map(|f| f.noise).unwrap_or(0);
-    for f in frames.iter_mut() {
-        if (i16::from(f.noise) - i16::from(held)).abs() >= 16 {
-            held = f.noise;
-        } else {
-            f.noise = held;
+    // The noise dial's deadband, the pre-smoothing pass's answer to the
+    // jitteriest channel: hold the last value until the quantized one has
+    // moved a full 16 away. With smoothing on the filter plus the noise
+    // track's own grid and slew already hold it steady; with smoothing off
+    // this is what let the noise changes fit the encoder's deltas at all.
+    if !smooth_on {
+        let mut held = frames.first().map(|f| f.noise).unwrap_or(0);
+        for f in frames.iter_mut() {
+            if (i16::from(f.noise) - i16::from(held)).abs() >= 16 {
+                held = f.noise;
+            } else {
+                f.noise = held;
+            }
         }
     }
 }
