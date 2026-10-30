@@ -15,7 +15,12 @@
 //! * `agents` — every agent of the round, in agent order: its `id`, its
 //!   `squad`, the `cell` it stands in, its exact `pos` in 1/1024 m units, the
 //!   `cell` and `pos` of its `spawn`, whether it is `stunned`, and the tick
-//!   its `stunned_until` stun ends on (`-1` when there is none).
+//!   its `stunned_until` stun ends on (`-1` when there is none). It also
+//!   carries what the paint does to it: `paint_owner` is the squad whose
+//!   paint lies under its feet (`-1` for bare ground), `paint_contact` is the
+//!   number of ticks it has stood in the other team's paint in a row, and
+//!   `from_cell` and `from_pos` are the cell and the exact position it came
+//!   from (`[-1, -1]` when it has never moved).
 //! * `beacons` — every beacon, in beacon order: its `index`, its `cell`, its
 //!   exact `pos`, and the `holder`: the squad holding it, or `-1` for nobody.
 //! * `grid` — the size of the map, `[w, h]`, so a script that writes to the
@@ -42,6 +47,8 @@
 //! | `hold_beacon` | `beacon`, `squad`   | the beacon is held by `squad` (`-1`: nobody) |
 //! | `score`       | `squad`, `points`   | the squad scores `points`           |
 //! | `splat`       | `cells`, `owner`    | paint is splatted on the `cells`, in `owner`'s colour |
+//! | `slow`        | `agent`, `q8`       | the agent's next step is slowed by `q8` (Q8) |
+//! | `bounce`      | `agent`             | the paint pushes the agent back to the cell it came from |
 //! | `round_over`  | —                   | the round ends                      |
 //!
 //! Rust applies the effects and checks every one of them. An effect that
@@ -52,6 +59,13 @@
 //! The effects of a tick are applied in the order the script asks for them.
 //! A `tag` therefore goes before the `stun_until` that goes with it: the tag
 //! names the two agents, the stun says how long the target is out.
+//!
+//! The paint's count of contact ticks is the host's bookkeeping, not the
+//! script's: it rises on every tick an agent stands in the other team's paint
+//! and falls back to zero when the contact ends, and the script reads it
+//! already counted for the tick it is in. What the paint *does* about the
+//! contact — the slow, the push-back — is the script's business, and it is
+//! what the `slow` and `bounce` effects ask for.
 //!
 //! The script is fuel-limited like every other script of the round: a script
 //! that never returns runs out of fuel, and a tick whose script ran out of
@@ -127,6 +141,21 @@ pub enum Effect {
         cells: Vec<CellXY>,
         /// The squad whose paint it is.
         owner: u8,
+    },
+    /// The paint slows the agent: its next step is shortened by `q8`.
+    ///
+    /// The knob is Q8, and 255 is a full stop. A `q8` of 0 takes the slow
+    /// away again.
+    Slow {
+        /// The agent the paint slows.
+        agent: u16,
+        /// The slowdown, in Q8 (255 = the agent does not move).
+        q8: u16,
+    },
+    /// The paint pushes the agent back to the cell it came from.
+    Bounce {
+        /// The agent the paint pushes back.
+        agent: u16,
     },
     /// The round is over.
     RoundOver,
@@ -327,6 +356,29 @@ impl RhaiRuleset {
                 }
                 Ok(Vec::new())
             }
+            Effect::Slow { agent, q8 } => {
+                let index = index_of(agents, agent)
+                    .ok_or_else(|| format!("there is no agent {agent} to slow"))?;
+                if q8 > crate::params::Q8_ONE {
+                    return Err(format!(
+                        "a slow of {q8} is more than a full stop ({})",
+                        crate::params::Q8_ONE
+                    ));
+                }
+                agents[index].paint_slow_q8 = q8;
+                Ok(Vec::new())
+            }
+            Effect::Bounce { agent } => {
+                let index = index_of(agents, agent)
+                    .ok_or_else(|| format!("there is no agent {agent} to push back"))?;
+                let Some(from) = agents[index].paint_from else {
+                    return Err(format!(
+                        "agent {agent} has never moved, so there is no cell to push it back to"
+                    ));
+                };
+                agents[index].pos = world.grid.center(from, world.cell_units);
+                Ok(Vec::new())
+            }
             Effect::RoundOver => {
                 let outcome = Outcome {
                     winner: winner(&self.scores),
@@ -360,6 +412,27 @@ impl Ruleset for RhaiRuleset {
         // The round is over: nothing else happens until the next one starts.
         if self.outcome.is_some() {
             return Vec::new();
+        }
+
+        // The paint's bookkeeping, before the script sees the world: the
+        // count of the ticks an agent has stood in the other team's paint
+        // rises on every tick of contact and falls back to zero when the
+        // contact ends. The slow is taken away as well, so the slow a
+        // script asks for is the slow of this tick and not the last one's.
+        //
+        // The count is the host's; what the paint does about the contact is
+        // the script's, and it is what the `slow` and `bounce` effects ask
+        // for.
+        if super::paint::paint_rules_on(p) {
+            for agent in agents.iter_mut() {
+                let cell = world.grid.cell_of(agent.pos, world.cell_units);
+                if super::paint::enemy_paint_under(&world.paint, cell, agent.squad).is_some() {
+                    agent.paint_contact = agent.paint_contact.saturating_add(1);
+                } else {
+                    agent.paint_contact = 0;
+                }
+                agent.paint_slow_q8 = 0;
+            }
         }
 
         let view = self.view(world, agents, p, now, order);
@@ -506,6 +579,8 @@ fn parse_effect(value: &Dynamic) -> Parsed {
         "hold_beacon" => &["beacon", "squad"],
         "score" => &["squad", "points"],
         "splat" => &["cells", "owner"],
+        "slow" => &["agent", "q8"],
+        "bounce" => &["agent"],
         "round_over" => &[],
         other => {
             return Parsed::Refused(format!(
@@ -651,6 +726,30 @@ fn parse_effect(value: &Dynamic) -> Parsed {
                 owner,
             })
         }
+        "slow" => {
+            let (Some(agent), Some(q8)) = (int_field(&map, "agent"), int_field(&map, "q8")) else {
+                return Parsed::Refused(
+                    "a slow effect needs an integer `agent` and an integer `q8`".to_owned(),
+                );
+            };
+            let (Some(agent), Some(q8)) = (as_u16(agent), as_u16(q8)) else {
+                return Parsed::Refused(
+                    "a slow effect names an agent or a slowdown that does not fit".to_owned(),
+                );
+            };
+            Parsed::Effect(Effect::Slow { agent, q8 })
+        }
+        "bounce" => {
+            let Some(agent) = int_field(&map, "agent") else {
+                return Parsed::Refused("a bounce effect needs an integer `agent`".to_owned());
+            };
+            let Some(agent) = as_u16(agent) else {
+                return Parsed::Refused(
+                    "a bounce effect names an agent that no id can be".to_owned(),
+                );
+            };
+            Parsed::Effect(Effect::Bounce { agent })
+        }
         _ => Parsed::Effect(Effect::RoundOver),
     }
 }
@@ -727,7 +826,47 @@ fn agent_map(world: &World, agent: &Agent, now: Tick) -> Dynamic {
         "stunned_until".into(),
         Dynamic::from(agent.stunned_until.map_or(-1, tick_int)),
     );
+    // The paint under the agent's feet, and where it came from: the facts a
+    // rules script needs to decide what the paint does.
+    map.insert(
+        "paint_owner".into(),
+        Dynamic::from(
+            world
+                .paint
+                .get(cell)
+                .map_or(-1, |paint| i64::from(paint.owner)),
+        ),
+    );
+    map.insert(
+        "paint_contact".into(),
+        Dynamic::from(i64::from(agent.paint_contact)),
+    );
+    map.insert(
+        "from_cell".into(),
+        match agent.paint_from {
+            Some(from) => cell_array(from),
+            None => nowhere_cell(),
+        },
+    );
+    map.insert(
+        "from_pos".into(),
+        match agent.paint_from {
+            Some(from) => pos_array(world.grid.center(from, world.cell_units)),
+            None => nowhere_pos(),
+        },
+    );
     Dynamic::from_map(map)
+}
+
+/// A cell that is nowhere: the agent has never moved, so it came from
+/// nowhere and the paint has nothing to push it back to.
+fn nowhere_cell() -> Dynamic {
+    Dynamic::from(vec![Dynamic::from(-1), Dynamic::from(-1)])
+}
+
+/// The position of nowhere.
+fn nowhere_pos() -> Dynamic {
+    Dynamic::from(vec![Dynamic::from(-1), Dynamic::from(-1)])
 }
 
 /// Every beacon of the round, as the script sees them.
@@ -781,6 +920,8 @@ fn params_map(p: &Params) -> Dynamic {
         "splat_radius_cells".into(),
         Dynamic::from(i64::from(p.splat_radius_cells)),
     );
+    map.insert("slow_q8".into(), Dynamic::from(i64::from(p.slow_q8)));
+    map.insert("bounce_q8".into(), Dynamic::from(i64::from(p.bounce_q8)));
     map.insert("squads".into(), Dynamic::from(i64::from(p.squads)));
     map.insert("stun_ticks".into(), Dynamic::from(i64::from(p.stun_ticks)));
     map.insert(
@@ -836,12 +977,28 @@ mod tests {
         Header::default_round(seed, REFLEX)
     }
 
+    /// A header for `seed` that plays the round with the native ruleset and
+    /// the given params.
+    fn native_header_with(seed: u64, p: Params) -> Header {
+        let mut h = native_header(seed);
+        h.params = p;
+        h
+    }
+
     /// A header for `seed` that plays the round with the scripted ruleset.
     fn rhai_header(seed: u64) -> Header {
         let mut h = native_header(seed);
         h.ruleset = "rhai:beacons".to_owned();
         h.scripts
             .insert("beacons".to_owned(), BEACONS_RHAI.to_owned());
+        h
+    }
+
+    /// A header for `seed` that plays the round with the scripted ruleset and
+    /// the given params.
+    fn rhai_header_with(seed: u64, p: Params) -> Header {
+        let mut h = rhai_header(seed);
+        h.params = p;
         h
     }
 
@@ -979,6 +1136,54 @@ mod tests {
         assert!(matches!(err, ScriptError::Parse(_)));
     }
 
+    /// The paint's rule has to fire in a real round, and not only in a test
+    /// world: an agent has to stand in the other team's paint, be slowed by
+    /// it, and the round has to come out differently than it would without
+    /// the paint.
+    #[test]
+    #[ignore = "24k ticks; run with --release --ignored"]
+    fn the_paint_rule_fires_in_a_round() {
+        let p = Params {
+            slow_q8: 128,
+            bounce_q8: 64,
+            ..Params::default()
+        };
+        let mut contact_ticks = 0;
+        let mut slowed_ticks = 0;
+        let mut same = true;
+        for seed in 1..=4u64 {
+            let mut with_paint = Sim::new(&native_header_with(seed, p)).expect("the round starts");
+            let mut without =
+                Sim::new(&native_header_with(seed, Params::default())).expect("the round starts");
+            for _ in 0..3_000u64 {
+                with_paint.step(&[]);
+                without.step(&[]);
+                for id in with_paint.agent_ids() {
+                    let agent = with_paint.agent(id).expect("the agent is there");
+                    if agent.paint_contact > 0 {
+                        contact_ticks += 1;
+                    }
+                    if agent.paint_slow_q8 > 0 {
+                        slowed_ticks += 1;
+                    }
+                    let other = without.agent(id).expect("the agent is there");
+                    if agent.pos != other.pos {
+                        same = false;
+                    }
+                }
+            }
+        }
+        assert!(
+            contact_ticks > 0,
+            "an agent stood in the other team's paint"
+        );
+        assert!(slowed_ticks > 0, "the paint slowed it");
+        assert!(
+            !same,
+            "the paint changed where the agents walked: the rule bites"
+        );
+    }
+
     /// The oracle: the scripted ruleset plays the round exactly as the native
     /// one does.
     ///
@@ -989,9 +1194,37 @@ mod tests {
     #[test]
     #[ignore = "300k ticks; run with --release --ignored"]
     fn rhai_beacons_matches_native() {
-        const SEEDS: u64 = 50;
-        const TICKS: u64 = 3_000;
+        let failures = oracle(50, 3_000, Params::default());
+        assert!(
+            failures.is_empty(),
+            "the scripted ruleset is not the native one:\n{}",
+            failures.join("\n")
+        );
+    }
 
+    /// The same oracle with the paint's rule on.
+    ///
+    /// With both knobs at zero the paint plays no rule and the oracle never
+    /// sees it, so the slow and the push-back need an oracle of their own:
+    /// the scripted paint has to slow and push exactly as the native one.
+    #[test]
+    #[ignore = "150k ticks; run with --release --ignored"]
+    fn rhai_beacons_matches_native_with_the_paint_on() {
+        let p = Params {
+            slow_q8: 128,
+            bounce_q8: 64,
+            ..Params::default()
+        };
+        let failures = oracle(25, 3_000, p);
+        assert!(
+            failures.is_empty(),
+            "the scripted paint is not the native paint:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    /// Play `seeds` seeds under both rulesets and report every difference.
+    fn oracle(seeds: u64, ticks: u64, p: Params) -> Vec<String> {
         // The seeds are independent, so they are played side by side: the
         // oracle is a long test and there is no reason to wait for it. The
         // threads are capped: past a handful of them the rounds spend more
@@ -1000,17 +1233,17 @@ mod tests {
             .map(|n| n.get())
             .unwrap_or(1)
             .clamp(1, 8)
-            .min(SEEDS as usize);
+            .min(seeds as usize);
         let mut failures = Vec::new();
-        let seeds: Vec<u64> = (1..=SEEDS).collect();
+        let seed_list: Vec<u64> = (1..=seeds).collect();
         std::thread::scope(|scope| {
             let mut handles = Vec::new();
-            for chunk in seeds.chunks(threads) {
+            for chunk in seed_list.chunks(threads) {
                 handles.push(scope.spawn(move || {
                     let mut failures = Vec::new();
                     for &seed in chunk {
-                        let native = play(&native_header(seed), TICKS);
-                        let scripted = play(&rhai_header(seed), TICKS);
+                        let native = play(&native_header_with(seed, p), ticks);
+                        let scripted = play(&rhai_header_with(seed, p), ticks);
                         if native.hashes != scripted.hashes {
                             let tick = native
                                 .hashes
@@ -1046,12 +1279,7 @@ mod tests {
                 failures.extend(handle.join().expect("the oracle thread finishes"));
             }
         });
-
-        assert!(
-            failures.is_empty(),
-            "the scripted ruleset is not the native one:\n{}",
-            failures.join("\n")
-        );
+        failures
     }
 
     /// A script that never returns: the tick has no effects, the refusal is

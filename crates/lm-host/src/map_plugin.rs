@@ -93,6 +93,30 @@ pub fn fog_color(state: FogState) -> Color {
     }
 }
 
+/// How far the paint pulls a cell's colour towards the squad's.
+///
+/// The paint is a stain on the ground, not a floor: the terrain still shows
+/// through it, so a wall under fresh paint is still a wall.
+const PAINT_STRENGTH: f32 = 0.6;
+
+/// The colour of a cell with paint on it.
+///
+/// The paint is in the colour of the squad that splatted it, and it fades as
+/// it dries: a fresh splat is mostly the squad's colour and a dry one is the
+/// ground again. `wet_q8` is the paint's wetness in Q8 — 255 is fresh, 0 is
+/// dry.
+pub fn paint_over(ground: Color, paint: Color, wet_q8: u8) -> Color {
+    let g = ground.to_srgba();
+    let p = paint.to_srgba();
+    let t = (f32::from(wet_q8) / f32::from(lm_core::world::paint::WET_Q8_MAX)) * PAINT_STRENGTH;
+    Color::srgba(
+        g.red + (p.red - g.red) * t,
+        g.green + (p.green - g.green) * t,
+        g.blue + (p.blue - g.blue) * t,
+        g.alpha + (p.alpha - g.alpha) * t,
+    )
+}
+
 /// A colour of the map as an egui colour: the panels speak in the colours of
 /// the world.
 pub fn egui_color(color: Color) -> bevy_egui::egui::Color32 {
@@ -145,6 +169,15 @@ pub struct CurrentMap(pub Option<MapModel>);
 pub struct TileLayer {
     /// The fog of every cell as it was last drawn.
     pub drawn: Vec<FogState>,
+    /// The terrain of every cell as it was last drawn, paint and all.
+    pub drawn_terrain: Vec<Option<Color>>,
+    /// The paint of every cell, by cell index: the owner plus one in the
+    /// high byte (0 for no paint) and how wet it is in the low byte.
+    ///
+    /// It is rebuilt every frame, because the paint changes as it dries, and
+    /// it is here so that the drawing asks once per cell instead of looking
+    /// for the paint of a cell among all the paint.
+    pub paint: Vec<u16>,
     /// The width of the grid, in cells.
     pub grid_w: u16,
     /// The height of the grid, in cells.
@@ -162,6 +195,10 @@ pub struct TileLayer {
 /// same component.
 #[derive(Component)]
 enum Body {
+    /// The terrain of a cell of the grid, in row-major order. It carries the
+    /// paint of the round: a cell with paint in it is drawn in the colour of
+    /// the squad that splatted it.
+    Terrain(usize),
     /// The fog over a cell of the grid, in row-major order.
     Fog(usize),
     /// An agent, by its id.
@@ -354,6 +391,7 @@ fn spawn_world(
             commands.spawn((
                 Sprite::from_color(cell_color(grid.get(cell)), Vec2::splat(cell_m)),
                 Transform::from_translation(centre),
+                Body::Terrain(index),
             ));
             commands.spawn((
                 Sprite::from_color(FOG_VISIBLE, Vec2::splat(cell_m)),
@@ -390,6 +428,7 @@ fn spawn_world(
     }
 
     layer.drawn = vec![FogState::Visible; cells];
+    layer.drawn_terrain = vec![None; cells];
     layer.grid_w = grid.w;
     layer.grid_h = grid.h;
     layer.cell_m = cell_m;
@@ -575,8 +614,51 @@ fn draw_map(
     let tick_spacing = TICK_SPACING_M.max(MIN_TICK_PX / px_per_m);
     let tick_gap = AGENT_RADIUS_M.max(MIN_AGENT_PX * 0.5 / px_per_m) * 1.6 + TICK_GAP_M;
 
+    // The paint, by cell: the terrain of a painted cell is drawn in the
+    // colour of the squad that splatted it. The paint of the round changes
+    // as it dries, so the lookup is rebuilt every frame.
+    let cells = model.cells.len();
+    if layer.paint.len() != cells {
+        layer.paint = vec![0; cells];
+    } else {
+        layer.paint.fill(0);
+    }
+    for paint in &model.paint {
+        let index =
+            usize::from(paint.cell.y) * usize::from(layer.grid_w) + usize::from(paint.cell.x);
+        if let Some(slot) = layer.paint.get_mut(index) {
+            *slot = (u16::from(paint.owner.saturating_add(1)) << 8) | u16::from(paint.wet_q8);
+        }
+    }
+
     for (mut sprite, mut transform, mut visibility, body) in &mut bodies {
         match body {
+            // The terrain, and the paint on it: a cell that carries paint is
+            // drawn in the colour of the squad that splatted it, fading as
+            // the paint dries. Only the cells whose colour changed are
+            // repainted.
+            Body::Terrain(index) => {
+                let Some(&(_, kind, _)) = model.cells.get(*index) else {
+                    continue;
+                };
+                let ground = cell_color(kind);
+                let color = match layer.paint.get(*index).copied().unwrap_or(0) {
+                    0 => ground,
+                    paint => {
+                        let owner = ((paint >> 8) as u8).saturating_sub(1);
+                        let wet = (paint & 0xff) as u8;
+                        paint_over(ground, squad_color(owner), wet)
+                    }
+                };
+                if layer.drawn_terrain.get(*index) == Some(&Some(color)) {
+                    continue;
+                }
+                sprite.color = color;
+                if let Some(slot) = layer.drawn_terrain.get_mut(*index) {
+                    *slot = Some(color);
+                }
+            }
+
             // The fog: only the cells whose fog changed are repainted.
             Body::Fog(index) => {
                 let Some(&(_, _, state)) = model.cells.get(*index) else {

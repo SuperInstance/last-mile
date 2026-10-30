@@ -13,6 +13,7 @@
 //! against the native one, tick for tick.
 
 pub mod beacons;
+pub mod paint;
 pub mod rhai;
 
 use crate::agent::Agent;

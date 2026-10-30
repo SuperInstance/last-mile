@@ -591,6 +591,7 @@ mod tests {
                 role: Role::Leader,
                 stunned: false,
                 airtime_ticks: 0,
+                paint_slow_q8: 0,
             },
             squad: Vec::new(),
             enemies: Vec::new(),
