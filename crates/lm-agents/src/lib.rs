@@ -30,6 +30,8 @@ pub mod phrasebook;
 pub use phrasebook::{Phrasebook, PhrasebookError};
 pub mod queue;
 pub use queue::{Budgets, LeastUseQueue, Popped, ThinkReq};
+pub mod shared;
+pub use shared::{GhostConfig, GhostPhase, SharedConfig, SharedRule, SharedTarget};
 pub mod sink;
 pub use sink::{ChannelSink, DecisionInbox, DecisionSink};
 pub mod surprise;

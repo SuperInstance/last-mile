@@ -366,6 +366,7 @@ fn play_round(header: &Header, ticks: u64) -> Vec<Collected> {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
+        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:lm-voice".to_owned(),
     };

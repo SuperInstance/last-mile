@@ -15,6 +15,7 @@ use lm_core::world::{jps, los, CellXY, World};
 use std::collections::BTreeMap;
 
 use crate::config::AgentsConfig;
+use crate::shared::{PullBand, SharedConfig, SharedRule};
 
 /// The compass words in the order their field indices run; row 0 is
 /// north, so +y is south. "here" is a zero step.
@@ -53,7 +54,20 @@ impl Facts {
     /// Deterministic by construction: fixed sentence order, integer math
     /// only, ordered maps only — the same view on the same world always
     /// yields the same text, fields and key.
-    pub fn from_view(view: &ScoreView, world: &World, me_squad: u8, cfg: &AgentsConfig) -> Facts {
+    ///
+    /// `shared` is the harness's shared-target parameter. It is off by
+    /// default, and when it is off the facts are exactly the shipped ones:
+    /// the doctrine's target is the nearest beacon the squad does not
+    /// hold. When it is on, the shared target takes that place — the
+    /// beacon both squads are sent to, read off the beacons every agent
+    /// can see, so both squads get the same one (see [`crate::shared`]).
+    pub fn from_view(
+        view: &ScoreView,
+        world: &World,
+        me_squad: u8,
+        cfg: &AgentsConfig,
+        shared: &SharedConfig,
+    ) -> Facts {
         let me = view.me.cell;
         let mut lines: Vec<String> = Vec::new();
         let mut fields: BTreeMap<String, i64> = BTreeMap::new();
@@ -71,6 +85,25 @@ impl Facts {
             me.x,
             me.y
         ));
+
+        // The shared target: the one beacon both squads are sent to, so
+        // that they meet instead of walking to mirrored beacons. It is
+        // off by default; when it is on it takes the place of the
+        // doctrine's own target, and the facts say so in the same
+        // sentence as the beacon it names.
+        let shared_target = shared.resolve(view);
+        if let Some(target) = &shared_target {
+            for line in target.summary() {
+                lines.push(line);
+            }
+            fields.insert("shared.target".to_string(), i64::from(target.beacon));
+            fields.insert("shared.distance".to_string(), i64::from(target.distance));
+            if target.rule == SharedRule::Ghost {
+                fields.insert("shared.pull".to_string(), target.pull_q14);
+                fields.insert("shared.band".to_string(), pull_band_value(target.band));
+                fields.insert("shared.radius".to_string(), i64::from(target.radius_cells));
+            }
+        }
 
         // Each beacon: holder, walking-path length and bearing, all
         // computed by code (the path in cells from JPS, the compass word
@@ -112,10 +145,15 @@ impl Facts {
             }
         }
         let nearest_unheld = nearest_unheld.map(|(index, _)| index);
-        fields.insert(
-            "beacon.nearest_unheld".to_string(),
-            nearest_unheld.map_or(-1, i64::from),
-        );
+        // The fields state what the text states, so the nearest unheld
+        // beacon is only a field while it is also what the text says. When
+        // a shared target is stated instead, it takes the field's place.
+        if shared_target.is_none() {
+            fields.insert(
+                "beacon.nearest_unheld".to_string(),
+                nearest_unheld.map_or(-1, i64::from),
+            );
+        }
 
         for (i, beacon) in view.beacons.iter().enumerate() {
             let mine = beacon.holder == Some(me_squad);
@@ -131,8 +169,13 @@ impl Facts {
                 beacon.holder.map_or(-1, i64::from),
             );
             // The doctrine's wording, said of this beacon: it is the one
-            // the rule would send me to, or it is not.
-            let nearest = if mine {
+            // the rule would send me to, or it is not. With a shared
+            // target the rule sends both squads to one beacon, so the
+            // marker says which one that is and the other beacons say
+            // plainly that they are not it.
+            let nearest = if let Some(target) = &shared_target {
+                target.marker(i as u8)
+            } else if mine {
                 String::new()
             } else if nearest_unheld == Some(i as u8) {
                 "; it is the nearest beacon your squad does not hold".to_owned()
@@ -395,6 +438,15 @@ fn role_word(role: Role) -> &'static str {
     }
 }
 
+/// The band a pull falls in, as a number for the fields: none, weak, strong.
+fn pull_band_value(band: PullBand) -> i64 {
+    match band {
+        PullBand::None => 0,
+        PullBand::Weak => 1,
+        PullBand::Strong => 2,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,7 +457,13 @@ mod tests {
 
     /// The facts of a squad-0 view under the default config.
     fn facts(view: &ScoreView, world: &World) -> Facts {
-        Facts::from_view(view, world, 0, &AgentsConfig::default())
+        Facts::from_view(
+            view,
+            world,
+            0,
+            &AgentsConfig::default(),
+            &SharedConfig::default(),
+        )
     }
 
     /// An unstunned snapshot at a cell.
@@ -493,6 +551,90 @@ mod tests {
         assert_eq!(a.key, situation_key(&a.fields));
     }
 
+    /// The facts under a shared-target rule.
+    fn shared_facts(view: &ScoreView, world: &World, rule: SharedRule) -> Facts {
+        Facts::from_view(
+            view,
+            world,
+            0,
+            &AgentsConfig::default(),
+            &SharedConfig {
+                rule,
+                ..SharedConfig::default()
+            },
+        )
+    }
+
+    #[test]
+    fn the_default_states_no_shared_target() {
+        let f = facts(&base_view(), &wall_world());
+        assert!(!f.text.contains("shared target"));
+        assert!(!f.fields.contains_key("shared.target"));
+        // The shipped target is still the nearest unheld beacon.
+        assert!(f
+            .text
+            .contains("it is the nearest beacon your squad does not hold"));
+    }
+
+    #[test]
+    fn a_shared_target_is_stated_for_both_squads() {
+        let view = base_view();
+        let f = shared_facts(&view, &wall_world(), SharedRule::Free);
+        // Beacon 0 is unheld, so it is the beacon no squad holds.
+        assert!(f.text.contains("The shared target is beacon 0"));
+        assert!(f
+            .text
+            .contains("it is the shared target: the beacon no squad holds"));
+        assert!(f.text.contains("Beacon 1"));
+        assert!(f.text.contains("it is not the shared target"));
+        assert_eq!(f.fields.get("shared.target"), Some(&0));
+        // The doctrine's own target is not stated any more.
+        assert!(!f.text.contains("nearest beacon your squad does not hold"));
+    }
+
+    #[test]
+    fn the_shared_target_is_the_same_for_both_squads() {
+        let mut other = base_view();
+        other.squad_id = 1;
+        other.me = snap(7, 12, 12, Role::Leader);
+        let mine = shared_facts(&base_view(), &wall_world(), SharedRule::Free);
+        let theirs = shared_facts(&other, &wall_world(), SharedRule::Free);
+        assert_eq!(
+            mine.fields.get("shared.target"),
+            theirs.fields.get("shared.target")
+        );
+        assert!(theirs.text.contains("The shared target is beacon 0"));
+    }
+
+    #[test]
+    fn the_centre_rule_names_the_centre_beacon() {
+        let f = shared_facts(&base_view(), &wall_world(), SharedRule::Centre);
+        // Beacon 0 at (4, 2) and beacon 1 at (10, 2) are both 6 cells from
+        // each other, and the other pair is much further away, so beacon 0
+        // is the most central of the two.
+        assert_eq!(f.fields.get("shared.target"), Some(&0));
+        assert!(f.text.contains("the most central of the beacons"));
+    }
+
+    #[test]
+    fn the_ghost_rule_states_the_field() {
+        let f = shared_facts(&base_view(), &wall_world(), SharedRule::Ghost);
+        assert!(f.text.contains("You are pulled toward beacon 0"));
+        assert!(f.text.contains("The pull reaches"));
+        assert!(f.fields.contains_key("shared.pull"));
+        assert!(f.fields.contains_key("shared.band"));
+        // The field is in the key, so the situation moves with it.
+        let plain = shared_facts(&base_view(), &wall_world(), SharedRule::Free);
+        assert_ne!(f.key, plain.key);
+    }
+
+    #[test]
+    fn a_shared_target_changes_the_key_but_not_the_shipped_one() {
+        let plain = facts(&base_view(), &wall_world());
+        let shared = shared_facts(&base_view(), &wall_world(), SharedRule::Free);
+        assert_ne!(plain.key, shared.key);
+    }
+
     #[test]
     fn facts_state_numbers_not_grids() {
         let f = facts(&base_view(), &wall_world());
@@ -577,7 +719,7 @@ mod tests {
         // memory would be stale, and the ally 2 cells out is out of range.
         let mut view = base_view();
         view.enemies[1].age_ticks = 4;
-        let f = Facts::from_view(&view, &world, 0, &cfg);
+        let f = Facts::from_view(&view, &world, 0, &cfg, &SharedConfig::default());
         assert!(f.text.contains("Enemy 4"));
         assert!(!f.text.contains("Enemy 5"), "age 4 is stale at window 3");
         assert!(!f.fields.contains_key("enemy.5.dist"));
@@ -586,7 +728,13 @@ mod tests {
         assert!(f.text.contains("No allies are within 1 cells."));
 
         // The defaults keep both.
-        let f = Facts::from_view(&view, &world, 0, &AgentsConfig::default());
+        let f = Facts::from_view(
+            &view,
+            &world,
+            0,
+            &AgentsConfig::default(),
+            &SharedConfig::default(),
+        );
         assert!(f.text.contains("Enemy 5"), "age 4 is fresh at window 6");
         assert!(f.fields.contains_key("ally.1.dist"));
     }

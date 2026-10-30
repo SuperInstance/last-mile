@@ -10,6 +10,9 @@ variants, measured, and a recommendation.
 
 This is the measurement of all of it, and the write-up of the numbers.
 
+The shared target — the deeper lever this file names, built and measured —
+is in **The shared target**, below.
+
 ## The commands
 
 ```text
@@ -469,12 +472,423 @@ fact in place the `contest` and `scout` doctrines become expressible to the
 d1-2B, and the headless sweep's numbers become the Thor's. The harness
 change to make first is the one measured here: `advance`.
 
-## What this does not say
+That lever has since been built and measured: **The shared target**,
+below.
+
+## The shared target: one objective both squads are sent to
+
+The recommendation above ends by naming a lever it does not pull. The
+doctrine's **target** is set by the facts builder
+(`crates/lm-agents/src/facts.rs`), not by the harness, so no harness change
+can send both squads to the same beacon: the builder names one beacon per
+agent — "the nearest beacon your squad does not hold" — and the model takes
+that one on 827 of 827 asks. The lever it names is a **shared** fact: one
+target that both squads read off the same field, so both walk to the same
+beacon and meet there.
+
+This section is that lever, built, measured, and written up.
+
+### What was built
+
+One harness parameter: `facts.toml`, in the harness directory beside
+`gates.toml` and `policy.toml`. It is **off by default** — the shipped
+harness has no facts file, a harness without one states no shared target,
+and a blank one leaves the harness's identity alone (`content_id` takes the
+facts in only when they are not empty). Nothing about the shipped game
+changes until a harness asks for it.
+
+The parameter is read once, when the mind is built
+(`crates/lm-agents/src/mind.rs`), and it is **parsed, not defaulted**: a
+facts file that does not load — or that asks for something the facts cannot
+state — is a refusal the round can see (D26), not a silent agent that
+states the wrong target. It is then handed to the facts builder, which is
+the only place the change is.
+
+Three rules, each a function of what every agent can see — the beacons, who
+holds them, and where they are:
+
+| rule | the shared target | how the facts state it |
+|---|---|---|
+| `off` | none: the shipped facts, unchanged | — |
+| `free` | the lowest-numbered beacon **no squad holds** | a named target |
+| `centre` | the **most central** beacon — the one nearest the middle of the others | a named target |
+| `ghost` | the **hot beacon**: the one the attractor sits on now | a **field**: an attractor with a strength, a radius and a falloff |
+
+All of them are deterministic, integer-only and fixed-point: the same
+situation always yields the same target and the same facts, so the
+situation key still works (D49). The rule takes the doctrine's own target's
+place — the facts state one target, not two — and the shared target is
+marked per beacon, so the model reads it the way it reads every other
+per-beacon fact.
+
+### The ghost field
+
+`ghost` follows the ghost-tiles model (SuperInstance/ghost-tiles-1):
+invisible tiles that influence the visible state. The tile has a position, a
+kind (an attractor pulls, a repulsor pushes), a phase, a strength, a radius
+and a falloff, and the phase says how the strength changes over the round —
+**permanent** (constant), **temporal** (fades over `max_age_ticks`),
+**recurring** (pulses between a half and the whole over `cycle_ticks`).
+
+The **field model** knows both kinds; the **rule** states an attractor. A
+repulsor is a place the squads are pushed *away* from, so it names no
+target to go to, and a harness that asks for one is refused rather than
+handed a target the facts would contradict (D26).
+
+What is new here is the **hot zone**: the attractor sits on one beacon at a
+time and it **walks** — it moves to the next free beacon every
+`rotation_ticks` ticks. The hot beacon is a function of the tick and of the
+beacon list, and both are the same for both squads, so both are pulled
+toward the same place at the same time. The facts report it as facts:
+
+> The shared target is beacon 0: the beacon you are pulled toward. Both
+> squads are going for it. You are pulled toward beacon 0, and the pull is
+> weak where you stand. The pull reaches 96 cells, and beacon 0 is 61 cells
+> from you. Beacon 0 at column 64, row 63 is unheld; it is the shared
+> target: the beacon you are pulled toward; a walking path from you is 75
+> steps long to the west. Beacon 1 at column 63, row 64 is unheld; it is
+> not the shared target; […]
+
+The pull is in the facts' **fields** as well as their text (`shared.pull`,
+`shared.band`, `shared.radius`), so it is in the situation key and the
+field moves with the agent as it walks.
+
+### The commands
+
+```text
+# the headless sweep, one per harness
+DECISIVENESS_CELL=1800x9000 DECISIVENESS_HARNESS=assets/harness/variants/shared-free \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+
+# the Thor
+ENGAGEMENT_HARNESS=assets/harness/variants/shared-free \
+  cargo test --release -p lm-agents --test engagement_on_thor -- --ignored --nocapture
+```
+
+### The headless sweep (100 seeds, win_score 1800, time_limit 9000)
+
+| harness | draws | rounds with a fight | tags/round | sight ticks/round | score margin/round | mean scores | collapsed rounds | median tick |
+|---|---|---|---|---|---|---|---|---|
+| shipped | **63.0%** | 35% | 0.62 | 413.5 | 353.6 | 1627 / 1589 | 2 | 4784 |
+| `advance` | **63.0%** | 35% | 0.62 | 413.5 | 353.6 | 1627 / 1589 | 2 | 4784 |
+| `shared-free` | **0.0%** | 98% | 4.19 | 2007.3 | 1557.5 | 912 / 919 | 75 | 3414 |
+| `shared-centre` | **0.0%** | 98% | 4.68 | 1984.0 | 1571.1 | 1034 / 807 | 76 | 3222 |
+| `shared-ghost` | **0.0%** | 97% | **5.45** | 1900.2 | 1336.3 | 1482 / 756 | **45** | 4578 |
+| `shared-ghost-fixed` | **0.0%** | 98% | 4.19 | 2007.3 | 1557.5 | 912 / 919 | 75 | 3414 |
+
+(The shipped and `advance` rows are the same row because the sweep plays
+the **reflex**, and the two reflexes are the same rule under two names:
+the shipped one calls it `free_beacon`, the variant's `nearest_ours`, and
+both skip the beacons the agent's own squad holds. What `advance` changes
+is the **doctrine** — the shipped one camps on a held beacon when no enemy
+is near and `advance` does not — and the sweep never sees the gates, only
+the reflex. It is the Thor, which plays the model, that tells the two
+apart.
+`shared-ghost-fixed` is the same row as `shared-free` for a different
+reason: the reflex plays the target's *rule*, and the two harnesses name
+the same target. The difference between them is how the target is
+**stated**, and only the model sees that.)
+
+Three things to read here.
+
+**The shared target ends the draws.** Every shared rule takes the sweep
+from 63% draws to 0%, and from 35% of rounds with a fight to 97–98%. The
+brief's target — "fights in most rounds" — is met by every one of them, and
+by none of the harness-only variants above.
+
+**It is worth more than the whole previous measurement.** The best a
+harness change reached was `advance`'s contact in every round and tags in
+one round of three. A shared target gives 4.19–5.45 tags a round over a
+hundred rounds — seven to nine times `advance`'s 0.62 — and the hot zone
+gives the most of any harness ever measured on this sweep.
+
+**The cost is a squad held off the board.** 45–76 of the 100 rounds leave a
+squad under 200 points. The hot zone pays the least of the three (45), and
+the two fixed targets pay the most (75 and 76). A squad that walks to the
+same beacon as its enemy and loses it scores nothing, and the hot zone
+moves on before that can settle.
+
+### The real Thor (3 seeds, 3000 ticks)
+
+| harness | seed | ticks | end tick | tags | sight ticks | scores | margin | draw | decisions | asks | lines | urgent | refusals |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `advance` | 1 | 2410 | 2409 | 3 | 174 | [1156, 1802] | 646 | false | 191 | 208 | 15 | 0 | 26 |
+| `advance` | 2 | 2559 | 2558 | 1 | 156 | [676, 1800] | 1124 | false | 278 | 284 | 13 | 0 | 24 |
+| `advance` | 3 | 3000 | – | 0 | 712 | [1004, 1376] | 372 | false | 322 | 341 | 3 | 0 | 24 |
+| `shared-free` | 1 | 3000 | – | **6** | 184 | [25, 1453] | 1428 | false | 284 | 314 | 4 | 0 | 31 |
+| `shared-free` | 2 | 2736 | 2735 | **6** | 224 | [1800, 7] | 1793 | false | 279 | 313 | 16 | **1** | 29 |
+| `shared-free` | 3 | 3000 | – | 4 | 199 | [1244, 5] | 1239 | false | 297 | 330 | 6 | 0 | 31 |
+| `shared-centre` | 1 | 2736 | 2735 | **6** | 184 | [25, 1801] | 1776 | false | 390 | 385 | 10 | 0 | 25 |
+| `shared-centre` | 2 | 2736 | 2735 | **6** | 224 | [1800, 7] | 1793 | false | 314 | 303 | 8 | 0 | 24 |
+| `shared-centre` | 3 | 2702 | 2701 | 4 | 199 | [1801, 5] | 1796 | false | 280 | 279 | 6 | 0 | 30 |
+| `shared-ghost` | 1 | 3000 | – | **6** | **478** | [268, 1071] | 803 | false | 198 | 231 | 9 | 0 | 29 |
+| `shared-ghost` | 2 | 2640 | 2639 | **6** | 342 | [1800, 362] | 1438 | false | 133 | 164 | 2 | 0 | 31 |
+| `shared-ghost` | 3 | 2682 | 2681 | 1 | **465** | [1801, 31] | 1770 | false | 157 | 189 | 4 | 0 | 28 |
+| `shared-ghost-fixed` | 1 | 3000 | – | 6 | 184 | [25, 1463] | 1438 | false | 279 | 306 | 2 | 0 | 26 |
+| `shared-ghost-fixed` | 2 | 3000 | – | 6 | 224 | [1251, 7] | 1244 | false | 427 | 460 | 31 | **2** | 17 |
+| `shared-ghost-fixed` | 3 | 3000 | – | 4 | 199 | [1588, 5] | 1583 | false | 433 | 467 | 26 | **3** | 18 |
+
+(The `advance` row here is a **fresh measurement** of the same arm, taken
+with the refusal counters this section added, and it does not reproduce the
+`advance` rows of the table above: seed 1 ends at 2409 with 174 sight ticks
+here and ran the whole window with 802 there, and seed 3 is decided there
+(at 2628, [1355, 1800]) and still level here at [1004, 1376]. The Thor is a
+live model on a shared box and a round is not a replay — it samples, it
+waits behind other tenants, and a decision that lands one tick later can
+move the round. So the two tables are two samples of the same arm, not a
+contradiction, and every comparison inside this section is between arms
+measured **in the same run**, where the difference is the harness and not
+the day.)
+
+Over the three rounds:
+
+| harness | tags | sight ticks | rounds decided | draws | urgent lines | refusals | the model followed the branch |
+|---|---|---|---|---|---|---|---|
+| `advance` | 4 | 1042 | 2 of 3 | 0 | 0 | 74 | 609 of 702 (86.8%) |
+| `shared-free` | **16** | 607 | 1 of 3 | 0 | **1** | 91 | 781 of 821 (95.1%) |
+| `shared-centre` | **16** | 607 | **3 of 3** | 0 | 0 | 79 | 817 of 850 (**96.1%**) |
+| `shared-ghost` | 13 | **1285** | 2 of 3 | 0 | 0 | 88 | 469 of 473 (**99.2%**) |
+| `shared-ghost-fixed` | **16** | 607 | 0 of 3 | 0 | **5** | 61 | 992 of 1080 (91.9%) |
+
+And what the model chose, over the same move asks:
+
+| harness | the options it chose |
+|---|---|
+| `advance` | beacon 0 ×117, beacon 1 ×115, beacon 2 ×232, beacon 3 ×202, hold ×3, retreat ×31, follow ×2 |
+| `shared-free` | beacon 0 ×680, beacon 2 ×122, hold ×13, retreat ×6 |
+| `shared-centre` | beacon 0 ×828, hold ×16, retreat ×6 |
+| `shared-ghost` | beacon 0 ×113, beacon 1 ×122, beacon 2 ×119, beacon 3 ×101, hold ×2, retreat ×16 |
+| `shared-ghost-fixed` | beacon 0 ×820, beacon 1 ×1, beacon 2 ×228, hold ×20, retreat ×11 |
+
+### What the model did with it
+
+**The model goes where the facts say to go, whatever the facts name.** Over
+the asks where the facts named a target, the model chose that target on
+**96–98%** of them — and that is true of the shipped target as well as of
+every shared one:
+
+| harness | asks where the facts named a target | the model chose it | of those, asks where the target was **not** beacon 0 | chose it |
+|---|---|---|---|---|
+| `advance` | 681 | 666 (97.8%) | 563 | 549 (97.5%) |
+| `shared-free` | 821 | 802 (97.7%) | 136 | 122 (89.7%) |
+| `shared-centre` | 850 | 828 (97.4%) | **0** | — |
+| `shared-ghost` | 473 | 455 (96.2%) | 360 | 342 (95.0%) |
+| `shared-ghost-fixed` | 1080 | 1049 (97.1%) | 256 | 229 (89.5%) |
+
+This is the lever the research predicted would work, and it works: the
+shared target is a sentence the facts state per beacon, and the model reads
+a sentence. The shared target does not make the model *more* obedient — the
+shipped target already had 97.8% — it makes the target the **same beacon
+for both squads**.
+
+**And it goes where the target is, and only there.** `advance`'s model
+spread itself over the four beacons (117, 115, 232, 202); every shared
+variant's model chose **only** the shared target — `shared-free` chose
+beacon 0 on 680 asks and beacon 2 on 122 and nothing else; `shared-centre`
+chose beacon 0 on 828 asks and nothing else. The hot zone's model followed
+the zone as it walked, splitting its 455 target asks evenly over the four
+beacons (113, 122, 119, 101) — which is what the zone does, and what the
+model does with it.
+
+**The contact is real.** 16 tags in `shared-free`'s and `shared-centre`'s
+three rounds against `advance`'s 4, and the hot zone keeps both squads in
+sight for 1285 ticks against `advance`'s 1042 and the fixed targets' 607.
+The urgency gate — which had nothing to be urgent about under the shipped
+doctrine — **fired**: `shared-free` seed 2 is the round with the most
+sustained contact in this measurement, and it is the round that answered
+urgent on a talk ask and delivered an urgent line.
+
+### The finding: a fixed shared target is too much
+
+The draws are gone and the contact is there, but the rounds are now
+**routs**. `shared-free` and `shared-centre` end with one squad on 5, 7 and
+25 points — one squad is held off the board in six rounds out of six — and
+the sweep says the same thing at scale (75 and 76 collapsed rounds of 100).
+The mechanism is visible in the end positions: under `shared-centre` seed 3,
+all four of squad 0's agents are stacked on beacon 0 and squad 1's are in
+the far corner on 5 points.
+
+That is what "too shared" means. A target both squads walk to is a target
+one of them takes, and the other is left with nothing to do and nowhere to
+score. The hot zone is the same idea with the one change that matters: it
+**moves**. The place worth fighting over walks from beacon to beacon every
+600 ticks, so the squad that is losing is never pinned to a ground it has
+already lost — the hot zone's collapse count is 45 rounds against 75 and
+76, its seed 1 ends [268, 1071] where the fixed targets end [25, 1453] and
+[25, 1801], and it holds the most contact of the lot.
+
+The hot zone is not the only thing that keeps a squad in the game: the
+pinned field (`shared-ghost-fixed`) is the same game as the pinned name
+(`shared-free`) and the same rout. What the hot zone buys is that the
+**rout stops being the whole story** — 45 collapsed rounds of 100 is still
+a lot, but it is a third fewer than the fixed targets', and its rounds
+have margins (803, 1438, 1770) where the fixed targets' are all near the
+same 1800.
+
+### The representation: a plain target against a field
+
+The addendum asks for the shared target tried as a **ghost field**, and for
+the field compared with the plain shared-target fact on the same metrics.
+That is what `shared-ghost-fixed` is for: the same target as `shared-free`
+— the lowest-numbered beacon no squad holds, moving to the next one when
+it is taken — stated as a field instead of as a name. `shared-ghost` is the
+same field with the hot zone walking.
+
+The headless sweep cannot tell them apart, and that is the point: the
+reflex plays the target's **rule**, and the two rules are the same, so the
+two rows are identical to the digit (4.19 tags, 2007.3 sight ticks, 912 /
+919 mean scores, 75 collapsed rounds). A sweep can measure a rule; it
+cannot measure a **representation**, because the representation is what the
+model reads and the reflex never sees.
+
+The Thor is where the two are separable, and the answer is that the
+representation does not make the game. The same target, named plainly or
+stated as a field, gave **the same game**: 16 tags and 607 sight ticks in
+both arms, seed for seed, and the same rout at the end of it ([25, 1463]
+and [1251, 7] against [25, 1453] and [1800, 7]). The field's extra content
+— the pull's strength, its radius, its falloff, the pulse — is content the
+model does not need in order to take the target, and it takes the target
+just as faithfully as it takes a plain named one (1049 of 1080 asks against
+802 of 821).
+
+That equality is exact wherever the model does not sample: the **stub**
+control below plays the same two arms and reproduces the same tags, the same
+sight ticks and the same scores, seed for seed. On the live Thor it is the
+*shape* that holds rather than the counts — a re-run of the two arms gave
+14 tags and 955 sight ticks under the field against 16 and 607 under the
+plain name, with the losing squad on 25, 7 and 5 points in both. The Thor
+samples, and a longer fight is a different sample of the same fight.
+
+What the field *does* change is how much the agents think and say. The
+field arm asked 1233 times against the plain arm's 957, delivered 59 lines
+against 26, and delivered **5 urgent lines against 1** — the most urgent
+lines of any arm measured, on the arm with the same game underneath. The
+lines and the urgent lines are the part of that which repeats (a re-run
+gave 58 lines against 25 and 5 urgent lines against 3); the *ask* counts are
+not (the same re-run gave the field arm 983 asks against the plain arm's
+1107), so the ask gap is measured on the stub, not on the Thor.
+
+The **stub control** says why, and it is the model's load that is not the
+reason. The stub (`ENGAGEMENT_BACKEND=stub`) is the same round with the
+model replaced by one that answers at once and always takes the first
+option of the menu, so the arms' ask counts are a property of the facts
+and the policy alone:
+
+| arm (stub) | asks a round | decisions | lines | refusals |
+|---|---|---|---|---|
+| `shared-free` | 2194 / 2664 / 2551 | 7625 / 7586 / 7393 | 337 / 337 / 193 | 16 / 55 / 16 |
+| `shared-ghost-fixed` | **3200 / 3200 / 3200** | 3186 / 3192 / 3188 | 27 / 42 / 25 | 4856 / 5052 / 5169 |
+
+The field arm asked more with **no model on the Thor at all**. And 3200 is
+exactly the round's whole model-call budget — `budget_calls_per_round` is
+400 per agent and there are eight agents — so the field arm spent the
+budget and every later request was refused by it, which is where its
+thousands of refusals come from. A re-run of the stub reproduces that
+exactly (3200 / 3200 / 3200 asks and 4854 / 5052 / 5169 refusals for the
+field arm, 2136 / 2682 / 2543 asks for the plain one): the budget runs out
+the same way every time, and the plain arm stays well inside it.
+
+The likely mechanism is the field's own doing, and it is the kind the
+architecture makes easy: the pull is a function of the tick as well as of
+the distance, it is in the facts' fields, and the facts' fields are what
+the situation key is hashed over (D25). A field that **breathes** makes the
+situation key move even when the world does not, and the verdict cache
+that keys on it hits less often — so the same moment is asked about again.
+A plain target's key moves only when the agent's own situation moves.
+
+So the answer to "is the field worth it?" is: **not for the game.** What
+makes the game is the **movement**, which the field can carry and a plain
+name cannot. What the field costs is a hotter key, and that cost is paid
+in model calls.
+
+### Which representation reads better
+
+For a **model**, the plain target. "The shared target is beacon 0: the
+beacon no squad holds" is one clause about one fact, checkable against one
+sentence the facts builder already writes. The field's version asks the
+model to hold a target *and* a pull in mind, and the measurement says it
+does not need the second: on the same target, the model takes the field's
+target at the same rate it takes the plain one, it makes the same moves,
+and the game plays out the same. The extra sentences are read and then not
+used.
+
+For a **viewer**, the field is the better representation, and for a
+reason the plain target cannot have. A plain target is a point: there is
+nothing to draw, so a viewer sees a marker on a beacon and learns only
+that both squads are going there. A field is a *shape* over the map — an
+attractor with a radius and a falloff — and if it were drawn faintly, the
+viewer would see a soft well centred on the hot beacon, its depth reading
+as the pull's strength at that cell. The pull band the facts already state
+("strong where you stand") is the legend for that well: it is why *this*
+agent is leaning toward *that* part of the field. And a hot zone that
+walks would read as a well that moves, which says something a marker never
+can — that the objective itself is moving, and that the next fight is
+wherever the light is next.
+
+So: the field is the better thing to *draw* and the worse thing to *ask*.
+The recommendation follows from that.
+
+### The recommendation
+
+**Ship the shared target as a harness parameter. Do not turn it on by
+default, and do not ship it on the plain `free` or `centre` rules.**
+
+The lever works, and it is the lever the research named: the facts builder
+now states a second, shared fact, the model goes where it says on 96–98% of
+the asks where it names a target, the draws go from 63% to 0%, and the tags
+go from 0.62 a round to 4.19–5.45. That is the brief's target — fights in
+most rounds — reached for the first time in this programme.
+
+But the honest reading of the Thor is that **a fixed shared target trades a
+draw for a rout**, and a rout is not a better game: six rounds out of six
+end with one squad on under 30 points. Of the three rules, only the
+**hot zone** (`ghost`, with the zone walking) keeps the contact *and* keeps
+both squads in the game — 45 collapsed rounds of 100 against 75 and 76, and
+the most contact of any harness measured. So the rule to pursue is the
+walking one, and the rule to avoid is the fixed one, whatever it is named.
+
+And the field is worth shipping as a **representation** for the same reason
+it is worth drawing: it costs the model nothing that shows in the game —
+the same target, the same contact, the same rout — and it buys the viewer a
+thing a marker cannot show. It is not worth shipping as the thing that makes
+the game — the movement is.
+
+Two things are worth saying about what is *not* in this recommendation.
+
+**The default stays off.** `assets/harness/default` has no `facts.toml`,
+the parameter is off, and nothing about the shipped game changes. The
+measurement says the shared target should be the doctrine's target, but the
+measurement is three rounds on one map against a 2B model, and the sweep
+plays a reflex. That is enough to justify the parameter and to justify
+measuring the hot zone harder — not enough to move the default on the
+strength of it.
+
+**The hot zone needs one more measurement before it is a doctrine.** It is
+the best arm on every aggregate in the sweep and the most faithful on the
+Thor, and it is also the arm the sweep and the Thor agree about least: the
+sweep gives it the most tags (5.45) and the Thor gives it fewer than the
+fixed targets (13 against 16), because the sweep plays the reflex's walk
+and the Thor plays the model's. Before the hot zone is the shipped
+doctrine it wants its own hundred-seed sweep at the round's own time limit,
+and a Thor pass with more seeds than three.
+
+### What this does not say
 
 - **The sample is small on the Thor.** Three seeds and a 3000-tick window is
   three rounds per harness against the sweep's 100 seeds and 9000 ticks. The
   Thor numbers say what happened in three rounds; the sweep says what happens
   in a hundred.
+- **The Thor does not replay.** A re-run of the two arms that carry the
+  representation comparison (`shared-free` and `shared-ghost-fixed`, seeds 1-3,
+  the same day) reproduced `shared-free` exactly — 6, 6 and 4 tags, 184, 224 and
+  199 sight ticks, 16 tags and 607 sight ticks over the three rounds — and
+  reproduced the rout in every round of both arms (the losing squad on 25, 7
+  and 5 points). What it did not reproduce is the per-seed counts of the field
+  arm (14 tags and 955 sight ticks against the 16 and 607 of the run above),
+  the ask counts, or the urgent lines of the plain arm (3 against 1). The
+  sweep and the stub control are the reproducible measurements; the Thor's
+  counts are one sample of a live model, and only the invariants — the
+  target, the contact, the rout — travel from one run to the next.
 - **The Thor's answer rate is a condition of the run.** An earlier pass of
   these suites on the same day answered far fewer asks per round (its
   shipped rounds recorded tens of answered asks where these record hundreds),
@@ -505,3 +919,30 @@ change to make first is the one measured here: `advance`.
 - **Nothing here changes the scoring rules.** `assets/rules/beacons.rhai` is
   the oracle and is untouched, and no variant changes the win score, the
   time limit, the tag range or the beacon radius.
+- **The Thor was shared while these rounds were played.** Another job was
+  using the Thor's ports at the same time, which shows up in the round
+  trip: a mean of 415 ms over `advance`'s 702 move asks, against the
+  20–105 ms the Thor's own index advertises. The refusals are counted and
+  reported for exactly this reason, and the breakdown says what they were:
+  they are the round's own housekeeping — a request that expired while it
+  was queued, one the mind replaced with a newer one — and not the model
+  failing to answer. The **stub** control (the same round with the model
+  replaced by one that answers at once) refuses as many, and more, with no
+  load on the Thor at all.
+- **`shared-centre` cannot show that the model applied the shared target.**
+  On the round's symmetric map the most central beacon is beacon 0, and
+  the decision menu's **first** option is always beacon 0. So this arm's
+  model chose the shared target on 97.4% of its asks *and* took the first
+  option of the menu on the same asks — the two readings are the same
+  reading here, and this measurement cannot tell them apart. The arms
+  whose target moves (`shared-free`, `shared-ghost`) can, and they do:
+  when the target was not beacon 0 the model still went to it on 89.7% and
+  95.0% of those asks.
+- **The sweep's shared rows are the reflex's, not the facts'.** The sweep
+  plays a Rhai reflex; it cannot read a facts text, so it cannot tell a
+  plain target from a field, and it cannot tell a fixed target from a
+  walking one except through the rule the reflex encodes. Every claim about
+  the *representation* in this section is a Thor claim, and every claim
+  about the *rule* is a sweep claim. Where the two disagree, both are
+  reported.
+

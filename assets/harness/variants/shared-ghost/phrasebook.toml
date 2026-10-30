@@ -1,0 +1,282 @@
+# The default harness's phrasebook: the wording of the lines the agents speak
+# (D37).
+#
+# The decision model chooses *what* is said -- the gesture, the addressee,
+# the intent, the affect and the subject. The phrasebook says *how* it is
+# said. A model never chooses a target, and a phrase never chooses one
+# either: the subject in the header is the one the gates chose.
+#
+# An entry is keyed by `"{act}.{intent}"` -- the tags the gates chose -- and
+# may be refined by the kind of subject it is about
+# (`"Command.Order.Beacon"`), which wins over the general entry. The
+# general entries say nothing about a subject, so they read well whatever
+# the line is about; the refined entries name it.
+#
+# The templates are plain words. Two placeholders are filled in:
+#
+#   * `{subject}`  -- what the line is about: "beacon 2", "enemy 4",
+#                     "north", or "nothing";
+#   * `{direction}` -- the compass word of the direction: "north", "east",
+#                     "south", "west", or "here".
+#
+# A template may not carry a number of its own: the numbers of a line are
+# the gates' -- the beacon and the direction the gates chose -- and they
+# come in through the placeholders. A phrase cannot smuggle a target past
+# the gates (D37), and a template that tried is refused.
+#
+# `channel` is optional and says how the line is spoken: "voice" (the
+# default, 25 m), "radio" (the whole squad, through walls, at the cost of
+# the pitch and of some words), "shout" (60 m) or "whisper" (5 m).
+#
+# This file is part of the harness, so it is edited between rounds and
+# pinned into the round log by the harness commit (D27). It is doctrine:
+# phase 5's trainer edits it the way it edits gates (D47).
+
+# --------------------------------------------------------------- commands
+
+[phrasebook."Command.Order"]
+channel = "radio"
+templates = [
+  "move up now",
+  "hold the line",
+  "take it",
+]
+
+[phrasebook."Command.Order.Beacon"]
+templates = [
+  "take {subject} now",
+  "move to {subject}",
+  "{subject} is yours",
+]
+
+[phrasebook."Command.Order.Enemy"]
+templates = [
+  "watch {subject}",
+  "do not let {subject} pass",
+]
+
+[phrasebook."Command.Order.Direction"]
+templates = [
+  "head {direction} now",
+  "go {direction}",
+]
+
+[phrasebook."Command.Ack"]
+templates = [
+  "yes",
+  "on it",
+  "understood",
+]
+
+[phrasebook."Command.Warn"]
+channel = "shout"
+templates = [
+  "stop",
+  "look out",
+]
+
+[phrasebook."Command.Warn.Beacon"]
+templates = [
+  "leave {subject}",
+  "do not take {subject}",
+]
+
+[phrasebook."Command.Warn.Enemy"]
+templates = [
+  "watch out for {subject}",
+  "{subject} is coming",
+]
+
+[phrasebook."Command.Query"]
+templates = [
+  "where",
+  "say again",
+]
+
+[phrasebook."Command.Query.Beacon"]
+templates = [
+  "where is {subject}",
+  "is {subject} clear",
+]
+
+[phrasebook."Command.Report"]
+templates = [
+  "reporting",
+  "that is the situation",
+]
+
+[phrasebook."Command.Report.Beacon"]
+templates = [
+  "we hold {subject}",
+  "{subject} is ours",
+]
+
+# -------------------------------------------------------------- questions
+
+[phrasebook."Question.Order"]
+templates = [
+  "should we move",
+  "shall we push",
+]
+
+[phrasebook."Question.Order.Beacon"]
+templates = [
+  "should we take {subject}",
+  "do we hold {subject}",
+]
+
+[phrasebook."Question.Ack"]
+templates = [
+  "did you hear that",
+  "are you with me",
+]
+
+[phrasebook."Question.Warn"]
+templates = [
+  "do you see them",
+  "is it safe",
+]
+
+[phrasebook."Question.Warn.Enemy"]
+templates = [
+  "do you see {subject}",
+  "where is {subject}",
+]
+
+[phrasebook."Question.Query"]
+templates = [
+  "what is happening",
+  "what do you know",
+]
+
+[phrasebook."Question.Query.Beacon"]
+templates = [
+  "where is {subject}",
+  "who holds {subject}",
+]
+
+[phrasebook."Question.Report"]
+templates = [
+  "what happened",
+  "give me the situation",
+]
+
+[phrasebook."Question.Report.Beacon"]
+templates = [
+  "what happened at {subject}",
+  "who holds {subject}",
+]
+
+# ------------------------------------------------------------- statements
+
+[phrasebook."Statement.Order"]
+templates = [
+  "the order is to move",
+  "we are moving",
+]
+
+[phrasebook."Statement.Order.Beacon"]
+templates = [
+  "we are taking {subject}",
+  "the order is {subject}",
+]
+
+[phrasebook."Statement.Ack"]
+templates = [
+  "heard",
+  "copy",
+]
+
+[phrasebook."Statement.Warn"]
+templates = [
+  "danger",
+  "they are coming",
+]
+
+[phrasebook."Statement.Warn.Enemy"]
+templates = [
+  "danger at {subject}",
+  "they are at {subject}",
+]
+
+[phrasebook."Statement.Query"]
+templates = [
+  "i wonder",
+  "anyone know",
+]
+
+[phrasebook."Statement.Query.Beacon"]
+templates = [
+  "anyone seen {subject}",
+  "what is at {subject}",
+]
+
+[phrasebook."Statement.Report"]
+templates = [
+  "here is the situation",
+  "the situation is this",
+]
+
+[phrasebook."Statement.Report.Beacon"]
+templates = [
+  "we hold {subject}",
+  "{subject} is taken",
+]
+
+# -------------------------------------------------------------- callouts
+
+[phrasebook."Callout.Order"]
+channel = "shout"
+templates = [
+  "squad, on me",
+  "everyone, listen",
+]
+
+[phrasebook."Callout.Order.Beacon"]
+templates = [
+  "squad, {subject} is ours",
+  "everyone, take {subject}",
+]
+
+[phrasebook."Callout.Ack"]
+templates = [
+  "with you",
+  "still here",
+]
+
+[phrasebook."Callout.Warn"]
+channel = "shout"
+templates = [
+  "look out",
+  "they are here",
+]
+
+[phrasebook."Callout.Warn.Enemy"]
+templates = [
+  "they are at {subject}",
+  "enemy at {subject}",
+]
+
+[phrasebook."Callout.Query"]
+templates = [
+  "anyone seen them",
+  "where are you",
+]
+
+[phrasebook."Callout.Query.Beacon"]
+templates = [
+  "anyone seen {subject}",
+  "who is at {subject}",
+]
+
+[phrasebook."Callout.Report"]
+templates = [
+  "the situation is this",
+  "here is where we are",
+]
+
+[phrasebook."Callout.Report.Beacon"]
+templates = [
+  "{subject} is ours",
+  "we hold {subject}",
+]

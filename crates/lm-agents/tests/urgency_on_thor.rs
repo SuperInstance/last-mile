@@ -498,6 +498,7 @@ fn play(seed: u64) -> (Vec<Ask>, Vec<TalkRecord>, BTreeMap<u64, Moment>) {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
+        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     };
