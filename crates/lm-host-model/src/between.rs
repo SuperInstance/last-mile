@@ -116,6 +116,41 @@ pub struct PredictionView {
     pub text: String,
 }
 
+impl PredictionView {
+    /// The held-out seeds, as one line of text.
+    ///
+    /// The flow judges a proposal on sixteen held-out seeds now, and
+    /// sixteen numbers do not fit on a line as a list. A run of consecutive
+    /// seeds is written as a range ("1001000..1001015") and anything else
+    /// as the list it is. The count is always there: a reader has to know
+    /// how many seeds the verdict was read from.
+    pub fn seeds_text(&self) -> String {
+        let count = self.eval_seeds.len();
+        if count == 0 {
+            return "none".to_owned();
+        }
+        let noun = if count == 1 { "seed" } else { "seeds" };
+        let consecutive = self
+            .eval_seeds
+            .windows(2)
+            .all(|pair| pair[1] == pair[0] + 1);
+        if consecutive && count > 2 {
+            return format!(
+                "{count} {noun} ({}..{})",
+                self.eval_seeds[0],
+                self.eval_seeds[count - 1]
+            );
+        }
+        let list = self
+            .eval_seeds
+            .iter()
+            .map(|seed| seed.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{count} {noun} ({list})")
+    }
+}
+
 /// The verdict, as it was measured.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerdictView {

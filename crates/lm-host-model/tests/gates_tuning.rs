@@ -39,7 +39,8 @@
 //!     the doctrine's last branch — "go to the nearest beacon your squad
 //!     does not hold".
 //!   * **the fight** (tick 1800): the squads have met at the beacons, so
-//!     enemies are in sight and the first branch — retreat — fires.
+//!     enemies are in sight and the first branch — retreat — fires, and
+//!     the second — hold, because the beacon is contested — is live too.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -161,10 +162,16 @@ fn situation_of(sim: &Sim, agent: u16, seed: u64, tick: u64, cfg: &AgentsConfig)
 ///
 /// 1. an enemy can see you within 6 cells, and there are fewer allies
 ///    within 4 cells than there are enemies within 6 cells: retreat;
-/// 2. standing on a beacon my squad holds, and no enemy within 6 cells:
-///    hold;
+/// 2. standing on a beacon my squad holds, and an enemy is within 6 cells:
+///    hold — the beacon is contested;
 /// 3. otherwise: go to the nearest beacon my squad does not hold, if there
 ///    is one; if there is none, hold.
+///
+/// The second branch is the `advance` doctrine's (Casey's decision,
+/// 2026-10-30): a squad holds a beacon only while it is contested, and
+/// otherwise keeps advancing. The doctrine the harness shipped until then
+/// held the beacon whenever no enemy was near, and that is what froze the
+/// game; it is kept, comparable, as the `hold` variant.
 ///
 /// The numbers come from the facts the builder computed (the same ones
 /// the model is shown), so this measures whether the model applies the
@@ -180,7 +187,7 @@ fn oracle(facts: &Facts) -> MenuOption {
     if enemies_seeing > 0 && allies_near < enemies_near {
         return MenuOption::Retreat;
     }
-    if standing_on >= 0 && standing_on_held && enemies_near == 0 {
+    if standing_on >= 0 && standing_on_held && enemies_near > 0 {
         return MenuOption::Hold;
     }
     if nearest_unheld >= 0 {

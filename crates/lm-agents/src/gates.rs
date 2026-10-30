@@ -1030,6 +1030,53 @@ beacon = "walk to beacon {beacon}"
     }
 
     #[test]
+    fn the_doctrine_is_the_advance_one_and_the_hold_variant_keeps_the_old_one() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/harness");
+        let default = Harness::open(&root.join("default")).expect("the default harness opens");
+        let hold = Harness::open(&root.join("variants/hold")).expect("the hold variant opens");
+
+        // The default holds the beacon only while it is contested: the
+        // `advance` doctrine (Casey's decision, 2026-10-30).
+        let default_set = GateSet::parse(&default.gates_toml).expect("the default gates parse");
+        let instructions = &default_set
+            .gate("move")
+            .expect("the move gate is there")
+            .instructions;
+        assert!(
+            instructions.contains("and an enemy is within 6 cells of you, hold"),
+            "the default harness does not hold only while the beacon is contested: {instructions}"
+        );
+
+        // The `hold` variant keeps the doctrine the default harness shipped
+        // until then: hold the beacon whenever no enemy is near. It is kept
+        // so the two stay comparable.
+        let hold_set = GateSet::parse(&hold.gates_toml).expect("the hold variant gates parse");
+        let old = &hold_set
+            .gate("move")
+            .expect("the move gate is there")
+            .instructions;
+        assert!(
+            old.contains("and no enemy is within 6 cells, hold"),
+            "the hold variant does not hold the old doctrine: {old}"
+        );
+
+        // Every harness in the tree parses: a variant whose gates do not
+        // parse is a variant nobody can play.
+        let mut dirs = vec![root.join("default")];
+        for entry in std::fs::read_dir(root.join("variants")).expect("the variants are there") {
+            let path = entry.expect("the entry reads").path();
+            if path.is_dir() {
+                dirs.push(path);
+            }
+        }
+        for dir in dirs {
+            let harness = Harness::open(&dir).expect("the harness opens");
+            GateSet::parse(&harness.gates_toml)
+                .unwrap_or_else(|err| panic!("the gates of {} parse: {err}", dir.display()));
+        }
+    }
+
+    #[test]
     fn the_urgency_gate_is_stated_over_the_facts_the_builder_states() {
         // The urgency gate is a score gate: the model picks a level and the
         // index of the level is the score the affect is bucketed from. The

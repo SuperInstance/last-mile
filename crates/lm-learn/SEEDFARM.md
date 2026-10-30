@@ -29,11 +29,12 @@ be read again by running it twice.
   (`the_parallel_evaluation_plays_the_same_rounds`). `evaluate_serial` is the
   serial reference the tests use.
 * **The seed count is a parameter**: `FlowConfig::with_eval_seeds(n)` and
-  `lm learn --eval-seeds N`. The default stays 4 (`DEFAULT_EVAL_SEEDS`), and
-  the seeds of a round are unchanged at any count ≤ 1000 (the round of seed 1
-  still judges 1_001_000..1_001_003). A count above 1000 is given its own
-  block of the seed space, so two rounds never judge the same seed at any
-  count.
+  `lm learn --eval-seeds N`. The default **is 16** now
+  (`DEFAULT_EVAL_SEEDS`) — the recommendation below, applied on 2026-10-30 —
+  and the seeds of a round are unchanged at any count ≤ 1000 (the round of
+  seed 1 still judges 1_001_000..1_001_003). A count above 1000 is given its
+  own block of the seed space, so two rounds never judge the same seed at
+  any count.
 * A prediction judged on no seeds adopts nothing (it used to adopt
   vacuously); `a_prediction_with_no_seeds_is_not_adopted` pins that.
 
@@ -209,6 +210,13 @@ today's default and gains a second gate exactly when the seed count makes
 statistics possible. On this experiment's 256-seed data the rule changes no
 verdict: everything adopted has fraction ≥ 79% and p ≈ 0; everything rejected
 fails the count.
+
+**Adopted on 2026-10-30.** The rule above is the rule the flow judges by
+now (`crates/lm-learn/src/sign.rs` for the sign test, decided in exact
+integer arithmetic; `crates/lm-learn/src/eval.rs` for the pass rule), and
+the default count is 16. The bench (`examples/seedfarm.rs`) now reads the
+library's sign test rather than its own, so the numbers it prints are the
+numbers the verdicts are decided by.
 
 ## Recommendation
 

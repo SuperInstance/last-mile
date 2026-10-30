@@ -80,7 +80,12 @@ fn reflex(v) {
 const TICKS: u64 = 1_500;
 
 /// How many held-out seeds the evaluation runs on.
-const EVAL_SEEDS: usize = 4;
+///
+/// Sixteen, the flow's default: at four seeds the sign test cannot clear
+/// anything — the fairest possible sample at four seeds is p = 0.0625 — so
+/// the round that is adopted here is judged on the count the flow ships
+/// with (crates/lm-learn/SEEDFARM.md).
+const EVAL_SEEDS: usize = 16;
 
 /// A temporary directory of this test's own.
 fn scratch(tag: &str) -> PathBuf {
@@ -833,13 +838,13 @@ fn the_seed_count_is_a_parameter() {
     assert_eq!(seal.eval_seeds.len(), 8);
 }
 
-/// The default count is the count the flow has always judged on.
+/// The default count is the count the flow judges on.
 #[test]
-fn the_default_seed_count_is_four() {
+fn the_default_seed_count_is_sixteen() {
     let cfg = FlowConfig::new(7, "/tmp/harness");
-    assert_eq!(cfg.eval_seed_count, 4);
+    assert_eq!(cfg.eval_seed_count, 16);
     assert_eq!(
         cfg.eval_seeds(),
-        vec![1_007_000, 1_007_001, 1_007_002, 1_007_003]
+        (1_007_000..1_007_016).collect::<Vec<u64>>()
     );
 }

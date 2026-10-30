@@ -2,9 +2,15 @@
 //!
 //! The sweep measures how the win_score and time_limit_ticks affect the
 //! frequency of draws at the time limit. The defaults (win_score 1800,
-//! time_limit_ticks 9000) produce 67% draws, but what if we change the
+//! time_limit_ticks 9000) produce 63% draws, but what if we change the
 //! parameters? The sweep tests a few combinations to see how the draw rate
 //! changes.
+//!
+//! The 63% is the measured number at the defaults (100 seeds, the shipped
+//! reflex): the sweep below prints it. It does not move with the harness's
+//! doctrine — the sweep plays the *reflex*, and the reflexes are the same
+//! under every variant — so the `advance` doctrine of 2026-10-30 left it
+//! where it was.
 //!
 //! The sweep plays the shipped rounds — `Header::default_round(seed, ...)`
 //! with the default reflex agents — headless for the full `time_limit_ticks`.

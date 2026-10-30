@@ -91,6 +91,13 @@ The move gate's question is the doctrine, written as a rule over the facts:
 > (3) Otherwise go to the nearest beacon your squad does not hold, if there is
 > one; if there is none, hold.
 
+That is the doctrine this document measured: the one the default harness
+shipped when the measurement was made. The default harness now states the
+`advance` doctrine — the second branch holds the beacon only while it is
+contested — which is what this measurement recommended, and the doctrine as
+it was here is kept, comparable, as the `hold` variant
+(`assets/harness/variants/hold`).
+
 ### The facts
 
 `crates/lm-agents/src/facts.rs` writes them in plain language. Two of them
@@ -355,6 +362,52 @@ Reading the Thor table against the shipped rows:
   seed 3 — the round with the most sustained contact — answered urgent on 4
   of its 26 talk asks and delivered 3 urgent lines. The gate (fixed on
   `origin/urgent`) works; the shipped doctrine never gives it a moment.
+
+## The same measurement after the change (2026-10-30)
+
+The default harness now states the `advance` doctrine (Casey's decision, and
+the recommendation above). The old doctrine is kept, comparable, as the `hold`
+variant (`assets/harness/variants/hold`). Both were measured again with the
+same command, the same three seeds and 3000 ticks a round:
+
+| harness | seed | ticks | end tick | tags | sight ticks | scores | margin | decisions | asks | lines | urgent |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `hold` (the old default) | 1 | 3000 | – | 0 | 0 | [1690, 1690] | 0 | 728 | 339 | 60 | 0 |
+| `hold` (the old default) | 2 | 3000 | – | 0 | 0 | [1702, 1702] | 0 | 740 | 355 | 56 | 0 |
+| `hold` (the old default) | 3 | 3000 | – | 0 | 0 | [1721, 1721] | 0 | 751 | 353 | 53 | 0 |
+| `advance` (the new default), run 1 | 1 | 3000 | – | 0 | 0 | [896, 903] | 7 | 587 | 589 | 37 | 0 |
+| `advance` (the new default), run 1 | 2 | 3000 | – | 0 | 0 | [854, 830] | 24 | 601 | 607 | 34 | 0 |
+| `advance` (the new default), run 1 | 3 | 3000 | – | 0 | 0 | [921, 867] | 54 | 617 | 615 | 38 | 0 |
+| `advance` (the new default), run 2 | 1 | 2984 | 2983 | 0 | 0 | [1006, 1800] | 794 | 446 | 445 | 33 | 0 |
+| `advance` (the new default), run 2 | 2 | 3000 | – | 0 | 0 | [844, 845] | 1 | 592 | 594 | 35 | 0 |
+| `advance` (the new default), run 2 | 3 | 3000 | – | 0 | 0 | [969, 818] | 151 | 612 | 615 | 38 | 0 |
+
+Two things to read here, and one that does not reproduce.
+
+**The `hold` variant is the old doctrine, exactly.** Its three rounds are the
+shipped rows above, score for score ([1690, 1690], [1702, 1702], [1721,
+1721]) and 0 tags and 0 sight ticks each. The doctrine pins the play — every
+agent camps on its beacon — so the round is a function of its seed, and the
+variant measures what the default harness measured. That is what makes it
+comparable.
+
+**The new doctrine changes the game, and the change is real.** The
+symmetric stalemate is gone: the rounds now end unevenly ([896, 903], [854,
+830], [921, 867], [844, 845], [969, 818]), and run 2's seed 1 ended at tick
+2983 with a squad on 1800 — the win score, and a decided round, where every
+shipped round sat level at 0. The scores are lower because a squad that keeps
+advancing holds its beacon for less of the round, and they differ from round
+to round because the model, not the rule, now decides where a squad goes.
+
+**The contact did not reproduce.** The `advance` rows in the measurement
+above carry 444–802 sight ticks a round; these six rounds carry zero. The
+gates are the same ones (the new default's move gate is the `advance`
+variant's, byte for byte) and the reflex is the same, so the difference is
+the play: under the old doctrine the branch pins every agent's behaviour and
+the round is a function of its seed, while under the new doctrine the model's
+sampling decides where the squads go, and in these six rounds they never met.
+A single three-seed pass is not a verdict on the doctrine, but it is not
+evidence for it either, and it is recorded here rather than left out.
 
 ## The recommendation
 

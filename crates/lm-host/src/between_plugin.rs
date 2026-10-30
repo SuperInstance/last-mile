@@ -574,7 +574,7 @@ fn draw_prediction(ui: &mut egui::Ui, model: &BetweenModel) {
         ui.separator();
         ui.label("what was promised, before the test");
         ui.label(format!(
-            "seal {} — {} {} by at least {}, judged on seeds {}",
+            "seal {} — {} {} by at least {}, judged on {}",
             prediction.seal,
             prediction.metric,
             match prediction.direction {
@@ -582,12 +582,7 @@ fn draw_prediction(ui: &mut egui::Ui, model: &BetweenModel) {
                 lm_learn::ledger::Direction::Down => "falls",
             },
             prediction.min_delta,
-            prediction
-                .eval_seeds
-                .iter()
-                .map(|seed| seed.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            prediction.seeds_text()
         ));
     }
 }

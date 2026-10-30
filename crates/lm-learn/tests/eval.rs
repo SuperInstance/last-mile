@@ -8,8 +8,8 @@
 
 use lm_core::header::Header;
 use lm_learn::eval::{
-    eval_seeds, evaluate, evaluate_serial, judge_seeds, judge_seeds_serial, metric_value,
-    worker_count,
+    eval_seeds, evaluate, evaluate_serial, judge_seeds, judge_seeds_serial, metric_value, passes,
+    sign_test_of, worker_count,
 };
 use lm_learn::ledger::{Direction, Prediction};
 use lm_learn::metrics::RoundMetrics;
@@ -215,10 +215,128 @@ fn two_rounds_never_share_a_held_out_seed() {
     }
 }
 
-/// The default count of seeds is what it has always been.
+/// The default count of seeds is what the flow judges by default.
 #[test]
 fn the_default_seeds_are_the_seeds_the_flow_has_always_judged() {
-    assert_eq!(lm_learn::flow::DEFAULT_EVAL_SEEDS, 4);
+    assert_eq!(lm_learn::flow::DEFAULT_EVAL_SEEDS, 16);
     let seeds = eval_seeds(&[], lm_learn::flow::DEFAULT_EVAL_SEEDS, 1);
-    assert_eq!(seeds, vec![1_001_000, 1_001_001, 1_001_002, 1_001_003]);
+    assert_eq!(
+        seeds,
+        (1_001_000..1_001_016).collect::<Vec<u64>>(),
+        "the default count judges the round of seed 1 on sixteen held-out seeds"
+    );
+}
+
+/// A set of deltas, on seeds of their own.
+///
+/// The pass rule reads the deltas and the seed they were measured on; the
+/// seed does not matter to the rule, so these are numbered from one.
+fn deltas(values: &[i64]) -> Vec<(u64, i64)> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, delta)| (index as u64 + 1, *delta))
+        .collect()
+}
+
+/// The pass rule, over deltas that were made up.
+///
+/// The rule has two parts and both of them have to hold: the count (the
+/// delta met the sealed bar on at least `ceil(3N/4)` of the seeds) and the
+/// sign test (the deltas' direction beats the coin flip at p < 0.05).
+#[test]
+fn the_pass_rule_is_the_count_and_the_sign_test() {
+    // A three-quarter split at N = 4: the count is met (3 of 4 is the
+    // threshold), and the sign test refuses it — the fairest possible
+    // sample at four seeds is p = 0.0625, which is not below 0.05.
+    let three_of_four = deltas(&[1, 1, 1, 0]);
+    assert!(
+        !passes(&three_of_four, &prediction(4)),
+        "a three-of-four split passed the sign test"
+    );
+
+    // The same split with the ties read as what they are: the seeds that
+    // did not move are excluded, so the test is 3 of 3 — p = 0.125.
+    let three_of_three = deltas(&[1, 1, 1]);
+    assert!(
+        !passes(&three_of_three, &prediction(3)),
+        "three of three passed the sign test"
+    );
+
+    // The count alone is not enough: the same split with the bar at zero,
+    // where the tie qualifies, still fails the sign test.
+    let mut loose = prediction(4);
+    loose.min_delta = 0;
+    assert!(
+        !passes(&deltas(&[1, 1, 1, 0]), &loose),
+        "the tie counted as a qualified seed and the split passed"
+    );
+
+    // And the sign test alone is not enough either: a change that moves
+    // every seed the wrong way is never adopted, whatever the count says.
+    let wrong_way = deltas(&[-1, -1, -1, -1]);
+    assert!(
+        !passes(&wrong_way, &prediction(4)),
+        "a change that moved every seed down was adopted"
+    );
+
+    // A prediction judged on no seeds has no evidence, and adopts nothing.
+    assert!(
+        !passes(&[], &prediction(0)),
+        "a prediction judged on no seeds was adopted"
+    );
+}
+
+/// The edges at N = 16, the count the flow judges by default.
+///
+/// The threshold is 12 of 16, and the sign test is decided at the same
+/// count: 12 of 16 is p = 0.0384, which is below 0.05, and 11 of 16 is
+/// p = 0.1050, which is not.
+#[test]
+fn the_edges_at_sixteen_seeds() {
+    // Twelve of sixteen: the threshold exactly, and the sign test clears.
+    // The other four seeds moved the wrong way, so this is the tightest
+    // sample the count allows at sixteen seeds.
+    let twelve = deltas(&[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1]);
+    assert!(passes(&twelve, &prediction(16)), "12 of 16 was not adopted");
+
+    // Eleven of sixteen: one seed short of the count, and the sign test
+    // does not clear it either (p = 0.1050).
+    let eleven = deltas(&[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1]);
+    assert!(!passes(&eleven, &prediction(16)), "11 of 16 was adopted");
+
+    // Twelve of sixteen with the other four tied: the ties are excluded,
+    // so the test is 12 of 12 — p = 0.0002.
+    let tied = deltas(&[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0]);
+    assert!(
+        passes(&tied, &prediction(16)),
+        "12 of 16 with ties was not adopted"
+    );
+
+    // The p-values, read off the deltas: 2517/65536 = 0.0384 for twelve
+    // up and four down, and 1/4096 = 0.0002 for twelve up and four tied.
+    let test = sign_test_of(&twelve, Direction::Up);
+    assert_eq!(test.moved, 16);
+    assert_eq!(test.claimed, 12);
+    assert_eq!(test.p_value_text(), "0.0384");
+
+    let quiet = sign_test_of(&tied, Direction::Up);
+    assert_eq!(quiet.moved, 12);
+    assert_eq!(quiet.claimed, 12);
+    assert_eq!(quiet.p_value_text(), "0.0002");
+}
+
+/// The verdict the flow records is the pass rule's answer.
+///
+/// The deltas are the ones the rounds gave, so this is the rule over a real
+/// measurement and not over made-up numbers.
+#[test]
+fn the_verdict_is_the_pass_rule() {
+    let pred = prediction(16);
+    let verdict = evaluate(&baseline, &candidate, TICKS, &pred, 7).expect("the evaluation runs");
+    assert_eq!(
+        verdict.adopted,
+        passes(&verdict.deltas, &pred),
+        "the verdict is not the pass rule's answer"
+    );
 }

@@ -43,6 +43,19 @@
 # facts builder's ENEMY_NEAR_CELLS) and 4 cells for an ally (the agents
 # config's ally_range_cells). Change one, change the other.
 #
+# The doctrine is the `advance` one (Casey's decision, 2026-10-30): a squad
+# never camps. Its second branch holds a beacon only while the beacon is
+# contested — an enemy is within 6 cells — and otherwise the squad keeps
+# advancing to the next beacon. The shipped doctrine held the beacon
+# whenever no enemy was near, and that is what froze the game: the squad
+# reached its beacon, the branch fired, and the squad sat there for the
+# rest of the round (crates/lm-agents/tests/engagement.md: 0 sight ticks
+# and 0 tags for the shipped doctrine, against 444-802 sight ticks a round
+# in the `advance` variant's three Thor rounds — and the same file's
+# "The same measurement after the change" section has the re-measurement,
+# which moved the scores but not the contact). The old doctrine is kept,
+# comparable, as the `hold` variant (assets/harness/variants/hold).
+#
 # The talk gates below choose what an agent *says* (Task 4). They are asked
 # in the same call as the move gate, and they are worded the same way: as a
 # rule over the stated facts, never as an open question. The wording of the
@@ -53,7 +66,7 @@
 id = "move"
 type = "choice"
 options_from = "menu"
-instructions = "Your squad's doctrine, in order: (1) If an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells, retreat. (2) If you are standing on a beacon your squad holds and no enemy is within 6 cells, hold. (3) Otherwise go to the nearest beacon your squad does not hold, if there is one; if there is none, hold."
+instructions = "Your squad's doctrine, in order: (1) If an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells, retreat. (2) If you are standing on a beacon your squad holds and an enemy is within 6 cells of you, hold. (3) Otherwise go to the nearest beacon your squad does not hold, if there is one; if there is none, hold."
 
 # How each kind of menu option is described. The menu decides how many
 # beacon options there are, so the file describes the kinds; `{beacon}` is
@@ -68,7 +81,7 @@ instructions = "Your squad's doctrine, in order: (1) If an enemy can see you wit
 # instead of inside one.
 [gates.criteria]
 beacon = "go to beacon {beacon} (the doctrine's third branch: go to the nearest beacon your squad does not hold)"
-hold = "hold position (the doctrine's second branch: you are standing on a beacon your squad holds and no enemy is within 6 cells, or there is no beacon your squad does not hold)"
+hold = "hold position (the doctrine's second branch: you are standing on a beacon your squad holds and an enemy is within 6 cells of you; or the doctrine's third branch, last part: there is no beacon your squad does not hold)"
 follow = "follow the squad leader (no branch of the doctrine says to follow the leader)"
 retreat = "retreat to the squad's spawn (the doctrine's first branch: an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells)"
 

@@ -5,7 +5,9 @@
 //! 2. For each seed, run both baseline and candidate headers
 //! 3. Compute the metric value for the prediction metric
 //! 4. Calculate the delta (candidate - baseline)
-//! 5. Determine if adoption criteria are met
+//! 5. Determine if adoption criteria are met: the count of the seeds whose
+//!    delta met the sealed bar, and the exact binomial sign test over the
+//!    deltas' direction (see [`crate::sign`])
 //!
 //! The seeds are judged **in parallel**, across the machine's cores: a
 //! proposal judged on 256 seeds is 512 rounds, and one core would spend
@@ -20,6 +22,7 @@ use std::thread;
 use crate::ledger::{Direction, Prediction, Verdict};
 use crate::metrics::RoundMetrics;
 use crate::round::play;
+use crate::sign;
 use lm_core::log::RoundLog;
 use lm_core::Header;
 
@@ -282,30 +285,15 @@ fn chain_of(log: &RoundLog) -> Vec<u64> {
 
 /// The verdict the deltas reach.
 ///
-/// Adopted iff the delta moves in pred.direction by >= pred.min_delta
-/// on at least ceil(0.75 * N) seeds.
-///
-/// The threshold is whole-number maths: three seeds in four, rounded up.
+/// Adopted iff the delta meets the sealed bar on at least ceil(0.75 * N)
+/// seeds **and** the sign test on the deltas' direction has p < 0.05. The
+/// count carries "how often"; the sign test carries "which way" (the seed
+/// farm's rule, crates/lm-learn/SEEDFARM.md).
 ///
 /// A prediction judged on no seeds has no evidence behind it, and is not
 /// adopted: three seeds in four of nothing is nothing.
 fn verdict_of(deltas: Vec<(u64, i64)>, pred: &Prediction, seal: u64) -> Verdict {
-    let threshold = (deltas.len() * 3).div_ceil(4);
-
-    let mut qualified_deltas = Vec::new();
-
-    for &(seed, delta) in &deltas {
-        let qualified = match pred.direction {
-            Direction::Up => delta >= pred.min_delta,
-            Direction::Down => delta <= -pred.min_delta,
-        };
-
-        if qualified {
-            qualified_deltas.push((seed, delta));
-        }
-    }
-
-    let adopted = !deltas.is_empty() && qualified_deltas.len() >= threshold;
+    let adopted = passes(&deltas, pred);
 
     Verdict {
         seal,
@@ -313,6 +301,51 @@ fn verdict_of(deltas: Vec<(u64, i64)>, pred: &Prediction, seal: u64) -> Verdict 
         adopted,
         override_reason: None,
     }
+}
+
+/// The pass rule, over the deltas of a judged round.
+///
+/// Adopted iff
+///
+/// * the delta meets the sealed bar (`pred.min_delta`, in `pred.direction`)
+///   on at least `ceil(3N/4)` of the N seeds — the threshold is whole-number
+///   maths: three seeds in four, rounded up; and
+/// * the sign test over the deltas' direction has p < 0.05 — the ties
+///   (the seeds that did not move) are excluded, and the p-value is an
+///   exact binomial tail, decided in integers.
+///
+/// This is the whole rule, over hand-made deltas: the verdict the flow
+/// records is this function's answer, and the tests read it on deltas they
+/// made up.
+pub fn passes(deltas: &[(u64, i64)], pred: &Prediction) -> bool {
+    if deltas.is_empty() {
+        return false;
+    }
+    let threshold = (deltas.len() * 3).div_ceil(4);
+    let qualified = deltas
+        .iter()
+        .filter(|(_, delta)| qualified_delta(*delta, pred))
+        .count();
+    if qualified < threshold {
+        return false;
+    }
+    let values: Vec<i64> = deltas.iter().map(|(_, delta)| *delta).collect();
+    sign::passes(sign::sign_test(&values, pred.direction))
+}
+
+/// Does this delta meet the sealed bar?
+fn qualified_delta(delta: i64, pred: &Prediction) -> bool {
+    match pred.direction {
+        Direction::Up => delta >= pred.min_delta,
+        Direction::Down => delta <= -pred.min_delta,
+    }
+}
+
+/// The sign test over a judged round's deltas: how many seeds moved, and how
+/// many of them moved the claimed way.
+pub fn sign_test_of(deltas: &[(u64, i64)], direction: Direction) -> sign::SignTest {
+    let values: Vec<i64> = deltas.iter().map(|(_, delta)| *delta).collect();
+    sign::sign_test(&values, direction)
 }
 
 /// How many workers judge the seeds.

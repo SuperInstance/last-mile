@@ -125,6 +125,12 @@ hold, so a squad that has taken a beacon goes on to the next one, and the
 two squads converge on the central pair (the reflex's seed 1: first sight
 on tick 1785, first tag on tick 1846).
 
+The branch quoted here is the one the default harness shipped when this was
+measured. The default harness now holds the beacon only while it is
+contested — the `advance` doctrine (2026-10-30) — and the branch as it was
+is kept, comparable, as the `hold` variant
+(assets/harness/variants/hold).
+
 **That is a fact about the game's play, and it is not what this brief is
 about** — the doctrine is the game's strategy and another seat's evidence
 (E4c) is measured on it. What follows is about the *voice*: the mapping

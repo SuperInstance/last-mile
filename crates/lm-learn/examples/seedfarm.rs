@@ -9,6 +9,13 @@
 //! * `verdicts <ticks>` — thirty proposals the flow would make, each
 //!   judged on 4 seeds and on 256: how many verdicts flip, which way they
 //!   flip, and what the statistics say about it.
+//!
+//!   Since 2026-10-30 the verdicts are read by the flow's own pass rule
+//!   (the 3/4 count **and** the exact sign test, `lm_learn::sign`), so the
+//!   4-seed column now rejects every proposal: at four seeds the fairest
+//!   possible sample is p = 0.0625, which is not below 0.05. The flip
+//!   column is therefore empty by construction, and the "qualified" and
+//!   "sign p" columns are what still say which proposals truly help.
 //! * `probe <seeds>` — which metrics a tick horizon can see at all, and
 //!   the deltas of a few candidates there. A metric that is zero on every
 //!   seed at some horizon cannot be moved by any proposal, so the verdict
@@ -36,6 +43,7 @@ use lm_learn::flow::{run_learning_round, FlowConfig, StubReviewer, DEFAULT_REFLE
 use lm_learn::ledger::Direction;
 use lm_learn::metrics::RoundMetrics;
 use lm_learn::round::play;
+use lm_learn::sign;
 
 /// The counts the farm measures.
 const COUNTS: [usize; 5] = [4, 16, 64, 256, 1024];
@@ -681,8 +689,9 @@ fn report(judged: &[Judged]) {
         let qualified = qualified_count(&j.many.deltas, claim.direction, claim.min_delta);
         let fraction = qualified as f64 / j.many.deltas.len() as f64;
         let (low, high) = bootstrap_interval(&j.many.deltas, claim.direction, claim.min_delta);
-        let p = sign_test(&j.many.deltas, claim.direction);
-        let backed = p < 0.05 && fraction >= 0.75;
+        let test = sign_test(&j.many.deltas, claim.direction);
+        let p = test.p_value_text();
+        let backed = sign::passes(test) && fraction >= 0.75;
         let flip = j.few.adopted != j.many.adopted;
         let kind = if !flip {
             "-".to_string()
@@ -700,7 +709,7 @@ fn report(judged: &[Judged]) {
             }
         };
         println!(
-            "| {} | {} | {} {} by {} | {} | {} | {:.0}% | [{:.0}%, {:.0}%] | {:.4} | {} |",
+            "| {} | {} | {} {} by {} | {} | {} | {:.0}% | [{:.0}%, {:.0}%] | {} | {} |",
             i + 1,
             claim.name,
             claim.metric,
@@ -772,50 +781,15 @@ fn qualified_delta(direction: Direction, min_delta: i64, delta: i64) -> bool {
 /// likely to be up as down, so the number of seeds that moved the way the
 /// claim says is a coin toss count. The p-value is how unlikely that
 /// count is under the null, in the direction the claim says.
-fn sign_test(deltas: &[(u64, i64)], direction: Direction) -> f64 {
-    let (up, down) = deltas
-        .iter()
-        .fold((0usize, 0usize), |(up, down), (_, delta)| match delta {
-            d if *d > 0 => (up + 1, down),
-            d if *d < 0 => (up, down + 1),
-            _ => (up, down),
-        });
-    let n = up + down;
-    if n == 0 {
-        return 1.0;
-    }
-    match direction {
-        Direction::Up => binomial_upper_tail(n, up),
-        Direction::Down => binomial_upper_tail(n, down),
-    }
-}
-
-/// P(X >= k) for X ~ Binomial(n, 1/2).
+/// The sign test over a round's deltas: how many seeds moved, and how many
+/// of them moved the way the claim says.
 ///
-/// The tail is summed from the far end: the terms are the masses of
-/// X = n, n-1, …, k, each one the last times (n-j)/(j+1), and none of them
-/// is bigger than the mass at the middle of the distribution (under 0.06),
-/// so the sum stays exact to the double and never overflows. The near half
-/// of the distribution is read by symmetry: P(X >= k) with k at or below
-/// the middle is 1 - P(X >= n-k+1).
-fn binomial_upper_tail(n: usize, k: usize) -> f64 {
-    if k == 0 || n == 0 {
-        return 1.0;
-    }
-    if k > n {
-        return 0.0;
-    }
-    if 2 * k <= n {
-        return 1.0 - binomial_upper_tail(n, n - k + 1);
-    }
-    // The mass of X = n, then the masses below it, down to X = k.
-    let mut p = 2f64.powi(-(n as i32));
-    let mut mass = p;
-    for j in 0..(n - k) {
-        mass *= (n - j) as f64 / (j + 1) as f64;
-        p += mass;
-    }
-    p.min(1.0)
+/// This is the library's own sign test now (`lm_learn::sign`), the exact
+/// one the verdicts are decided by: the ties are excluded and the p-value
+/// is an exact binomial tail, decided in integers.
+fn sign_test(deltas: &[(u64, i64)], direction: Direction) -> sign::SignTest {
+    let values: Vec<i64> = deltas.iter().map(|(_, delta)| *delta).collect();
+    sign::sign_test(&values, direction)
 }
 
 /// P(X >= threshold) for X ~ Binomial(n, q): how often a change that helps
