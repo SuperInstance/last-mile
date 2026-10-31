@@ -73,6 +73,16 @@ buy_time_above_ticks = 4
 prethink = true
 # Cache verdicts by situation key and reuse them when the situation returns.
 verdict_cache = true
+# Answer a repeated question from the cache: the same question, asked about
+# the same situation, is answered without a model call.
+#
+# The key is SHA-256(question id | version | context digest), so a hit is
+# served only when it is the same question, in the same revision, over the
+# same facts -- and only to the same backend, under the same confidence
+# floor. Off by default: a hit is an answer the model did not give this
+# time, and what the cache is worth is measured on the pack corpus
+# (`lm qcache --packs ~/lm-batch/packs`).
+answer_cache = false
 # Spend extra budget to jump the model queue when the situation is urgent.
 pay_priority = false
 # Questions per ask; absent means AgentsConfig.max_questions.

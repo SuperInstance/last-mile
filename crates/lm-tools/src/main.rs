@@ -33,6 +33,7 @@ use lm_learn::flow::{
     run_learning_round, FlowConfig, Reviewer, RouterReviewer, StubReviewer, HARMLESS_REVIEW,
 };
 use lm_tools::branch::Change;
+use lm_tools::qcache;
 use lm_tools::runner::{self, Golden, ReplayError, DEFAULT_REFLEX, GOLDEN_TICKS};
 
 /// Angle units in a full turn.
@@ -162,6 +163,16 @@ enum Command {
     },
     /// Print the Q14 sine table that `lm-core` commits.
     GenTrig,
+    /// Measure the answer cache's ceiling on a pack corpus: how often the
+    /// same question is asked about the same situation again, per gate.
+    Qcache {
+        /// The corpus: a directory of `*.jsonl` pack files, or one file.
+        #[arg(long, default_value = "~/lm-batch/packs")]
+        packs: PathBuf,
+        /// How many repeated pairs to list.
+        #[arg(long, default_value_t = 10)]
+        detail: usize,
+    },
     /// Play a seeded round with the stub minds, pre-render every line it
     /// speaks through the skald voice bank, and report the voice lane's
     /// numbers: unique lines, the cache hit rate on a second run, render
@@ -318,6 +329,10 @@ fn main() -> ExitCode {
             print!("{}", gen_trig());
             ExitCode::SUCCESS
         }
+        Command::Qcache { packs, detail } => qcache::cmd_qcache(&qcache::QcacheArgs {
+            packs: expand_tilde(&packs),
+            detail,
+        }),
         Command::Voice {
             seed,
             ticks,
@@ -649,6 +664,19 @@ fn cmd_learn(
             ExitCode::FAILURE
         }
     }
+}
+
+/// A path with a leading `~` expanded to the home directory.
+fn expand_tilde(path: &Path) -> PathBuf {
+    let Some(rest) = path.to_str().and_then(|text| text.strip_prefix("~/")) else {
+        return path.to_path_buf();
+    };
+    let Some(home) = std::env::var_os("HOME") else {
+        return path.to_path_buf();
+    };
+    let mut home = PathBuf::from(home);
+    home.push(rest);
+    home
 }
 
 fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> ExitCode {

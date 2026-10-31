@@ -57,6 +57,7 @@ use crate::agents::WordCounts;
 use crate::config::AgentsConfig;
 use crate::facts::Facts;
 use crate::gates::{answers_to_decisions, GateSet};
+use crate::question::QuestionIdentity;
 use crate::surprise::{RoundSurprise, SituationKey};
 
 /// The pack a thought carries (D70): the move pack or the talk pack.
@@ -402,6 +403,15 @@ pub struct Policy {
     pub prethink: bool,
     /// The `verdict_cache` lever: cache verdicts by situation key.
     pub verdict_cache: bool,
+    /// The `answer_cache` lever: answer a repeated question from the cache.
+    ///
+    /// Off by default. The cache is keyed by the question's id, its
+    /// version and the digest of the context it was asked over, so a hit is
+    /// only served when the same question is asked about the same
+    /// situation — and only to the same backend, under the same confidence
+    /// floor. What it buys and what it costs is measured on the pack
+    /// corpus (`lm qcache`).
+    pub answer_cache: bool,
     /// The `pay_priority` lever: spend extra budget to jump the queue when
     /// urgent.
     pub pay_priority: bool,
@@ -451,6 +461,7 @@ impl Policy {
             buy_time_above_ticks: file.levers.buy_time_above_ticks,
             prethink: file.levers.prethink,
             verdict_cache: file.levers.verdict_cache,
+            answer_cache: file.levers.answer_cache,
             pay_priority: file.levers.pay_priority,
             max_questions: file.levers.max_questions,
         })
@@ -604,6 +615,7 @@ struct LeverSpec {
     buy_time_above_ticks: u16,
     prethink: bool,
     verdict_cache: bool,
+    answer_cache: bool,
     pay_priority: bool,
     max_questions: Option<u16>,
 }
@@ -615,6 +627,7 @@ impl Default for LeverSpec {
             buy_time_above_ticks: 4,
             prethink: true,
             verdict_cache: true,
+            answer_cache: false,
             pay_priority: false,
             max_questions: None,
         }
@@ -1882,6 +1895,15 @@ impl Mind {
                 > u64::from(self.policy.buy_time_above_ticks)
     }
 
+    /// The identity of every gate this mind asks, by slot.
+    ///
+    /// The identities are the harness's own: derived from the file's
+    /// bytes, so the round's ledger names the questions the way the
+    /// harness wrote them.
+    pub fn gate_identities(&self) -> BTreeMap<String, QuestionIdentity> {
+        self.gates.identities()
+    }
+
     /// The thought records, for the log and the piano roll (D55).
     pub fn thoughts(&self) -> &[ThoughtRecord] {
         &self.thoughts
@@ -2145,6 +2167,7 @@ mod tests {
             model: "stub".to_owned(),
             input_tokens: 64,
             latency_ms: 0,
+            questions: BTreeMap::new(),
         }
     }
 
@@ -3220,6 +3243,7 @@ mod tests {
             decomposed: BTreeMap::new(),
             model: answers.model.clone(),
             input_tokens: answers.input_tokens,
+            questions: answers.questions.clone(),
             latency_ms: answers.latency_ms,
         }
     }

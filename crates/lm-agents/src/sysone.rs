@@ -40,6 +40,8 @@ use serde_json::{json, Map, Value};
 
 use lm_core::refusal::RefusalKind;
 
+use crate::question::{stamp_of, QuestionStamp};
+
 /// The path every backend posts to.
 pub const SYSTEMONE_PATH: &str = "/v1/systemone";
 
@@ -122,6 +124,20 @@ pub trait SysOne {
     /// It is the key `AgentsConfig` uses for the backend's confidence
     /// threshold, and it is what the log calls this model.
     fn name(&self) -> &str;
+
+    /// The confidence floor this backend applies: an answer below it is
+    /// refused.
+    ///
+    /// The answer cache uses it as part of the hit test: an answer given
+    /// under one floor is not an answer under another (a stricter floor
+    /// would have refused it), so a cached answer is only served to a
+    /// backend with the same floor.
+    ///
+    /// The default is no floor at all, which is what a backend that never
+    /// refuses on confidence means.
+    fn confidence_floor(&self) -> f32 {
+        0.0
+    }
 }
 
 /// What a model answered.
@@ -165,6 +181,18 @@ pub struct Answers {
     pub input_tokens: u32,
     /// The round trip, in milliseconds.
     pub latency_ms: u32,
+    /// The identity of every question the pack carried, by gate id.
+    ///
+    /// The pack names each question — its id and its version — and the
+    /// answer carries the name on: so a logged answer says which question
+    /// it is an answer to, and a question that was reworded is visibly a
+    /// different question (docs/design/questions-as-experience.md §1).
+    ///
+    /// A backend that was asked a pack without the names fills this from
+    /// the pack itself, so the field is never empty for a pack that had
+    /// questions at all.
+    #[serde(default)]
+    pub questions: BTreeMap<String, QuestionStamp>,
 }
 
 /// One gate asked as a two-step tree: what was asked and what it said.
@@ -627,13 +655,17 @@ impl SysOne for ThorBackend {
         let body = request_body(&self.model, state, questions);
         let (text, latency_ms) = post_pack(&self.agent, &self.url(), None, &body, deadline)?;
         let mut answers = parse_answers(&text, &self.model, latency_ms)?;
-        check_answered(&answers, questions)?;
+        check_answered(&mut answers, questions)?;
         split_unsure(&mut answers, self.min_confidence);
         Ok(answers)
     }
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn confidence_floor(&self) -> f32 {
+        self.min_confidence
     }
 }
 
@@ -887,6 +919,10 @@ impl SysOne for EscalatingBackend {
     fn name(&self) -> &str {
         self.primary.name()
     }
+
+    fn confidence_floor(&self) -> f32 {
+        self.primary.confidence_floor()
+    }
 }
 
 /// The confidence of a gate's answer, if it has one.
@@ -1083,13 +1119,17 @@ impl SysOne for JevBackend {
             deadline,
         )?;
         let mut answers = parse_answers(&text, &self.model, latency_ms)?;
-        check_answered(&answers, questions)?;
+        check_answered(&mut answers, questions)?;
         split_unsure(&mut answers, self.min_confidence);
         Ok(answers)
     }
 
     fn name(&self) -> &str {
         "jev"
+    }
+
+    fn confidence_floor(&self) -> f32 {
+        self.min_confidence
     }
 }
 
@@ -1226,6 +1266,10 @@ impl SysOne for StubBackend {
 
     fn name(&self) -> &str {
         "stub"
+    }
+
+    fn confidence_floor(&self) -> f32 {
+        self.confidence
     }
 }
 
@@ -1516,6 +1560,7 @@ fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
         model: "stub".to_owned(),
         input_tokens: 64,
         latency_ms: 0,
+        questions: BTreeMap::new(),
     })
 }
 
@@ -1682,6 +1727,7 @@ fn parse_answers(body: &str, model: &str, latency_ms: u32) -> Result<Answers, Re
         model: model.to_string(),
         input_tokens: u32::try_from(input_tokens).unwrap_or(u32::MAX),
         latency_ms,
+        questions: BTreeMap::new(),
     })
 }
 
@@ -1849,13 +1895,17 @@ fn split_unsure(answers: &mut Answers, min_confidence: f32) {
 /// answers a score question with the index of the level it picked, and an
 /// index off the end of the scale is an answer to a question that was
 /// never asked.
-fn check_answered(answers: &Answers, questions: &Value) -> Result<(), Refusal> {
+fn check_answered(answers: &mut Answers, questions: &Value) -> Result<(), Refusal> {
     let asked = questions.as_object().is_some_and(|gates| !gates.is_empty());
     if asked && answers.per_gate.is_empty() {
         return Err(Refusal::Malformed(
             "the model answered none of the gates".to_string(),
         ));
     }
+    // The pack names every question it carries, and the answer carries the
+    // name on: a logged answer says which question it answers, and which
+    // revision of it (a reworded gate is a new version).
+    stamp_questions(answers, questions);
     for (id, answer) in &answers.per_gate {
         let Answer::Score { score, .. } = answer else {
             continue;
@@ -1871,6 +1921,21 @@ fn check_answered(answers: &Answers, questions: &Value) -> Result<(), Refusal> {
         }
     }
     Ok(())
+}
+
+/// The identity of every question in the pack, copied onto the answer.
+///
+/// The pack is the authority: it carries each question's id and version,
+/// and a pack that carries none is asked of the question itself, so the
+/// answer always names the question it answers.
+fn stamp_questions(answers: &mut Answers, questions: &Value) {
+    let Some(gates) = questions.as_object() else {
+        return;
+    };
+    for (slot, question) in gates {
+        let stamp = stamp_of(slot, question);
+        answers.questions.insert(slot.clone(), stamp);
+    }
 }
 
 /// How many levels a score question asked over.
@@ -3075,6 +3140,7 @@ mod tests {
             model: "stub".to_string(),
             input_tokens: 0,
             latency_ms: 0,
+            questions: BTreeMap::new(),
         };
         let stub = StubBackend::scripted(vec![
             (Duration::from_millis(5), Ok(answers.clone())),
