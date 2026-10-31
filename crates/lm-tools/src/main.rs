@@ -1,6 +1,6 @@
 //! The `lm` CLI.
 //!
-//! Seven subcommands:
+//! The subcommands:
 //!
 //! * `lm run` plays a headless round and writes its log;
 //! * `lm replay` replays a log and checks every hash it recorded;
@@ -8,8 +8,12 @@
 //! * `lm golden` checks (or writes) the pinned golden hashes;
 //! * `lm branch` rewinds a round to a tick, changes one thing and re-runs
 //!   it;
+//! * `lm learn` runs one learning round: play, review, seal, test, adopt;
+//! * `lm vibe` proposes a typed change out of the Vibe Dictionary with a
+//!   prediction sealed before the test, and reads the ledger back;
 //! * `lm voice` plays a seeded round and reports the voice lane's numbers
 //!   through the skald bank;
+//! * `lm vox` reads a performance out, or plays one back;
 //! * `lm gen-trig` writes the Q14 sine table that `lm-core` commits.
 //!
 //! The table is generated on the host (where floating point is allowed) and
@@ -189,6 +193,13 @@ enum Command {
         #[command(subcommand)]
         command: VoxCommand,
     },
+    /// The Vibe Dictionary tools (the sandbox, M2b): propose a typed change
+    /// with a prediction sealed before the test, and read the ledger back.
+    Vibe {
+        /// The subcommand to run.
+        #[command(subcommand)]
+        command: VibeCommand,
+    },
 }
 
 /// The `lm vox` subcommands.
@@ -220,6 +231,48 @@ enum VoxCommand {
         marks: String,
         /// Where the conformed mono PCM16 WAV is written.
         output: PathBuf,
+    },
+}
+
+/// The `lm vibe` subcommands.
+#[derive(Subcommand, Debug)]
+enum VibeCommand {
+    /// Propose a typed change out of the Vibe Dictionary: bounds-check it,
+    /// seal the prediction before the test, run the held-out sweep, print
+    /// the verdict, and write the record to the ledger.
+    Propose {
+        /// The dictionary entry (`unit.vision`).
+        entry: String,
+        /// The value proposed.
+        value: i64,
+        /// The prediction, sealed before the test: `MEASURE:up|down` with
+        /// an optional `:min_delta`, comma-separated — e.g.
+        /// "sight_ticks:up,tags:up". Omitted: the entry's own default.
+        #[arg(long)]
+        predict: Option<String>,
+        /// The kid's words as a short label, bounded at 48 characters.
+        /// Never stored as a transcript.
+        #[arg(long)]
+        say: Option<String>,
+        /// How many held-out seeds to judge on (the D78 count by default).
+        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_SEEDS)]
+        seeds: usize,
+        /// How many ticks each seed plays.
+        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_TICKS)]
+        ticks: u64,
+        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
+        #[arg(long, default_value = "runs")]
+        runs: PathBuf,
+        /// A vibe.toml that overrides the shipped one.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// List the Vibe records in the ledger, with the prediction-trust
+    /// running tally: how often the predictions held.
+    Ledger {
+        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
+        #[arg(long, default_value = "runs")]
+        runs: PathBuf,
     },
 }
 
@@ -279,6 +332,36 @@ fn main() -> ExitCode {
             sample,
         }),
         Command::Vox { command } => cmd_vox(command),
+        Command::Vibe { command } => cmd_vibe(command),
+    }
+}
+
+/// The `lm vibe` commands: a proposal through the whole pipeline, or the
+/// ledger read back.
+fn cmd_vibe(command: VibeCommand) -> ExitCode {
+    match command {
+        VibeCommand::Propose {
+            entry,
+            value,
+            predict,
+            say,
+            seeds,
+            ticks,
+            runs,
+            file,
+        } => lm_tools::vibe::cmd_vibe_propose(&lm_tools::vibe::ProposeArgs {
+            entry,
+            value,
+            predict,
+            say,
+            seeds,
+            ticks,
+            runs,
+            file,
+        }),
+        VibeCommand::Ledger { runs } => {
+            lm_tools::vibe::cmd_vibe_ledger(&lm_tools::vibe::LedgerArgs { runs })
+        }
     }
 }
 

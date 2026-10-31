@@ -101,7 +101,42 @@ pub fn metric_value(m: &RoundMetrics, name: &str) -> Option<i64> {
                 _ => None,
             }
         }
+        // The whole-round measures the Vibe dictionary predicts against
+        // (sandbox §8): totals over both squads, so a change that helps one
+        // side and hurts the other reads as the wash it is.
+        "tags" => Some(m.tags_for.iter().sum::<u64>() as i64),
+        "hold_ticks" => Some(m.beacon_hold_ticks.iter().sum::<u64>() as i64),
+        "sight_ticks" => Some(m.sight_ticks.iter().sum::<u64>() as i64),
+        "draws" => Some(i64::from(m.draw)),
         _ => None,
+    }
+}
+
+/// Is `name` a metric [`metric_value`] can read?
+///
+/// A Vibe prediction names its measures up front, and an unknown name is a
+/// refusal — this is the check that names it.
+pub fn is_known_metric(name: &str) -> bool {
+    metric_value(&empty_metrics(), name).is_some()
+}
+
+/// Metrics with nothing in them: the cheapest value carrier a name can be
+/// probed against (the value is never read, only whether it exists).
+fn empty_metrics() -> RoundMetrics {
+    RoundMetrics {
+        ticks: 0,
+        scores: vec![0, 0],
+        tags_for: vec![0, 0],
+        tags_against: vec![0, 0],
+        beacon_hold_ticks: vec![0, 0],
+        sight_ticks: vec![0, 0],
+        draw: false,
+        decisions: Default::default(),
+        timeliness: Default::default(),
+        refusals: Default::default(),
+        model_refusals: Default::default(),
+        dial: Default::default(),
+        moments: Vec::new(),
     }
 }
 
@@ -334,7 +369,10 @@ pub fn passes(deltas: &[(u64, i64)], pred: &Prediction) -> bool {
 }
 
 /// Does this delta meet the sealed bar?
-fn qualified_delta(delta: i64, pred: &Prediction) -> bool {
+///
+/// Public for the Vibe pipeline, which judges each of its measures by the
+/// same bar the flow judges a prediction by (D78).
+pub fn qualified_delta(delta: i64, pred: &Prediction) -> bool {
     match pred.direction {
         Direction::Up => delta >= pred.min_delta,
         Direction::Down => delta <= -pred.min_delta,

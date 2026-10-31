@@ -20,29 +20,37 @@ These are design drafts for seats to implement or adjust. Rule: data, not code; 
 ### 2.1 Vibe block (M2b): `assets/harness/default/vibe.toml`
 ```toml
 [[block]]
-id = "paint.bounce"            # stable id; what Bench names out loud
-says = ["bouncy paint", "make the paint bounce", "trampoline paint"]  # the closed vocabulary the vibe gate's options are built from
-field = "rules.paint.bounce_q8"   # the one harness/rule field it writes (fixed-point)
-kind = "toggle"                # toggle | level | choice
-levels = [0, 128, 255]         # allowed values only; anything else is refused by validate()
-default = 0
-metric = "tags_total"          # what the sealed prediction will claim moves
-expect = "up"                  # up | down | either
-scope = "match"                # match | round | team (Bolt's offers are team + round)
-explain = "paint.bounce makes splats push units back; stun_ticks on painted cells drops to 0"
-age_ok = true                  # kid-safe vocabulary review passed
+id = "unit.vision"              # stable id; what Bench names out loud
+says = ["let them see farther", "they should see farther"]  # the closed vocabulary the vibe gate's options are built from
+field = "params.view_range_cells"  # the one field it writes: a params.* branchable field (BRANCH_FIELDS), or a rules.* field
+kind = "level"                  # toggle | level | choice
+min = 4                         # level: bounds, inclusive; refused outside, never clamped
+max = 64
+levels = []                     # choice only: the allowed values; anything else is refused
+default = 20                    # must equal the field's shipped value, or load refuses
+metric = "sight_ticks"          # the measure the default prediction watches
+expect = "up"                   # up | down | either (either: the proposal must bring its own prediction)
+tier = "A"                      # A locked | B learnable (the anti-drift guard, sandbox §3)
+scope = "match"                 # match | round | team (Bolt's offers are team + round)
+explain = "view_range_cells is how far a Dab sees; seeing farther means more eyes meeting"
+age_ok = true                   # kid-safe vocabulary review passed
 ```
-The `vibe` gate is a `choice` question whose options are block ids, plus `none` (D70: asked only when the kid speaks). Unsure answer → Bench asks a follow-up question (decompose before escalate), not a guess.
+Built (M2b slice, `unit.vision`): a `level` entry carries `min`/`max` bounds rather than an enumerated `levels` list (a 61-value list is data noise; bounds are the honest shape, and `Params::set_branchable` + `validate()` enforce them in code); `field` may name a `params.*` **branchable** field because that is what the sim hashes per round — a Vibe change retunes a round, never reshapes it; `tier` is part of the file; `metric`/`expect` are the *default* prediction only, and a proposal may word its own (`--predict "sight_ticks:up,tags:up"`). The measures the pipeline knows: `sight_ticks`, `tags`, `hold_ticks`, `draws` (whole-round, both squads) beside lm-learn's per-squad metrics. Load refuses a dictionary whose `default` disagrees with the shipped `Params` — "against the current values" must be true. The `vibe` gate is a `choice` question whose options are block ids, plus `none` (D70: asked only when the kid speaks). Unsure answer → Bench asks a follow-up question (decompose before escalate), not a guess.
 
-### 2.2 A proposal, sealed (M2b; extends lm-learn's Prediction)
+### 2.2 A proposal, sealed (M2b; extends lm-learn's ledger, built)
 ```rust
-struct VibeProposal { block: BlockId, value: i32, scope: Scope, author: Author /* Kid | Bench | Bolt | Flow */,
-                      said: String /* transcript, kept only in session memory, never in the log */ }
-struct Sealed { seal: u64, metric: MetricId, dir: Direction, min_delta: i64,
-                seeds: SeedSet /* 16, D78 */, rule: PassRule::CeilThreeQuartersAndSignTest }
-struct Verdict { qualified: u16, of: u16, sign_p_q16: u32 /* fixed-point p-value */, pass: bool, stability_q8: u8 /* Glitch Meter */ }
+struct VibeProposal { block: String, field: String, from: i64, value: i64,   // the entry, the field, the baseline and the change
+                      label: String /* the kid's words as a bounded (48-char) label; the utterance itself is
+                                     session memory only, never in the log */,
+                      author: String /* bench | kid | bolt | flow */, claims: Vec<VibeClaim>, seeds: Vec<u64>, ticks: u64 }
+struct VibeClaim { metric: String, direction: Direction /* Up | Down */, min_delta: i64 }
+// sealed: VibeProposal is a ledger line; the seal is its line number and the chain hash of its bytes
+struct MeasureOutcome { claim, deltas: Vec<(u64, i64)>, qualified: u16, moved: u16, claimed: u16,
+                        p: String /* sign test, truncated */, met: bool }
+struct VibeOutcome { seal: u64, seal_hash: String /* must name the sealed bytes */, measures: Vec<MeasureOutcome>,
+                     adopted: bool /* every measure met, by D78's ceil(3N/4) + sign test */ }
 ```
-**Stability** (the Glitch Meter) = the share of seeds where no guard metric (draw rate, collapse, refusals per round) moves past its threshold. It's a measurement, never a vibe.
+**Stability** (the Glitch Meter, §2.2 of the sandbox design) is not in the slice yet: the verdict carries the per-seed deltas it will be computed from. The **prediction-trust tally** is: how many measures held, of how many were claimed and judged (`lm vibe ledger` prints it). It's a measurement, never a vibe.
 
 ### 2.3 Paint as state (M2b): lm-core
 ```rust

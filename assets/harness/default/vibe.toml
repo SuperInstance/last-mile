@@ -1,0 +1,30 @@
+# The Vibe Dictionary: the closed set of typed changes a kid can make by
+# talking to Bench (docs/design/sandbox-on-otherhere.md §3).
+#
+# The model's output is never a program; it is an index into this table. A
+# value outside an entry's bounds, or an id not in the table, is a named
+# refusal at parse time — never a clamp, never a fallback. The bounds are
+# the hard limits: a thumbs-up can promote a Tier B entry into the
+# dictionary, but it can never widen a bound here.
+#
+# The table is data in the harness so it is pinned by the harness's own
+# identity (D27), and it is checkable without a model: a test reads it.
+#
+# One entry in this first slice (M2b). The shape is the roadmap's §2.1,
+# with the differences building it surfaced (see docs/ROADMAP-AHEAD.md §2.1):
+# a `level` entry carries its bounds as min/max rather than an enumerated
+# `levels` list, and `field` may name a `params.*` branchable field, because
+# that is what the sim actually hashes per round.
+
+[[block]]
+id = "unit.vision"                 # stable id; what Bench names out loud
+says = ["let them see farther", "they should see farther", "wider eyes"]
+field = "params.view_range_cells"  # the one field it writes; must be branchable
+min = 4                            # bounds, inclusive; refused outside, never clamped
+max = 64
+default = 20                       # must equal the value Params ships, or load refuses
+metric = "sight_ticks"             # the measure the default prediction watches
+expect = "up"                      # up | down | either (either: bring your own prediction)
+tier = "A"                         # A locked | B learnable
+explain = "view_range_cells is how far a Dab sees, in 2 m cells (default 20 = 40 m); seeing farther should mean more eyes meeting, so more sight ticks and more tags traded"
+age_ok = true                      # kid-safe vocabulary review passed

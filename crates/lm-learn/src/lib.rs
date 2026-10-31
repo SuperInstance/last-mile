@@ -9,6 +9,11 @@
 //!          --> adopted changes are committed to the agent's harness and pinned (D27)
 //! ```
 //!
+//! The Vibe pipeline (`vibe`) is the same discipline on the other side of
+//! the game: a kid's words become one typed change out of a closed
+//! dictionary, its prediction is sealed before the test, and the verdict
+//! adopts it only if every measure held (the sandbox, M2b).
+//!
 //! Plan: docs/superpowers/plans/2026-10-28-m1-phase5-learning.md.
 //! Modules are declared up front so parallel tasks never collide here.
 
@@ -20,3 +25,4 @@ pub mod metrics;
 pub mod review;
 pub mod round;
 pub mod sign;
+pub mod vibe;

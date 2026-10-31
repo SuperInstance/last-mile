@@ -84,6 +84,86 @@ pub enum Entry {
         /// The human's reason.
         reason: String,
     },
+    /// A Vibe proposal: one typed change out of the closed dictionary, its
+    /// prediction sealed before the test (the sandbox, M2b).
+    VibeProposal(VibeProposal),
+    /// The measured outcome of an earlier Vibe proposal.
+    VibeOutcome(VibeOutcome),
+}
+
+/// One measure a Vibe prediction claims will move, sealed before the test.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VibeClaim {
+    /// The metric, a `RoundMetrics` measure name (`sight_ticks`, `tags`, …).
+    pub metric: String,
+    /// Predicted direction.
+    pub direction: Direction,
+    /// Smallest change that counts, in the metric's integer unit.
+    pub min_delta: i64,
+}
+
+/// A typed change out of the Vibe dictionary, sealed before it is tested.
+///
+/// The prediction is part of the seal: once this line is in the chain, the
+/// claims it makes cannot be edited to match the result any more than a
+/// [`Prediction`] can. The only words it holds are a short label — the
+/// kid's phrasing of the change, bounded — never a transcript, never audio
+/// (the sandbox privacy rules, §7).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VibeProposal {
+    /// The dictionary entry (`unit.vision`): what Bench names out loud.
+    pub block: String,
+    /// The one field the entry writes (`params.view_range_cells`).
+    pub field: String,
+    /// The value now: the baseline the test runs against.
+    pub from: i64,
+    /// The value proposed.
+    pub value: i64,
+    /// The kid's words as a short label, bounded at seal time; never a
+    /// transcript.
+    pub label: String,
+    /// Who proposed (`bench`; later `kid`, `bolt`).
+    pub author: String,
+    /// The prediction: what the change should move, one claim per measure.
+    pub claims: Vec<VibeClaim>,
+    /// The held-out seeds the prediction is judged on.
+    pub seeds: Vec<u64>,
+    /// The horizon every seed is played for.
+    pub ticks: u64,
+}
+
+/// One measure's measured outcome.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeasureOutcome {
+    /// The claim this answers.
+    pub claim: VibeClaim,
+    /// Per-seed change (candidate minus baseline).
+    pub deltas: Vec<(u64, i64)>,
+    /// How many seeds met the sealed bar.
+    pub qualified: u64,
+    /// How many seeds moved at all.
+    pub moved: u64,
+    /// Of the seeds that moved, how many moved the claimed way.
+    pub claimed: u64,
+    /// The sign test's p-value, rendered; the decision itself is integer.
+    pub p: String,
+    /// Did this measure's prediction hold?
+    pub met: bool,
+}
+
+/// The outcome of a Vibe proposal, appended after its test.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VibeOutcome {
+    /// The seal (line number) of the proposal this answers.
+    pub seal: u64,
+    /// The chain hash of the sealed proposal's line. The outcome names the
+    /// exact bytes it was said from, so a prediction edited after the test
+    /// fails this check even before the chain itself breaks.
+    pub seal_hash: String,
+    /// Per-measure outcomes, in the prediction's order.
+    pub measures: Vec<MeasureOutcome>,
+    /// Whether the change is adopted: every measure held.
+    pub adopted: bool,
 }
 
 /// One line on disk.
@@ -109,6 +189,9 @@ pub enum LedgerError {
     NoSuchSeal(u64),
     /// A seal already has its verdict; a second one would rewrite history.
     AlreadyJudged(u64),
+    /// An outcome names a seal hash that is not the hash of the proposal it
+    /// claims to answer: the prediction changed after the test.
+    SealMismatch(u64),
 }
 
 impl std::fmt::Display for LedgerError {
@@ -128,6 +211,11 @@ impl std::fmt::Display for LedgerError {
             LedgerError::AlreadyJudged(seal) => {
                 write!(f, "seal {seal} already has its verdict")
             }
+            LedgerError::SealMismatch(seal) => write!(
+                f,
+                "the outcome does not answer the bytes that were sealed at {seal}: \
+                 the prediction changed after the test"
+            ),
         }
     }
 }
@@ -281,6 +369,46 @@ impl Ledger {
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
         self.lines.iter().map(|l| &l.entry)
     }
+
+    /// Seal a Vibe proposal: append it, and hand back its seal (line
+    /// number) with the chain hash of its line.
+    ///
+    /// The hash is what the outcome later has to name, so a prediction
+    /// edited between the seal and the test fails the outcome's check even
+    /// if the editor also fixed up the chain.
+    pub fn seal_vibe(&mut self, p: VibeProposal) -> Result<(u64, String), LedgerError> {
+        let seal = self.append(Entry::VibeProposal(p))?;
+        let hash = self.lines[seal as usize].hash.clone();
+        Ok((seal, hash))
+    }
+
+    /// Record the outcome of a Vibe proposal. A proposal is judged exactly
+    /// once, and its outcome has to name the bytes that were sealed.
+    pub fn vibe_outcome(&mut self, o: VibeOutcome) -> Result<u64, LedgerError> {
+        let sealed = match self.lines.get(o.seal as usize).map(|l| (&l.entry, &l.hash)) {
+            Some((Entry::VibeProposal(_), hash)) => hash,
+            _ => return Err(LedgerError::NoSuchSeal(o.seal)),
+        };
+        let judged = self
+            .lines
+            .iter()
+            .any(|l| matches!(&l.entry, Entry::VibeOutcome(old) if old.seal == o.seal));
+        if judged {
+            return Err(LedgerError::AlreadyJudged(o.seal));
+        }
+        if *sealed != o.seal_hash {
+            return Err(LedgerError::SealMismatch(o.seal));
+        }
+        self.append(Entry::VibeOutcome(o))
+    }
+
+    /// The sealed Vibe proposal of a seal, if any.
+    pub fn vibe_proposal(&self, seal: u64) -> Option<&VibeProposal> {
+        match self.lines.get(seal as usize).map(|l| &l.entry) {
+            Some(Entry::VibeProposal(p)) => Some(p),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -403,5 +531,91 @@ mod tests {
         .unwrap();
         let last = l.entries().last().unwrap();
         assert!(matches!(last, Entry::Verdict(v) if v.override_reason.is_some()));
+    }
+
+    fn vibe_proposal() -> VibeProposal {
+        VibeProposal {
+            block: "unit.vision".into(),
+            field: "params.view_range_cells".into(),
+            from: 20,
+            value: 32,
+            label: "let them see farther".into(),
+            author: "bench".into(),
+            claims: vec![VibeClaim {
+                metric: "sight_ticks".into(),
+                direction: Direction::Up,
+                min_delta: 1,
+            }],
+            seeds: vec![2_000_001, 2_000_002],
+            ticks: 1_500,
+        }
+    }
+
+    #[test]
+    fn a_vibe_proposal_is_judged_once_and_by_its_own_bytes() {
+        let mut l = Ledger::open(&tmp("vibe")).unwrap();
+        let (seal, hash) = l.seal_vibe(vibe_proposal()).unwrap();
+        l.vibe_outcome(VibeOutcome {
+            seal,
+            seal_hash: hash.clone(),
+            measures: vec![MeasureOutcome {
+                claim: VibeClaim {
+                    metric: "sight_ticks".into(),
+                    direction: Direction::Up,
+                    min_delta: 1,
+                },
+                deltas: vec![(2_000_001, 4), (2_000_002, 2)],
+                qualified: 2,
+                moved: 2,
+                claimed: 2,
+                p: "0.2500".into(),
+                met: false,
+            }],
+            adopted: false,
+        })
+        .unwrap();
+
+        // Judged exactly once.
+        let again = VibeOutcome {
+            seal,
+            seal_hash: hash.clone(),
+            measures: Vec::new(),
+            adopted: false,
+        };
+        assert!(matches!(
+            l.vibe_outcome(again),
+            Err(LedgerError::AlreadyJudged(_))
+        ));
+
+        // An outcome that does not name the sealed bytes — a prediction
+        // changed after the test — is refused by the seal check.
+        let mut other = vibe_proposal();
+        other.value = 48;
+        let (other_seal, _) = l.seal_vibe(other).unwrap();
+        let mismatched = VibeOutcome {
+            seal: other_seal,
+            seal_hash: hash,
+            measures: Vec::new(),
+            adopted: false,
+        };
+        assert!(matches!(
+            l.vibe_outcome(mismatched),
+            Err(LedgerError::SealMismatch(_))
+        ));
+
+        // And a proposal line edited after the fact breaks the chain, the
+        // same way any other edit does.
+        let path = tmp("vibe-tamper");
+        let mut l = Ledger::open(&path).unwrap();
+        l.seal_vibe(vibe_proposal()).unwrap();
+        let text =
+            fs::read_to_string(&path)
+                .unwrap()
+                .replacen("\"min_delta\":1", "\"min_delta\":9", 1);
+        fs::write(&path, text).unwrap();
+        assert!(matches!(
+            Ledger::open(&path),
+            Err(LedgerError::ChainBroken { line: 0 })
+        ));
     }
 }

@@ -613,6 +613,8 @@ mod tests {
             tags_for: vec![3, 5],
             tags_against: vec![5, 3],
             beacon_hold_ticks: vec![800, 640],
+            sight_ticks: vec![40, 35],
+            draw: false,
             decisions: Default::default(),
             timeliness: Default::default(),
             refusals: Default::default(),

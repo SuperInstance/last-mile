@@ -15,3 +15,7 @@ lm-router = { path = "../lm-router" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
+# The Vibe dictionary is data in the harness (vibe.toml), parsed with the
+# real TOML parser the same way gates.toml is (D37's rule: no hand-rolled
+# parsers for the harness's files).
+toml = "1"
