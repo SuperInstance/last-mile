@@ -110,6 +110,30 @@ else
   fails=$((fails + 1))
 fi
 
+# The Vibe Dictionary slice: a typed change, a prediction sealed before
+# the test, a held-out sweep, a verdict. Two seeds can never clear D78's
+# sign test (2/2 is p = 0.25), so the small verdict below is NOT ADOPTED
+# by arithmetic, not by luck.
+expect "a value outside the dictionary's bounds is refused, never clamped" \
+  1 "refused: 99 is outside .* bounds 4..=64" \
+  -- "$LM" vibe propose unit.vision 99 --predict "sight_ticks:up" --runs "$WORK/vibe-runs"
+
+expect "vibe proposes, seals before the test, and says the verdict" \
+  0 "verdict: +NOT ADOPTED" \
+  -- "$LM" vibe propose unit.vision 32 --predict "sight_ticks:up" --say "let them see farther" \
+     --seeds 2 --ticks 400 --runs "$WORK/vibe-runs"
+
+if [ -s "$WORK/vibe-runs/vibe.jsonl" ]; then
+  printf 'PASS: the vibe ledger is on disk\n'
+else
+  printf 'FAIL: the vibe ledger is on disk\n'
+  fails=$((fails + 1))
+fi
+
+expect "the vibe ledger lists its records and the prediction-trust tally" \
+  0 "prediction trust: 0/1 measures held" \
+  -- "$LM" vibe ledger --runs "$WORK/vibe-runs"
+
 if [ "$fails" -gt 0 ]; then
   printf '\n==> %d step(s) FAILED\n' "$fails"
   exit 1
