@@ -2759,6 +2759,7 @@ mod tests {
                 per_gate.insert(id.clone(), answer);
             }
             Ok(Answers {
+                questions: BTreeMap::new(),
                 per_gate,
                 unsure: BTreeMap::new(),
                 escalated: BTreeMap::new(),
@@ -2922,6 +2923,7 @@ mod tests {
             ],
         };
         let answers = Answers {
+            questions: BTreeMap::new(),
             per_gate: BTreeMap::new(),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),

@@ -334,6 +334,7 @@ impl CachedBackend {
             per_gate,
             escalated: fresh.escalated,
             unsure: fresh.unsure,
+            decomposed: fresh.decomposed,
             model: fresh.model,
             input_tokens: fresh.input_tokens,
             latency_ms: fresh.latency_ms,
@@ -352,6 +353,7 @@ impl CachedBackend {
             per_gate: held,
             escalated: BTreeMap::new(),
             unsure: BTreeMap::new(),
+            decomposed: BTreeMap::new(),
             model: self.inner.name().to_string(),
             input_tokens: 0,
             latency_ms: 0,
@@ -456,6 +458,7 @@ mod tests {
         ) -> Result<Answers, Refusal> {
             *self.calls.lock().unwrap() += 1;
             Ok(Answers {
+                decomposed: BTreeMap::new(),
                 per_gate: questions
                     .as_object()
                     .map(|gates| {

@@ -405,6 +405,7 @@ mod tests {
 
     fn answers(confidence: f32) -> Answers {
         Answers {
+            decomposed: BTreeMap::new(),
             per_gate: BTreeMap::from([(
                 "move".to_string(),
                 Answer::Choice {
@@ -469,6 +470,8 @@ mod tests {
         answer.escalated.insert(
             "move".to_string(),
             crate::sysone::Escalation {
+                primary_probs: BTreeMap::new(),
+                second_probs: BTreeMap::new(),
                 gate: "move".to_string(),
                 primary_confidence: 0.4,
                 primary_choice: Some("opt0".to_string()),

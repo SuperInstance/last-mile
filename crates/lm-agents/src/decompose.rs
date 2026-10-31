@@ -1026,6 +1026,7 @@ mod tests {
                 per_gate.insert(id.clone(), answer);
             }
             Ok(Answers {
+                questions: BTreeMap::new(),
                 per_gate,
                 unsure: BTreeMap::new(),
                 escalated: BTreeMap::new(),
