@@ -60,7 +60,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::decision::{Stamped, Tick};
 use crate::hash::Fnv64;
-use crate::header::{Header, HeaderV1, HeaderV3, PROTO_VERSION};
+use crate::header::{Header, HeaderV1, HeaderV3, HeaderV4, PROTO_VERSION};
 use crate::refusal::{RefusalCounts, Refused};
 
 /// The bytes that start every log file.
@@ -346,15 +346,18 @@ impl RoundLog {
     /// A version-1 log is migrated on the way in: the header gains the talk
     /// params and the current version, and the chain is re-rooted over it.
     /// A version-2 log is migrated the same way: its segments gain no
-    /// refusals, because it recorded none. The state hashes inside the
-    /// segments are not touched.
+    /// refusals, because it recorded none. A version-4 log is migrated the
+    /// same way too: its header gains the Vibe records (none — a round from
+    /// before the dictionary carried none) and the current version. The
+    /// state hashes inside the segments are not touched.
     pub fn read(r: &mut impl Read) -> Result<RoundLog, LogError> {
         let blobs = read_blobs(r)?;
         let log = match blobs.version {
             MIN_READABLE_VERSION => decode_v1(&blobs)?.migrate(),
             2 => decode_v2(&blobs)?.migrate(),
             3 => decode_v3(&blobs)?.migrate(),
-            _ => decode_v4(&blobs)?,
+            4 => decode_v4(&blobs)?.migrate(),
+            _ => decode_current(&blobs)?,
         };
         log.verify()?;
         Ok(log)
@@ -599,8 +602,42 @@ fn decode_v3(blobs: &Blobs) -> Result<RoundLogV3, LogError> {
     Ok(RoundLogV3 { header, segments })
 }
 
+/// A version-4 log: the current header shape before the Vibe records, and
+/// the segments as they are.
+struct RoundLogV4 {
+    /// The header as it was written.
+    header: HeaderV4,
+    /// The segments as they were written.
+    segments: Vec<Segment>,
+}
+
+impl RoundLogV4 {
+    /// Migrate the log to the current version.
+    ///
+    /// The Vibe records are none — a version-4 round carried none — and the
+    /// version moves, so the chain is re-rooted over the new header. The
+    /// state hashes inside the segments stay exactly as they were.
+    fn migrate(self) -> RoundLog {
+        let header = self.header.migrate();
+        let mut log = RoundLog {
+            header,
+            segments: self.segments,
+        };
+        log.reroot_chain();
+        log
+    }
+}
+
+/// Decode a version-4 log's blobs.
+fn decode_v4(blobs: &Blobs) -> Result<RoundLogV4, LogError> {
+    let header: HeaderV4 =
+        postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
+    let segments = decode_segments(&blobs.segments)?;
+    Ok(RoundLogV4 { header, segments })
+}
+
 /// Decode a current-version log's blobs.
-fn decode_v4(blobs: &Blobs) -> Result<RoundLog, LogError> {
+fn decode_current(blobs: &Blobs) -> Result<RoundLog, LogError> {
     let header: Header =
         postcard::from_bytes(&blobs.header).map_err(|_| LogError::Decode { segment: 0 })?;
     let segments = decode_segments(&blobs.segments)?;
@@ -870,6 +907,26 @@ mod tests {
             lineage: header.lineage.clone(),
             talk: header.talk.clone(),
         }
+    }
+
+    /// The bytes of a version-4 log: the round written before the header
+    /// carried the Vibe records, with its chain rooted in that header's
+    /// hash.
+    fn to_v4_bytes(log: &RoundLog) -> Vec<u8> {
+        let header = HeaderV4::from(&log.header);
+        let mut prev = header.state_hash();
+        let mut out = Vec::new();
+        out.extend_from_slice(&MAGIC);
+        out.extend_from_slice(&4u16.to_le_bytes());
+        write_blob(&mut out, &header).unwrap();
+        for segment in &log.segments {
+            let mut segment = segment.clone();
+            segment.prev = prev;
+            segment.hash = segment.compute_hash();
+            prev = segment.hash;
+            write_blob(&mut out, &segment).unwrap();
+        }
+        out
     }
 
     /// The bytes of a version-1 log: the round written the old way, with
@@ -1246,6 +1303,25 @@ mod tests {
         assert_eq!(read.header.proto_version, PROTO_VERSION);
         assert_eq!(read.header.params, log.header.params);
         assert!(!read.refusals().is_empty(), "the refusals are kept");
+        // The state hashes are the ones the log recorded.
+        assert_eq!(read.hashes(), log.hashes());
+        // The chain is re-rooted over the migrated header.
+        assert_eq!(read.segments[0].prev, read.header.hash());
+        assert!(read.verify().is_ok());
+    }
+
+    #[test]
+    fn a_v4_log_reads_and_migrates() {
+        // A version-4 log is the last one written before the Vibe records:
+        // the paint is in its params, the Vibe records are not in its
+        // header. It reads, it migrates, and the records are none.
+        let log = recorded(900, 300);
+        let bytes = to_v4_bytes(&log);
+
+        let read = RoundLog::read(&mut io::Cursor::new(bytes)).expect("the v4 log reads");
+        assert_eq!(read.header.proto_version, PROTO_VERSION);
+        assert_eq!(read.header.params, log.header.params);
+        assert!(read.header.vibe.is_empty(), "a v4 round carried no records");
         // The state hashes are the ones the log recorded.
         assert_eq!(read.hashes(), log.hashes());
         // The chain is re-rooted over the migrated header.

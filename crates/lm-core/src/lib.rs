@@ -39,7 +39,9 @@ pub use agent::{ActiveIntent, Agent, MotorCmd};
 pub use decision::{Action, Decision, Intent, Kind, Lane, Provenance, Roll, Source, Stamped, Tick};
 pub use fixed::{Angle, Pos, CHUNK_UNITS, UNITS_PER_M};
 pub use hash::{Fnv64, StateHash};
-pub use header::{Header, HeaderV1, Lineage, LineageChange, Role, RosterEntry, PROTO_VERSION};
+pub use header::{
+    Header, HeaderV1, Lineage, LineageChange, Role, RosterEntry, VibeCarried, PROTO_VERSION,
+};
 pub use hearing::{
     audible_to, audible_to_in_world, clarity, clarity_between, degrade, degrade_at, dist_units,
     range_units, DEFAULT_CELL_UNITS,

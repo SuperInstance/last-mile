@@ -89,6 +89,10 @@ pub enum Entry {
     VibeProposal(VibeProposal),
     /// The measured outcome of an earlier Vibe proposal.
     VibeOutcome(VibeOutcome),
+    /// The undo of an earlier adopted Vibe proposal: "put it back", filed
+    /// as its own line. The ledger never rewrites history — an undo is a
+    /// new record that names the sealed bytes it reverts.
+    VibeUndo(VibeUndo),
 }
 
 /// One measure a Vibe prediction claims will move, sealed before the test.
@@ -166,6 +170,31 @@ pub struct VibeOutcome {
     pub adopted: bool,
 }
 
+/// The undo of an adopted Vibe proposal: "put it back" (the sandbox, M2b).
+///
+/// An undo is a change, not a rewind — the ledger is append-only, so the
+/// undo is a line of its own that names the sealed bytes of the proposal it
+/// reverts and says what the field goes back to. The [projection of what is
+/// in force](crate::vibe) walks the chain: an adopted proposal counts
+/// unless a later undo names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VibeUndo {
+    /// The seal (line number) of the adopted proposal being undone.
+    pub seal: u64,
+    /// The chain hash of the sealed proposal's line: the undo, like the
+    /// outcome, answers the exact bytes that were sealed.
+    pub seal_hash: String,
+    /// The one field the undone record wrote (`params.view_range_cells`).
+    pub field: String,
+    /// The value in force before the undo (the value being taken out).
+    pub from: i64,
+    /// The value the undo restores: an earlier record's, or the shipped
+    /// default when the undone record was the only one in force.
+    pub value: i64,
+    /// Who asked for the undo (`bench`; later `kid`).
+    pub author: String,
+}
+
 /// One line on disk.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Line {
@@ -192,6 +221,11 @@ pub enum LedgerError {
     /// An outcome names a seal hash that is not the hash of the proposal it
     /// claims to answer: the prediction changed after the test.
     SealMismatch(u64),
+    /// A Vibe proposal was never adopted, so there is nothing to undo.
+    NotAdopted(u64),
+    /// A Vibe proposal was already undone; a second undo would rewrite
+    /// history.
+    AlreadyUndone(u64),
 }
 
 impl std::fmt::Display for LedgerError {
@@ -216,6 +250,13 @@ impl std::fmt::Display for LedgerError {
                 "the outcome does not answer the bytes that were sealed at {seal}: \
                  the prediction changed after the test"
             ),
+            LedgerError::NotAdopted(seal) => write!(
+                f,
+                "seal {seal} was not adopted, so there is nothing in force to undo"
+            ),
+            LedgerError::AlreadyUndone(seal) => {
+                write!(f, "seal {seal} was already undone")
+            }
         }
     }
 }
@@ -400,6 +441,35 @@ impl Ledger {
             return Err(LedgerError::SealMismatch(o.seal));
         }
         self.append(Entry::VibeOutcome(o))
+    }
+
+    /// Record the undo of an adopted Vibe proposal. A proposal is undone
+    /// exactly once, it must have been adopted for anything to be in force,
+    /// and the undo has to name the bytes that were sealed — the same
+    /// discipline its outcome met.
+    pub fn undo_vibe(&mut self, u: VibeUndo) -> Result<u64, LedgerError> {
+        let hash = match self.lines.get(u.seal as usize).map(|l| (&l.entry, &l.hash)) {
+            Some((Entry::VibeProposal(_), hash)) => hash,
+            _ => return Err(LedgerError::NoSuchSeal(u.seal)),
+        };
+        let adopted = self
+            .lines
+            .iter()
+            .any(|l| matches!(&l.entry, Entry::VibeOutcome(o) if o.seal == u.seal && o.adopted));
+        if !adopted {
+            return Err(LedgerError::NotAdopted(u.seal));
+        }
+        let undone = self
+            .lines
+            .iter()
+            .any(|l| matches!(&l.entry, Entry::VibeUndo(old) if old.seal == u.seal));
+        if undone {
+            return Err(LedgerError::AlreadyUndone(u.seal));
+        }
+        if *hash != u.seal_hash {
+            return Err(LedgerError::SealMismatch(u.seal));
+        }
+        self.append(Entry::VibeUndo(u))
     }
 
     /// The sealed Vibe proposal of a seal, if any.
@@ -616,6 +686,77 @@ mod tests {
         assert!(matches!(
             Ledger::open(&path),
             Err(LedgerError::ChainBroken { line: 0 })
+        ));
+    }
+
+    /// An undo is judged by the same discipline as an outcome: it names the
+    /// sealed bytes, it needs an adopted outcome, and it happens once.
+    #[test]
+    fn a_vibe_undo_answers_the_sealed_bytes_once() {
+        let mut l = Ledger::open(&tmp("vibe-undo")).unwrap();
+        let (seal, hash) = l.seal_vibe(vibe_proposal()).unwrap();
+
+        // No outcome yet: nothing is in force, so there is nothing to undo.
+        let undo = VibeUndo {
+            seal,
+            seal_hash: hash.clone(),
+            field: "params.view_range_cells".into(),
+            from: 32,
+            value: 20,
+            author: "bench".into(),
+        };
+        assert!(matches!(
+            l.undo_vibe(undo.clone()),
+            Err(LedgerError::NotAdopted(0))
+        ));
+
+        // Adopted: the undo lands, once.
+        l.vibe_outcome(VibeOutcome {
+            seal,
+            seal_hash: hash.clone(),
+            measures: Vec::new(),
+            adopted: true,
+        })
+        .unwrap();
+        let undo_line = l.undo_vibe(undo.clone()).unwrap();
+        assert!(matches!(
+            l.undo_vibe(undo),
+            Err(LedgerError::AlreadyUndone(_))
+        ));
+
+        // An undo that does not name the sealed bytes is refused, the same
+        // way an outcome that does not is.
+        let (other_seal, other_hash) = l.seal_vibe(vibe_proposal()).unwrap();
+        l.vibe_outcome(VibeOutcome {
+            seal: other_seal,
+            seal_hash: other_hash,
+            measures: Vec::new(),
+            adopted: true,
+        })
+        .unwrap();
+        assert!(matches!(
+            l.undo_vibe(VibeUndo {
+                seal: other_seal,
+                seal_hash: "0000000000000000".into(),
+                field: "params.view_range_cells".into(),
+                from: 32,
+                value: 20,
+                author: "bench".into(),
+            }),
+            Err(LedgerError::SealMismatch(_))
+        ));
+
+        // And an undo of a seal that is not a proposal line is refused too.
+        assert!(matches!(
+            l.undo_vibe(VibeUndo {
+                seal: undo_line,
+                seal_hash: hash,
+                field: "params.view_range_cells".into(),
+                from: 32,
+                value: 20,
+                author: "bench".into(),
+            }),
+            Err(LedgerError::NoSuchSeal(_))
         ));
     }
 }

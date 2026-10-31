@@ -76,13 +76,19 @@ struct Cli {
 enum Command {
     /// Play a headless round and write its log.
     Run {
-        /// The seed of the round.
+        /// The seed of the round. Ignored when `--header` is given; one of
+        /// the two is required.
         #[arg(long)]
-        seed: u64,
+        seed: Option<u64>,
         /// How many ticks the round may run. 0 plays an empty round: a valid
         /// log with a header and no ticks, which replays as `OK 0 hashes`.
         #[arg(long)]
         ticks: u64,
+        /// A JSON round header to play instead of the shipped round — the
+        /// next-round header the Vibe pipeline writes (`lm vibe propose
+        /// --harness`). `--seed` is ignored when it is given.
+        #[arg(long)]
+        header: Option<PathBuf>,
         /// A JSON Lines file of decisions to inject.
         #[arg(long)]
         inject: Option<PathBuf>,
@@ -239,7 +245,9 @@ enum VoxCommand {
 enum VibeCommand {
     /// Propose a typed change out of the Vibe Dictionary: bounds-check it,
     /// seal the prediction before the test, run the held-out sweep, print
-    /// the verdict, and write the record to the ledger.
+    /// the verdict, and write the record to the ledger. With --harness, an
+    /// adopted change also lands: the harness carries it, and the next
+    /// round's header is written naming the records in force.
     Propose {
         /// The dictionary entry (`unit.vision`).
         entry: String,
@@ -266,6 +274,14 @@ enum VibeCommand {
         /// A vibe.toml that overrides the shipped one.
         #[arg(long)]
         file: Option<PathBuf>,
+        /// The harness root an adopted change lands in — the same root
+        /// `lm learn` commits into. Without it the verdict is recorded and
+        /// nothing lands.
+        #[arg(long)]
+        harness: Option<PathBuf>,
+        /// The seed of the next round, whose header a landing writes.
+        #[arg(long, default_value_t = 1)]
+        next_seed: u64,
     },
     /// List the Vibe records in the ledger, with the prediction-trust
     /// running tally: how often the predictions held.
@@ -273,6 +289,37 @@ enum VibeCommand {
         /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
         #[arg(long, default_value = "runs")]
         runs: PathBuf,
+    },
+    /// Say what is in force now, from which ledger lines: every adopted
+    /// change the next round is played with, and everything else resting at
+    /// its shipped default.
+    State {
+        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
+        #[arg(long, default_value = "runs")]
+        runs: PathBuf,
+        /// A vibe.toml that overrides the shipped one.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Put one adopted record back: a new ledger line that reverts it —
+    /// the ledger is append-only — and the harness re-landed on what is in
+    /// force now.
+    Undo {
+        /// The record to put back: its seal, the ledger line `lm vibe
+        /// ledger` prints.
+        seal: u64,
+        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
+        #[arg(long, default_value = "runs")]
+        runs: PathBuf,
+        /// A vibe.toml that overrides the shipped one.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// The harness root the undo re-lands, when the change landed.
+        #[arg(long)]
+        harness: Option<PathBuf>,
+        /// The seed of the next round, whose header a re-landing writes.
+        #[arg(long, default_value_t = 1)]
+        next_seed: u64,
     },
 }
 
@@ -282,9 +329,10 @@ fn main() -> ExitCode {
         Command::Run {
             seed,
             ticks,
+            header,
             inject,
             out,
-        } => cmd_run(seed, ticks, inject, out),
+        } => cmd_run(seed, ticks, header, inject, out),
         Command::Replay { file } => cmd_replay(file),
         Command::Diff { a, b } => cmd_diff(a, b),
         Command::Golden { write, file } => cmd_golden(write, file),
@@ -336,8 +384,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// The `lm vibe` commands: a proposal through the whole pipeline, or the
-/// ledger read back.
+/// The `lm vibe` commands: a proposal through the whole pipeline, the
+/// ledger read back, what is in force now, and the undo.
 fn cmd_vibe(command: VibeCommand) -> ExitCode {
     match command {
         VibeCommand::Propose {
@@ -349,6 +397,8 @@ fn cmd_vibe(command: VibeCommand) -> ExitCode {
             ticks,
             runs,
             file,
+            harness,
+            next_seed,
         } => lm_tools::vibe::cmd_vibe_propose(&lm_tools::vibe::ProposeArgs {
             entry,
             value,
@@ -358,10 +408,28 @@ fn cmd_vibe(command: VibeCommand) -> ExitCode {
             ticks,
             runs,
             file,
+            harness,
+            next_seed,
         }),
         VibeCommand::Ledger { runs } => {
             lm_tools::vibe::cmd_vibe_ledger(&lm_tools::vibe::LedgerArgs { runs })
         }
+        VibeCommand::State { runs, file } => {
+            lm_tools::vibe::cmd_vibe_state(&lm_tools::vibe::StateArgs { runs, file })
+        }
+        VibeCommand::Undo {
+            seal,
+            runs,
+            file,
+            harness,
+            next_seed,
+        } => lm_tools::vibe::cmd_vibe_undo(&lm_tools::vibe::UndoArgs {
+            seal,
+            runs,
+            file,
+            harness,
+            next_seed,
+        }),
     }
 }
 
@@ -651,7 +719,13 @@ fn cmd_learn(
     }
 }
 
-fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> ExitCode {
+fn cmd_run(
+    seed: Option<u64>,
+    ticks: u64,
+    header_file: Option<PathBuf>,
+    inject: Option<PathBuf>,
+    out: PathBuf,
+) -> ExitCode {
     let mut injections = Vec::new();
     if let Some(path) = &inject {
         let text = match std::fs::read_to_string(path) {
@@ -670,7 +744,40 @@ fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> Exit
         }
     }
 
-    let header = Header::default_round(seed, DEFAULT_REFLEX);
+    if header_file.is_none() && seed.is_none() {
+        eprintln!("lm: one of --seed or --header is required");
+        return ExitCode::FAILURE;
+    }
+    let header = match &header_file {
+        Some(path) => {
+            let text = match std::fs::read_to_string(path) {
+                Ok(text) => text,
+                Err(err) => {
+                    eprintln!("lm: cannot read {}: {err}", path.display());
+                    return ExitCode::FAILURE;
+                }
+            };
+            match serde_json::from_str::<Header>(&text) {
+                Ok(header) => {
+                    if header.proto_version != lm_core::PROTO_VERSION {
+                        eprintln!(
+                            "lm: {}: header speaks protocol version {}, this build speaks {}",
+                            path.display(),
+                            header.proto_version,
+                            lm_core::PROTO_VERSION
+                        );
+                        return ExitCode::FAILURE;
+                    }
+                    header
+                }
+                Err(err) => {
+                    eprintln!("lm: {}: not a round header: {err}", path.display());
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        None => Header::default_round(seed.unwrap_or(0), DEFAULT_REFLEX),
+    };
     let (log, stats) = runner::run(header, ticks, &injections);
 
     let mut file = match File::create(&out) {
@@ -686,7 +793,8 @@ fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> Exit
     }
 
     println!(
-        "seed {seed}: {} ticks, {} hashes, {} decisions ({})",
+        "seed {}: {} ticks, {} hashes, {} decisions ({})",
+        log.header.seed,
         stats.ticks,
         stats.hashes,
         stats.on_time + stats.late,

@@ -134,6 +134,80 @@ expect "the vibe ledger lists its records and the prediction-trust tally" \
   0 "prediction trust: 0/1 measures held" \
   -- "$LM" vibe ledger --runs "$WORK/vibe-runs"
 
+# The landing: an adopted value joins the harness the next round is played
+# with, and the undo puts it back. The adopted proposal below is the full
+# D78 count (16 seeds x 1500 ticks); it adopts by arithmetic — every seed's
+# hold ticks rise when the Dabs are faster — so the verdict is ADOPTED
+# every time it runs, by determinism, not by luck.
+expect "a value outside a new entry's bounds is refused too" \
+  1 "refused: 2049 is outside .* bounds 0..=2048" \
+  -- "$LM" vibe propose unit.speed 2049 --predict "tags:up" --runs "$WORK/vibe-runs"
+
+expect "the vibe state says nothing is in force yet" \
+  0 "nothing in force" \
+  -- "$LM" vibe state --runs "$WORK/vibe-runs"
+
+expect "an adopted change lands: the state file, the commit-shaped header, the verdict" \
+  0 "verdict: +ADOPTED" \
+  -- "$LM" vibe propose unit.speed 272 --predict "hold_ticks:up" --say "make them faster" \
+     --runs "$WORK/vibe-runs" --harness "$WORK/harness" --next-seed 41
+
+if [ -s "$WORK/harness/vibe-state.toml" ]; then
+  printf 'PASS: the harness carries the Vibe state\n'
+else
+  printf 'FAIL: the harness carries the Vibe state\n'
+  fails=$((fails + 1))
+fi
+
+if grep -q '"speed_upt": 272' "$WORK/vibe-runs/vibe/next-header.json" 2>/dev/null \
+  && grep -q '"block": "unit.speed"' "$WORK/vibe-runs/vibe/next-header.json"; then
+  printf 'PASS: the next round%s header carries the value and names the record\n' "'"
+else
+  printf 'FAIL: the next round%s header carries the value and names the record\n' "'"
+  fails=$((fails + 1))
+fi
+
+expect "the vibe state names the record in force" \
+  0 "unit.speed *= *272 .*ledger line" \
+  -- "$LM" vibe state --runs "$WORK/vibe-runs"
+
+expect "the next round plays from the landed header" \
+  0 "seed 41: 900 ticks" \
+  -- "$LM" run --header "$WORK/vibe-runs/vibe/next-header.json" --ticks 900 --out "$WORK/vibe-next.lml"
+
+expect "the landed round replays" \
+  0 "^OK [0-9]+ hashes$" \
+  -- "$LM" replay "$WORK/vibe-next.lml"
+
+expect "the undo of a record that was never adopted is a named refusal" \
+  1 "seal 0 was not adopted" \
+  -- "$LM" vibe undo 0 --runs "$WORK/vibe-runs"
+
+# The record in force, read from the state rather than assumed: its seal
+# is the ledger line the state names.
+ADOPTED_SEAL="$("$LM" vibe state --runs "$WORK/vibe-runs" \
+  | sed -n 's/.*ledger line \([0-9]*\)).*/\1/p' | head -n 1)"
+
+expect "the undo puts the adopted record back" \
+  0 "back to 136" \
+  -- "$LM" vibe undo "$ADOPTED_SEAL" --runs "$WORK/vibe-runs" --harness "$WORK/harness" --next-seed 41
+
+expect "the state is back to the shipped defaults" \
+  0 "nothing in force" \
+  -- "$LM" vibe state --runs "$WORK/vibe-runs"
+
+if grep -q '"speed_upt": 136' "$WORK/vibe-runs/vibe/next-header.json" 2>/dev/null \
+  && grep -q '"vibe": \[\]' "$WORK/vibe-runs/vibe/next-header.json"; then
+  printf 'PASS: the header after the undo is the shipped round again\n'
+else
+  printf 'FAIL: the header after the undo is the shipped round again\n'
+  fails=$((fails + 1))
+fi
+
+expect "the vibe ledger names the undo" \
+  0 "undone \(back to 136" \
+  -- "$LM" vibe ledger --runs "$WORK/vibe-runs"
+
 if [ "$fails" -gt 0 ]; then
   printf '\n==> %d step(s) FAILED\n' "$fails"
   exit 1
