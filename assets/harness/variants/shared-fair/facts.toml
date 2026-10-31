@@ -1,0 +1,99 @@
+# The `shared-fair` variant's facts: the hot zone with a fair walk and a
+# second objective for the squad that loses the beacon.
+#
+# This harness is the `shared-ghost` harness with two changes, and both are
+# parameters of the facts builder rather than code:
+#
+#   walk = "around"   the hot zone walks the beacons in the order of their
+#                     angle about the map's centre, and it visits every
+#                     beacon, taken or not.
+#   second = "next-stop"
+#                     the squad that has lost the shared target is given a
+#                     second objective: the beacon the zone moves to next.
+#
+# **Why the walk changes.** The `shared-ghost` walk is the hot zone moving
+# to the next *free* beacon in beacon order. Two things are wrong with it,
+# and the second is the one that shows up in the numbers.
+#
+# The map is point-symmetric (D61): the beacons come in 180-degree rotated
+# pairs, and squad 1's side of the map is squad 0's side turned around. The
+# beacon order is not that symmetry: beacon 0 and beacon 1 are each
+# other's mirror, and beacon 2 and beacon 3 are, so "in beacon order"
+# reaches the outer pair - the asymmetric one - with beacon 2, on squad 0's
+# side, first.
+#
+# And the list the zone walks depends on who holds what. The moment a squad
+# takes a beacon it drops out of the list, which shifts every later step,
+# so the zone's place at any tick depends on what the squads have already
+# done. As the round goes on the list shrinks to the last beacon nobody
+# has taken, and the zone parks there for the rest of the round. Measured
+# over 100 seeds, that decided 64 rounds to squad 0 and 36 to squad 1: a
+# gap of 28, over the fairness guard's bound of 20 (see
+# crates/lm-agents/tests/engagement.md, "The hot zone, judged").
+#
+# The `around` walk fixes both by construction:
+#
+#   * the order is the beacons' angle about the map's centre, and the
+#     180-degree rotation adds half a turn to every angle, so the sorted
+#     list of a rotated map is the rotated list of the map. The rule
+#     cannot favour a side of the map.
+#   * the walk visits every beacon, so the zone's place is a function of
+#     the tick and the beacons' places alone. The round's own history
+#     cannot feed back into the zone, which is how the bias grew.
+#
+# The walk spends half its time on each side of the map's centre, so
+# neither squad gets the edge. It is still the same beacon for both squads
+# at the same tick - the tick and the beacon list are the same for both -
+# so the two squads still meet.
+#
+# **Why there is a second objective.** The shared target is the only target
+# the doctrine states, so a squad that loses it has nothing to do, nothing
+# to score and nowhere to go. Measured on the Thor at 3000 ticks, 8 of 16
+# rounds left a squad on zero points. The second objective is the loser's
+# way to keep playing: the beacon the zone moves to next. The loser walks
+# there and is there when the zone arrives, so the fight carries on where
+# the zone is and the loser is in it. It is stated in one plain sentence,
+# and only to the squad that has lost the target, so both squads are still
+# sent to the same target until there is a fight to lose.
+#
+# The other candidate was the nearest beacon no squad holds. Measured over
+# 100 seeds it took the contact from 10.13 tags a round to 0.06: the loser
+# walks off to a beacon of its own and camps there, the zone moves on
+# without it, and the squads never meet again.
+#
+# The `second` key is off by default, and so is the `walk` key: a harness
+# that does not name them gets the shipped behaviour. The `ghost` rule's
+# knobs are the same as `shared-ghost`'s, so the two arms differ only in
+# these two parameters.
+#
+# The ghost's knobs are read only when `rule` is `ghost`:
+#
+#   kind          attractor or repulsor. The shared target is an attractor.
+#   strength_q14  the tile's strength, in Q14 (16384 is 1.0)
+#   radius_cells  how far the tile reaches, in cells
+#   falloff       how the influence falls off: inverse-linear, inverse-square
+#                 or constant
+#   phase         how the strength changes over the round: permanent,
+#                 temporal (fades over max_age_ticks) or recurring (pulses
+#                 over cycle_ticks)
+#   rotation_ticks how long the hot zone stays on one beacon before it
+#                 moves to the next, in ticks. Zero means it never moves.
+#   walk          the order the zone walks the beacons in: `numbered` (the
+#                 free beacons, in beacon order - the shipped walk) or
+#                 `around` (every beacon, in the order of its angle about
+#                 the map's centre - the fair walk).
+
+[shared]
+rule = "ghost"
+second = "next-stop"
+
+[shared.ghost]
+kind = "attractor"
+strength_q14 = 16384
+radius_cells = 96
+falloff = "inverse-linear"
+phase = "recurring"
+cycle_ticks = 900
+max_age_ticks = 600
+rotation_ticks = 600
+walk = "around"

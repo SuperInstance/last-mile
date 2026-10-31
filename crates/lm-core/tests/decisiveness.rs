@@ -56,6 +56,18 @@ const TIME_LIMITS: [u32; 2] = [9000, 12000];
 /// The number of seeds the sweep plays for each parameter combination.
 const SEEDS: u64 = 100;
 
+/// The first seed the sweep plays, or 1.
+///
+/// `DECISIVENESS_SEED_FROM` moves the block, so the same measurement can be
+/// run over a different hundred seeds: the seeds are a block, and a
+/// measurement that only holds for one block is a measurement of that block.
+fn first_seed() -> u64 {
+    std::env::var("DECISIVENESS_SEED_FROM")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(1)
+}
+
 /// The root of the repository, where the assets live.
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -175,12 +187,16 @@ fn play_seeds(params: &Params, reflex: &str) -> Vec<Round> {
         .unwrap_or(1)
         .clamp(1, SEEDS);
     let chunk = SEEDS.div_ceil(jobs);
+    let block_first = first_seed();
+    // The block is SEEDS seeds long, whatever the first one is: the last seed
+    // of the block bounds every job, so the block is played exactly once.
+    let block_last = block_first + SEEDS - 1;
     let mut rounds: Vec<Round> = Vec::new();
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
         for job in 0..jobs {
-            let first = job * chunk + 1;
-            let last = ((job + 1) * chunk).min(SEEDS);
+            let first = block_first + job * chunk;
+            let last = (first + chunk - 1).min(block_last);
             if first > last {
                 continue;
             }
