@@ -1,8 +1,10 @@
 # Kid words: the phrasebook pass
 
-**Status:** done as a brief (the phrasebook pass). No code changed.
+**Status:** done as a brief (the phrasebook pass), then again for the
+variants. No code changed.
 **Date:** 2026-10-30
-**Scope:** `assets/harness/default/phrasebook.toml` only. The audience is kids
+**Scope:** `assets/harness/default/phrasebook.toml`, then the nine variants
+under `assets/harness/variants/*/phrasebook.toml` (see Variants below). The audience is kids
 about 8-12 (`docs/design/sandbox-on-otherhere.md`); the tone is paintball, not
 war: nobody dies, nobody is hurt, it's paint.
 
@@ -127,11 +129,23 @@ order, the sentences a kid-facing summary would inherit:
    better to a kid and no worse to a model. Pinned by
    `unreachable_beacon_states_no_path` and `holder_and_stun_wording`.
 
+## Variants
+
+The nine doctrine variants -- `advance`, `contest`, `hold`, `raid`, `scout`,
+`shared-centre`, `shared-free`, `shared-ghost`, `shared-ghost-fixed` -- each
+carried the old default wording verbatim: at the parent of the default's pass
+every variant `phrasebook.toml` was byte-identical to the old default. So
+every variant got exactly the default's pass: **28 template lines changed per
+variant** (252 across the nine), each to the default's new line exactly, so
+the voices stay consistent across variants. No key, `channel`, placeholder or
+comment moved, and **no line needed its own wording** -- no variant carries a
+template the default did not have.
+
 ## Notes for whoever picks this up next
 
 - The nine doctrine variants under `assets/harness/variants/*/phrasebook.toml`
-  still carry the old wording. They are test doctrine, out of this brief;
-  if the kid-facing game ships on a variant, give it the same pass.
+  now carry the same pass as the default (see Variants above); they stay test
+  doctrine, and the shared-* variants' `facts.toml` files are untouched.
 - The golden is untouched by wording: told-facts and the state hash key on the
   utterance header (act, intent, subject), never on the template's words. The
   words live in the round log as events. `lm golden` stays OK 3/3.
