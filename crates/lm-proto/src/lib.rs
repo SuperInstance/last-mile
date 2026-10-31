@@ -39,7 +39,13 @@ pub enum NodeKind {
 }
 
 /// One message on the wire.
+///
+/// The header variant is the round's whole identity and it is bigger than
+/// the rest on purpose: it travels once per connection, not in bulk, and
+/// boxing it would change every sender for no change on the wire (postcard
+/// serializes a `Box` exactly as its contents).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum Msg {
     /// The first message of a connection: version, node kind, capabilities.
     Hello {

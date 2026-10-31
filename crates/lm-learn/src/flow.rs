@@ -1356,7 +1356,7 @@ fn harness_dir_of(root: &Path, p: &Proposal) -> Option<PathBuf> {
 }
 
 /// Read every agent's harness under the root: the `a<agent>` directories.
-fn read_harness_set(root: &Path) -> Result<BTreeMap<u16, Harness>, FlowError> {
+pub(crate) fn read_harness_set(root: &Path) -> Result<BTreeMap<u16, Harness>, FlowError> {
     let mut set = BTreeMap::new();
     if !root.is_dir() {
         return Err(FlowError::Harness(format!(
@@ -1405,7 +1405,7 @@ fn harness_view(h: &Harness) -> HarnessView {
 }
 
 /// The header of a round, with the harnesses pinned into it (D27).
-fn round_header(seed: u64, harnesses: &BTreeMap<u16, Harness>) -> Header {
+pub(crate) fn round_header(seed: u64, harnesses: &BTreeMap<u16, Harness>) -> Header {
     let mut header = Header::default_round(seed, DEFAULT_REFLEX);
     harness::pin_into(&mut header, harnesses);
     header
@@ -1566,19 +1566,41 @@ fn commit_harness(
     let Some(dir) = harness_dir_of(root, proposal) else {
         return Ok((None, String::new()));
     };
+    let message = format!("round {round_id}: {}", describe_proposal(proposal));
+    commit_tree(&dir, round_id, &message)
+}
+
+/// Commit every change in a harness directory — the one commit discipline
+/// every lane of change into the harness uses: the learning flow's adopted
+/// proposals and the Vibe pipeline's landings.
+///
+/// The commit's date is derived from `id`, so the same change always
+/// produces the same commit (D65), and the state it leaves is tagged
+/// `round-<id>` (D27: the frozen state to roll back to). A directory that
+/// is not a git repo of its own is identified by its bytes instead: there
+/// is nothing to commit, and nothing is pretended.
+pub(crate) fn commit_tree(
+    dir: &Path,
+    id: &str,
+    message: &str,
+) -> Result<(Option<String>, String), FlowError> {
     if !dir.join(".git").exists() {
         return Ok((None, String::new()));
     }
 
-    git(&dir, &["add", "-A"])?;
-    let diff = git(&dir, &["diff", "HEAD"])?;
-    let dirty = !git(&dir, &["status", "--porcelain"])?.trim().is_empty();
+    git(dir, &["add", "-A"])?;
+    // A repo with no commits yet has no HEAD to diff against: the whole
+    // index is the diff (against the empty tree it is about to replace).
+    let diff = match git(dir, &["rev-parse", "--verify", "HEAD"]) {
+        Ok(_) => git(dir, &["diff", "HEAD"])?,
+        Err(_) => git(dir, &["diff", "--cached"])?,
+    };
+    let dirty = !git(dir, &["status", "--porcelain"])?.trim().is_empty();
     if dirty {
-        let message = format!("round {round_id}: {}", describe_proposal(proposal));
-        let date = commit_date(round_id);
+        let date = commit_date(id);
         let out = Command::new("git")
             .arg("-C")
-            .arg(&dir)
+            .arg(dir)
             .args([
                 "-c",
                 "user.name=last-mile flow",
@@ -1587,7 +1609,7 @@ fn commit_harness(
                 "-c",
                 "commit.gpgsign=false",
             ])
-            .args(["commit", "-m", &message])
+            .args(["commit", "-m", message])
             .env("GIT_AUTHOR_DATE", &date)
             .env("GIT_COMMITTER_DATE", &date)
             .output()
@@ -1599,8 +1621,8 @@ fn commit_harness(
             )));
         }
     }
-    let commit = git(&dir, &["rev-parse", "HEAD"])?;
-    git(&dir, &["tag", "-f", &format!("round-{round_id}"), &commit])?;
+    let commit = git(dir, &["rev-parse", "HEAD"])?;
+    git(dir, &["tag", "-f", &format!("round-{id}"), &commit])?;
     Ok((Some(commit), diff))
 }
 

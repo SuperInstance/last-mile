@@ -1,11 +1,14 @@
 //! The Vibe pipeline: a typed change, a sealed prediction, a held-out test,
-//! a verdict — the sandbox's first slice (M2b).
+//! a verdict, a landing — the sandbox's first slice (M2b).
 //!
 //! ```text
 //! words -> a dictionary entry and a value (bounds checked; refusals named)
 //!      -> a prediction on two or three measures, sealed BEFORE the test
 //!      -> a headless sweep: the D78 seeds, baseline vs the change
 //!      -> a verdict per measure (D78's rule), adopt iff every measure held
+//!      -> a landing: the adopted values join the harness the next round
+//!         is played with, and the next round's header names the records
+//!      -> an undo: "put it back" is a new ledger line, never an edit
 //! ```
 //!
 //! The dictionary is data (`assets/harness/default/vibe.toml`), and its
@@ -14,6 +17,15 @@
 //! prediction is sealed in the [ledger](crate::ledger)'s hash chain before
 //! the first seed is played, so it cannot be edited to match the result
 //! afterwards — the outcome has to name the bytes that were sealed.
+//!
+//! The landing reuses the one path into the harness that `lm learn`
+//! already commits through ([`crate::flow`]): the in-force values are
+//! written as data into the harness root and committed with the same
+//! discipline, and the next round's header carries both the values (in its
+//! params, which have always been hashed) and the records that put them
+//! there ([`lm_core::VibeCarried`], hashed when present — a round with no
+//! records in force hashes exactly as it always did). The undo is a new
+//! `VibeUndo` line in the same append-only chain.
 //!
 //! Privacy (sandbox §7): the record holds the entry, the value, the
 //! prediction, the seal, the results and the verdict. The only words it
@@ -27,13 +39,13 @@ use std::thread;
 
 use lm_core::header::Header;
 use lm_core::params::{Params, BRANCH_FIELDS};
-use lm_core::Fnv64;
+use lm_core::{Fnv64, VibeCarried};
 
 use crate::eval;
 use crate::flow::{DEFAULT_EVAL_SEEDS, DEFAULT_REFLEX, MEASURABLE_TICKS};
 use crate::ledger::{
     Direction, Ledger, LedgerError, MeasureOutcome, Prediction, VibeClaim, VibeOutcome,
-    VibeProposal,
+    VibeProposal, VibeUndo,
 };
 use crate::metrics::RoundMetrics;
 use crate::round::play;
@@ -110,6 +122,32 @@ pub enum VibeError {
         /// The entry.
         block: String,
     },
+    /// The record named is not the one in force for its entry: a later
+    /// record already moved the same field, and undoing a buried record
+    /// would pretend history is simpler than it is.
+    NotInForce {
+        /// The record asked for.
+        seal: u64,
+        /// The entry.
+        block: String,
+        /// The record whose value is in force.
+        in_force: u64,
+    },
+    /// A record in force names an entry the dictionary no longer holds.
+    NotInDictionary {
+        /// The entry that has gone.
+        block: String,
+    },
+    /// The harness's Vibe state disagrees with the ledger: the file was
+    /// changed by something other than the pipeline.
+    StateDrift {
+        /// The file.
+        path: PathBuf,
+        /// Why it was refused.
+        why: String,
+    },
+    /// The harness (or its git) refused the landing.
+    Flow(crate::flow::FlowError),
 }
 
 impl std::fmt::Display for VibeError {
@@ -149,6 +187,26 @@ impl std::fmt::Display for VibeError {
                 f,
                 "refused: `{block}` has not passed the kid-safety review (age_ok = false)"
             ),
+            VibeError::NotInForce {
+                seal,
+                block,
+                in_force,
+            } => write!(
+                f,
+                "refused: record {seal} is not in force for `{block}`; record {in_force} moved \
+                 the same field later — undo that one first"
+            ),
+            VibeError::NotInDictionary { block } => write!(
+                f,
+                "refused: a record in force names `{block}`, which the dictionary no longer \
+                 holds; the state cannot land until it is undone"
+            ),
+            VibeError::StateDrift { path, why } => write!(
+                f,
+                "refused: {} disagrees with the ledger: {why}",
+                path.display()
+            ),
+            VibeError::Flow(err) => write!(f, "the landing: {err}"),
         }
     }
 }
@@ -164,6 +222,12 @@ impl From<std::io::Error> for VibeError {
 impl From<LedgerError> for VibeError {
     fn from(err: LedgerError) -> VibeError {
         VibeError::Ledger(err)
+    }
+}
+
+impl From<crate::flow::FlowError> for VibeError {
+    fn from(err: crate::flow::FlowError) -> VibeError {
+        VibeError::Flow(err)
     }
 }
 
@@ -382,6 +446,31 @@ fn params_current(field: &str) -> Option<i64> {
     }
 }
 
+/// Where an adopted change lands: the harness the next round is played
+/// with, and the seed that round will run on.
+///
+/// This is the same place `lm learn` commits its adopted proposals — the
+/// harness root, one directory per agent — and the landing reuses the same
+/// commit discipline ([`crate::flow`]'s), so there is one path into the
+/// harness, not two.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LandSite {
+    /// The harness root, as `lm learn --harness` takes it.
+    pub harness_root: PathBuf,
+    /// The seed of the next round, whose header the landing writes.
+    pub next_seed: u64,
+}
+
+impl LandSite {
+    /// A landing site for a harness root and a next-round seed.
+    pub fn new(harness_root: impl Into<PathBuf>, next_seed: u64) -> LandSite {
+        LandSite {
+            harness_root: harness_root.into(),
+            next_seed,
+        }
+    }
+}
+
 /// What a kid (through Bench) asks for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ask {
@@ -401,6 +490,10 @@ pub struct Ask {
     pub seeds: usize,
     /// How many ticks each seed plays.
     pub ticks: u64,
+    /// Where an adopted change lands, and the next round it is played in.
+    /// `None` runs the pipeline without touching any harness: the verdict
+    /// is still sealed, tested and recorded.
+    pub land: Option<LandSite>,
 }
 
 impl Ask {
@@ -414,6 +507,7 @@ impl Ask {
             author: "bench".to_owned(),
             seeds: DEFAULT_SEEDS,
             ticks: DEFAULT_TICKS,
+            land: None,
         }
     }
 
@@ -438,6 +532,12 @@ impl Ask {
     /// How many ticks each seed plays.
     pub fn with_ticks(mut self, ticks: u64) -> Ask {
         self.ticks = ticks;
+        self
+    }
+
+    /// Land an adopted change in this harness, for this next-round seed.
+    pub fn with_land(mut self, site: LandSite) -> Ask {
+        self.land = Some(site);
         self
     }
 }
@@ -543,6 +643,9 @@ pub struct Proposed {
     pub outcome: VibeOutcome,
     /// The ledger the seal and the outcome went into.
     pub ledger_path: PathBuf,
+    /// The landing the verdict produced, when the ask named a harness and
+    /// the change was adopted.
+    pub landed: Option<Landed>,
 }
 
 /// One proposal through the whole pipeline: bounds, seal, test, verdict.
@@ -662,12 +765,478 @@ pub fn propose(
         adopted,
     };
     ledger.vibe_outcome(outcome.clone())?;
+
+    // The landing: when the ask named a harness, the verdict reaches it —
+    // an adopted change becomes part of the harness the next round is
+    // played with, the same way `lm learn` lands an adopted proposal. A
+    // refused verdict lands nothing new, but the projection is re-taken,
+    // so an adopted record that never landed (a run with no harness named)
+    // is healed by the next one that does.
+    let landed = match &ask.land {
+        Some(site) => Some(land(dictionary, ledger_path, site)?),
+        None => None,
+    };
     Ok(Proposed {
         proposal,
         seal,
         outcome,
         ledger_path: ledger_path.to_path_buf(),
+        landed,
     })
+}
+
+/// One adopted change in force, and the ledger line that put it there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InForce {
+    /// The ledger line (the seal) of the adopted record.
+    pub seal: u64,
+    /// The dictionary entry (`unit.vision`).
+    pub block: String,
+    /// The one field the record writes (`params.view_range_cells`).
+    pub field: String,
+    /// The value in force.
+    pub value: i64,
+}
+
+/// What the ledger has in force now: for every entry, the latest record
+/// that was adopted and not undone, in seal order.
+///
+/// The ledger is the truth — [state](state_summary) reads it live — and
+/// everything else (the state file in the harness, the records in the next
+/// round's header) is a projection of this walk.
+pub fn in_force(ledger: &Ledger) -> Vec<InForce> {
+    let undone: Vec<u64> = ledger
+        .entries()
+        .filter_map(|entry| match entry {
+            crate::ledger::Entry::VibeUndo(undo) => Some(undo.seal),
+            _ => None,
+        })
+        .collect();
+    let mut per_block: std::collections::BTreeMap<String, InForce> =
+        std::collections::BTreeMap::new();
+    for record in records(ledger) {
+        let Some(outcome) = &record.outcome else {
+            continue;
+        };
+        if !outcome.adopted || undone.contains(&record.seal) {
+            continue;
+        }
+        per_block.insert(
+            record.proposal.block.clone(),
+            InForce {
+                seal: record.seal,
+                block: record.proposal.block.clone(),
+                field: record.proposal.field.clone(),
+                value: record.proposal.value,
+            },
+        );
+    }
+    let mut out: Vec<InForce> = per_block.into_values().collect();
+    out.sort_by_key(|record| record.seal);
+    out
+}
+
+/// The name of the state file inside the harness root.
+pub const STATE_FILE: &str = "vibe-state.toml";
+
+/// One entry of the state file on disk.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StateEntry {
+    /// The ledger line (the seal) that adopted the change.
+    pub seal: u64,
+    /// The dictionary entry (`unit.vision`).
+    pub block: String,
+    /// The one field the entry writes (`params.view_range_cells`).
+    pub field: String,
+    /// The value in force.
+    pub value: i64,
+}
+
+/// The projection on disk: `<harness_root>/vibe-state.toml`.
+///
+/// Data, not code: the file says what is in force and which ledger lines
+/// put it there, so the harness the next round is played with carries an
+/// adopted change the way it carries a reflex or a gate. It holds no words
+/// beyond the entry's stable id — no transcript, no audio, ever.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StateFile {
+    /// The entries in force, in seal order.
+    #[serde(default, rename = "in_force")]
+    pub entries: Vec<StateEntry>,
+}
+
+/// Write the state file: the projection, as TOML, with the provenance in a
+/// header the next reader can follow.
+fn write_state(path: &Path, state: &StateFile) -> Result<(), VibeError> {
+    let body = toml::to_string_pretty(state).map_err(|err| {
+        VibeError::Io(std::io::Error::other(format!(
+            "the Vibe state does not serialise: {err}"
+        )))
+    })?;
+    let text = format!(
+        "# The Vibe state: the adopted changes in force, projected from the\n\
+         # ledger ({STATE_FILE} is written by `lm vibe propose/undo --harness`).\n\
+         # The ledger is the truth; this file is the copy the next round is\n\
+         # played with. It holds entry ids and values — never words, never\n\
+         # audio.\n\n{body}"
+    );
+    fs::write(path, text)?;
+    Ok(())
+}
+
+/// Is this state file one the ledger could have written?
+///
+/// A stale projection is fine — the ledger moved, and the landing
+/// re-projects. A file holding a change no ledger line ever adopted is a
+/// doctored file, and a doctored harness is refused, not healed.
+fn explained_by(state: &StateFile, ledger: &Ledger) -> bool {
+    let all = records(ledger);
+    state.entries.iter().all(|entry| {
+        all.iter().any(|record| {
+            record.seal == entry.seal
+                && record.proposal.block == entry.block
+                && record.proposal.field == entry.field
+                && record.proposal.value == entry.value
+                && record
+                    .outcome
+                    .as_ref()
+                    .is_some_and(|outcome| outcome.adopted)
+        })
+    })
+}
+
+/// What a landing produced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Landed {
+    /// The state file the harness now carries.
+    pub state_path: PathBuf,
+    /// The commit the landing made, when the harness root is a git repo of
+    /// its own; `None` means the harness is identified by its bytes, and
+    /// nothing is pretended.
+    pub commit: Option<String>,
+    /// The next round's header: the shipped round, the harness pinned, the
+    /// in-force values applied and their records named.
+    pub header: Header,
+    /// Where the header was written.
+    pub header_path: PathBuf,
+    /// The records in force — what the header carries.
+    pub in_force: Vec<InForce>,
+}
+
+/// Land the ledger's adopted changes in the harness — the same path `lm
+/// learn` lands an adopted proposal through, not a second one.
+///
+/// * the in-force values are written as data into the harness
+///   (`vibe-state.toml`), committed with the same discipline (a date
+///   derived from the landing's id, so the same state always produces the
+///   same commit, and a `round-<id>` tag);
+/// * the next round's header is written: the shipped round, the harnesses
+///   pinned (D27), every in-force value applied to the params, and the
+///   records named in [`Header::vibe`], so a replay knows where each value
+///   came from.
+///
+/// A record whose entry left the dictionary, or whose value left its
+/// bounds, is a named refusal: the state never lands what the dictionary
+/// no longer vouches for.
+pub fn land(
+    dictionary: &Dictionary,
+    ledger_path: &Path,
+    site: &LandSite,
+) -> Result<Landed, VibeError> {
+    let ledger = Ledger::open(ledger_path)?;
+    let force = in_force(&ledger);
+
+    for record in &force {
+        let block = dictionary
+            .find(&record.block)
+            .ok_or_else(|| VibeError::NotInDictionary {
+                block: record.block.clone(),
+            })?;
+        if !(block.min..=block.max).contains(&record.value) {
+            return Err(VibeError::OutOfBounds {
+                block: block.id.clone(),
+                value: record.value,
+                min: block.min,
+                max: block.max,
+            });
+        }
+    }
+
+    // The harness, the same requirement `lm learn` makes of its root.
+    let harnesses = crate::flow::read_harness_set(&site.harness_root)?;
+    if harnesses.is_empty() {
+        return Err(VibeError::Flow(crate::flow::FlowError::Harness(format!(
+            "no agent harness under {}",
+            site.harness_root.display()
+        ))));
+    }
+
+    // The state file: the projection, written only when it moved. A file
+    // the ledger cannot explain is refused, not healed.
+    let state_path = site.harness_root.join(STATE_FILE);
+    let projection = StateFile {
+        entries: force
+            .iter()
+            .map(|record| StateEntry {
+                seal: record.seal,
+                block: record.block.clone(),
+                field: record.field.clone(),
+                value: record.value,
+            })
+            .collect(),
+    };
+    match fs::read_to_string(&state_path) {
+        Ok(text) => {
+            let current: StateFile =
+                toml::from_str(&text).map_err(|err| VibeError::StateDrift {
+                    path: state_path.clone(),
+                    why: format!("it does not read: {err}"),
+                })?;
+            if current != projection {
+                if !explained_by(&current, &ledger) {
+                    return Err(VibeError::StateDrift {
+                        path: state_path.clone(),
+                        why: "it holds a change no ledger line adopted".to_owned(),
+                    });
+                }
+                write_state(&state_path, &projection)?;
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            write_state(&state_path, &projection)?;
+        }
+        Err(err) => return Err(err.into()),
+    }
+
+    // The commit: one discipline with `lm learn`. The id is the latest
+    // seal in force — the state as of that record — so the same state
+    // always produces the same commit and the same tag.
+    let id = force
+        .last()
+        .map(|record| format!("vibe-{}", record.seal))
+        .unwrap_or_else(|| "vibe-none".to_owned());
+    let said: Vec<String> = force
+        .iter()
+        .map(|record| format!("{} = {}", record.block, record.value))
+        .collect();
+    let message = if said.is_empty() {
+        "vibe: nothing in force; back to the shipped defaults".to_owned()
+    } else {
+        format!("vibe: {}", said.join(", "))
+    };
+    let (commit, _diff) = crate::flow::commit_tree(&site.harness_root, &id, &message)?;
+
+    // The next round's header: the shipped round, the harness pinned, the
+    // values applied, the records named.
+    let mut header = crate::flow::round_header(site.next_seed, &harnesses);
+    for record in &force {
+        let field = record
+            .field
+            .strip_prefix("params.")
+            .expect("the dictionary's load check refused anything else");
+        match header.params.set_branchable(field, record.value) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(VibeError::DictionaryInvalid {
+                    why: format!(
+                        "`{}` writes `{field}`, which is not a parameter",
+                        record.block
+                    ),
+                });
+            }
+            Err(err) => {
+                return Err(VibeError::DictionaryInvalid {
+                    why: format!(
+                        "`{}`'s value {} no longer applies to `{}`: {}",
+                        record.block, record.value, err.field, err.reason
+                    ),
+                });
+            }
+        }
+    }
+    header.vibe = force
+        .iter()
+        .map(|record| VibeCarried {
+            seal: record.seal,
+            block: record.block.clone(),
+            value: record.value,
+        })
+        .collect();
+    let header_path = ledger_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("vibe")
+        .join("next-header.json");
+    if let Some(dir) = header_path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(
+        &header_path,
+        serde_json::to_string_pretty(&header).map_err(|err| {
+            VibeError::Io(std::io::Error::other(format!(
+                "the next header does not serialise: {err}"
+            )))
+        })?,
+    )?;
+    Ok(Landed {
+        state_path,
+        commit,
+        header,
+        header_path,
+        in_force: force,
+    })
+}
+
+/// What an undo did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Undone {
+    /// The undo record, exactly as the chain holds it.
+    pub undo: VibeUndo,
+    /// Its line number in the ledger.
+    pub line: u64,
+    /// The landing the undo re-projected, when a harness was named.
+    pub landed: Option<Landed>,
+}
+
+/// Undo one adopted record: append the inverse to the ledger — the chain is
+/// append-only, so "put it back" is a new line, not an edit — and re-land
+/// the harness on what is in force now.
+///
+/// Only the record whose value is in force for its entry can be undone:
+/// each entry's value always comes from exactly one record, and undoing a
+/// buried one would pretend history is simpler than it is. The field goes
+/// back to the previous record in force for the entry, when there is one,
+/// else to the entry's shipped default.
+pub fn undo(
+    dictionary: &Dictionary,
+    ledger_path: &Path,
+    seal: u64,
+    author: &str,
+    site: Option<&LandSite>,
+) -> Result<Undone, VibeError> {
+    let mut ledger = Ledger::open(ledger_path)?;
+    let all = records(&ledger);
+    let record = all
+        .iter()
+        .find(|record| record.seal == seal)
+        .ok_or(VibeError::Ledger(LedgerError::NoSuchSeal(seal)))?;
+    let block = record.proposal.block.clone();
+
+    // The refusals name themselves in the order a reader meets them: a
+    // record that was never adopted has nothing to undo (and one already
+    // undone would rewrite history), and a record that is not the one in
+    // force for its entry answers to the later one.
+    if record
+        .outcome
+        .as_ref()
+        .is_none_or(|outcome| !outcome.adopted)
+    {
+        let undone = ledger.entries().any(
+            |entry| matches!(entry, crate::ledger::Entry::VibeUndo(undo) if undo.seal == seal),
+        );
+        return Err(VibeError::Ledger(if undone {
+            LedgerError::AlreadyUndone(seal)
+        } else {
+            LedgerError::NotAdopted(seal)
+        }));
+    }
+    if let Some(current) = in_force(&ledger)
+        .iter()
+        .find(|record| record.block == block)
+    {
+        if current.seal != seal {
+            return Err(VibeError::NotInForce {
+                seal,
+                block,
+                in_force: current.seal,
+            });
+        }
+    }
+
+    // What the field goes back to: the previous record in force for the
+    // entry — adopted, not undone, earlier than this one — else the
+    // dictionary's shipped default.
+    let undone_seals: Vec<u64> = ledger
+        .entries()
+        .filter_map(|entry| match entry {
+            crate::ledger::Entry::VibeUndo(undo) => Some(undo.seal),
+            _ => None,
+        })
+        .collect();
+    let restored = all
+        .iter()
+        .filter(|other| {
+            other.seal < seal
+                && other.proposal.block == block
+                && !undone_seals.contains(&other.seal)
+                && other
+                    .outcome
+                    .as_ref()
+                    .is_some_and(|outcome| outcome.adopted)
+        })
+        .max_by_key(|other| other.seal)
+        .map(|other| other.proposal.value)
+        .unwrap_or_else(|| {
+            dictionary
+                .find(&block)
+                .map(|entry| entry.default)
+                .unwrap_or_default()
+        });
+
+    let undo = VibeUndo {
+        seal,
+        seal_hash: record
+            .outcome
+            .as_ref()
+            .expect("a record in force has an outcome")
+            .seal_hash
+            .clone(),
+        field: record.proposal.field.clone(),
+        from: record.proposal.value,
+        value: restored,
+        author: author.to_owned(),
+    };
+    let line = ledger.undo_vibe(undo.clone())?;
+
+    let landed = match site {
+        Some(site) => Some(land(dictionary, ledger_path, site)?),
+        None => None,
+    };
+    Ok(Undone { undo, line, landed })
+}
+
+/// What is in force now, in words — `lm vibe state`.
+///
+/// One line per record in force, naming the ledger line that adopted it;
+/// the entries resting at their shipped default are one compact line
+/// beneath. A record whose entry left the dictionary is still named: it is
+/// in force whether the dictionary still words it or not (the landing will
+/// refuse it until it is undone).
+pub fn state_summary(ledger: &Ledger, dictionary: &Dictionary) -> String {
+    let mut s = String::new();
+    let force = in_force(ledger);
+    if force.is_empty() {
+        let _ = writeln!(s, "nothing in force: every entry ships its default");
+    } else {
+        let _ = writeln!(s, "in force:");
+        for record in &force {
+            let _ = writeln!(
+                s,
+                "  {:<16} = {:<6} ({} , ledger line {})",
+                record.block, record.value, record.field, record.seal
+            );
+        }
+    }
+    let resting: Vec<String> = dictionary
+        .blocks
+        .iter()
+        .filter(|block| !force.iter().any(|record| record.block == block.id))
+        .map(|block| format!("{} = {}", block.id, block.default))
+        .collect();
+    if !resting.is_empty() {
+        let _ = writeln!(s, "at their shipped default: {}", resting.join(", "));
+    }
+    s
 }
 
 /// One seed's two rounds, every measure of the prediction read from both.
@@ -797,6 +1366,8 @@ pub struct VibeRecord {
     pub proposal: VibeProposal,
     /// The outcome, when the test has run and been appended.
     pub outcome: Option<VibeOutcome>,
+    /// The undo, when one has been filed.
+    pub undo: Option<VibeUndo>,
 }
 
 /// Every Vibe record in a ledger, in seal order.
@@ -809,10 +1380,16 @@ pub fn records(ledger: &Ledger) -> Vec<VibeRecord> {
                 seal: line as u64,
                 proposal: proposal.clone(),
                 outcome: None,
+                undo: None,
             }),
             Entry::VibeOutcome(outcome) => {
                 if let Some(record) = out.iter_mut().find(|record| record.seal == outcome.seal) {
                     record.outcome = Some(outcome.clone());
+                }
+            }
+            Entry::VibeUndo(undo) => {
+                if let Some(record) = out.iter_mut().find(|record| record.seal == undo.seal) {
+                    record.undo = Some(undo.clone());
                 }
             }
             _ => {}
@@ -909,6 +1486,32 @@ impl Proposed {
             held,
             self.outcome.measures.len()
         );
+        if let Some(landed) = &self.landed {
+            match &landed.commit {
+                Some(commit) => {
+                    let _ = writeln!(
+                        s,
+                        "  landed:   {} (commit {commit})",
+                        landed.state_path.display()
+                    );
+                }
+                None => {
+                    let _ = writeln!(s, "  landed:   {}", landed.state_path.display());
+                }
+            }
+            let _ = writeln!(
+                s,
+                "  next:     {} (seed {}, {} record(s) in force)",
+                landed.header_path.display(),
+                landed.header.seed,
+                landed.in_force.len()
+            );
+        } else if self.outcome.adopted {
+            let _ = writeln!(
+                s,
+                "  landed:   nothing — no harness was named, so the change waits in the ledger"
+            );
+        }
         s
     }
 }
@@ -959,6 +1562,9 @@ pub fn ledger_summary(ledger: &Ledger) -> String {
                 let _ = write!(s, "  sealed, not yet tested");
             }
         }
+        if let Some(undo) = &record.undo {
+            let _ = write!(s, ", undone (back to {} by {})", undo.value, undo.author);
+        }
         s.push('\n');
     }
     let (held, of) = trust(&all);
@@ -993,7 +1599,7 @@ mod tests {
         p
     }
 
-    /// The shipped dictionary must load: this is the one entry the slice
+    /// The shipped dictionary must load: these are the entries the slice
     /// promises.
     #[test]
     fn the_shipped_dictionary_loads() {
@@ -1009,6 +1615,107 @@ mod tests {
         );
         assert_eq!(block.tier, Tier::A);
         assert!(block.age_ok);
+    }
+
+    /// The three Params-backed entries of this slice: their bounds (and
+    /// where each bound comes from), their defaults (the values the sim
+    /// ships), and that both extremes of every bound apply through the same
+    /// path a round applies it — `set_branchable` + `validate`.
+    #[test]
+    fn the_three_params_backed_entries_carry_stated_bounds() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        // (id, field, min, max, default, where the bounds come from)
+        let entries = [
+            (
+                "unit.speed",
+                "speed_upt",
+                0,
+                2048,
+                136,
+                "Params::validate: at most one cell per tick (cell_m 2 x 1024)",
+            ),
+            (
+                "unit.tag_range",
+                "tag_range_units",
+                1024,
+                8192,
+                2048,
+                "the sandbox's own bounds; validate states none",
+            ),
+            (
+                "unit.stun_time",
+                "stun_ticks",
+                0,
+                300,
+                90,
+                "the sandbox's own bounds; validate states none",
+            ),
+        ];
+        for (id, field, min, max, default, _why) in entries {
+            let block = dict.find(id).unwrap_or_else(|| panic!("{id} is missing"));
+            assert_eq!(block.field, format!("params.{field}"), "{id}");
+            assert_eq!(
+                (block.min, block.max, block.default),
+                (min, max, default),
+                "{id}"
+            );
+            assert_eq!(
+                block.default,
+                params_current(field).unwrap(),
+                "{id}'s default must be the value the sim ships"
+            );
+            assert!(block.age_ok, "{id}");
+
+            // Both extremes apply and validate: a bound that the round
+            // itself would refuse is a lie in the file.
+            for value in [min, max] {
+                let mut params = Params::default();
+                assert!(
+                    params.set_branchable(field, value).unwrap_or(false),
+                    "{id}: {value} does not apply"
+                );
+                assert!(params.validate().is_ok(), "{id}: {value} does not validate");
+            }
+        }
+    }
+
+    /// Each of the new entries refuses a value outside its bounds, by
+    /// name, and writes nothing.
+    #[test]
+    fn the_three_entries_refuse_out_of_bounds() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        let cases = [
+            ("unit.speed", -1),
+            ("unit.speed", 2049),
+            ("unit.tag_range", 1023),
+            ("unit.tag_range", 8193),
+            ("unit.stun_time", -1),
+            ("unit.stun_time", 301),
+        ];
+        for (entry, value) in cases {
+            let path = tmp("bounds-three");
+            let err = propose(
+                &dict,
+                &path,
+                &Ask::new(entry, value).with_seeds(1).with_ticks(30),
+            )
+            .unwrap_err();
+            let VibeError::OutOfBounds {
+                block,
+                value: refused,
+                ..
+            } = &err
+            else {
+                panic!("the wrong refusal for {entry}={value}: {err}");
+            };
+            assert_eq!(block, entry);
+            assert_eq!(*refused, value, "{entry}={value} was clamped or renamed");
+            assert!(err.to_string().contains("refused"));
+            assert!(
+                !path.exists(),
+                "a refusal wrote a record for {entry}={value}"
+            );
+        }
     }
 
     #[test]
@@ -1062,14 +1769,22 @@ age_ok = true
         let err = propose(
             &dict,
             &tmp("unknown"),
-            &Ask::new("unit.speed", 200).with_seeds(1).with_ticks(30),
+            &Ask::new("unit.mood", 200).with_seeds(1).with_ticks(30),
         )
         .unwrap_err();
         let VibeError::UnknownEntry { asked, known } = &err else {
             panic!("the wrong refusal: {err}");
         };
-        assert_eq!(asked, "unit.speed");
-        assert_eq!(known, &vec!["unit.vision".to_owned()]);
+        assert_eq!(asked, "unit.mood");
+        assert_eq!(
+            known,
+            &vec![
+                "unit.vision".to_owned(),
+                "unit.speed".to_owned(),
+                "unit.tag_range".to_owned(),
+                "unit.stun_time".to_owned(),
+            ]
+        );
         assert!(err.to_string().contains("refused"));
     }
 
@@ -1310,5 +2025,337 @@ age_ok = true
         let a = propose(&dict, &tmp("det-a"), &asked).unwrap();
         let b = propose(&dict, &tmp("det-b"), &asked).unwrap();
         assert_eq!(a.outcome, b.outcome);
+    }
+
+    // The landing: an adopted value joins the harness the next round is
+    // played with, the next round's header names the records, and the undo
+    // puts it back. These tests build adopted outcomes by hand — the
+    // landing mechanics are what is under test, not the sweep, and a real
+    // adoption costs a full D78 sweep.
+
+    /// A fresh harness root, the way `lm learn` likes it: one agent's
+    /// harness with the shipped reflex in it.
+    fn harness(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "lm-vibe-harness-{tag}-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("a0").join("reflexes")).unwrap();
+        fs::write(
+            root.join("a0").join("reflexes").join("default.rhai"),
+            DEFAULT_REFLEX,
+        )
+        .unwrap();
+        root
+    }
+
+    /// Seal one proposal for `value` and adopt it, without running a
+    /// sweep. Returns its seal.
+    fn adopt(path: &Path, value: i64) -> u64 {
+        let mut ledger = Ledger::open(path).unwrap();
+        let (seal, seal_hash) = ledger
+            .seal_vibe(VibeProposal {
+                block: "unit.vision".into(),
+                field: "params.view_range_cells".into(),
+                from: 20,
+                value,
+                label: "let them see farther".into(),
+                author: "bench".into(),
+                claims: vec![VibeClaim {
+                    metric: "sight_ticks".into(),
+                    direction: Direction::Up,
+                    min_delta: 1,
+                }],
+                seeds: vec![2_000_001],
+                ticks: 1_500,
+            })
+            .unwrap();
+        ledger
+            .vibe_outcome(VibeOutcome {
+                seal,
+                seal_hash,
+                measures: Vec::new(),
+                adopted: true,
+            })
+            .unwrap();
+        seal
+    }
+
+    /// An adopted change lands: the state file carries it, the next round's
+    /// header plays with it and names the record, the round replays, and a
+    /// header with no records in force hashes exactly as the shipped round
+    /// always did.
+    #[test]
+    fn an_adopted_change_lands_in_the_next_round_s_header_and_replays() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        let ledger_path = tmp("land");
+        let harness_root = harness("land");
+        adopt(&ledger_path, 32);
+
+        let landed = land(&dict, &ledger_path, &LandSite::new(&harness_root, 41)).unwrap();
+
+        // The state file: the projection, on disk, in the harness.
+        let text = fs::read_to_string(harness_root.join(STATE_FILE)).unwrap();
+        assert!(text.contains("unit.vision"));
+        assert!(text.contains("value = 32"));
+        assert!(text.contains("seal = 0"));
+
+        // The next round's header: the value applied, the record named.
+        assert_eq!(landed.header.seed, 41);
+        assert_eq!(landed.header.params.view_range_cells, 32);
+        assert_eq!(
+            landed.header.vibe,
+            vec![VibeCarried {
+                seal: 0,
+                block: "unit.vision".to_owned(),
+                value: 32,
+            }]
+        );
+        assert!(landed.header.params.validate().is_ok());
+        assert!(landed.header_path.exists());
+        // The harness is pinned the same way `lm learn` pins it.
+        assert_ne!(landed.header.roster[0].harness_commit, "none");
+
+        // The round plays, its log verifies, and it is a different round
+        // from the shipped one (the change did something).
+        let log = play(landed.header.clone(), 240);
+        assert!(log.verify().is_ok());
+        let plain_log = play(Header::default_round(41, DEFAULT_REFLEX), 240);
+        assert_ne!(
+            log.hashes().last().map(|(_, h)| *h),
+            plain_log.hashes().last().map(|(_, h)| *h)
+        );
+
+        // The replay reproduces it: the metrics re-run the round from the
+        // log's own header and recorded decisions, and the same header
+        // played twice is the same round twice.
+        let metrics = RoundMetrics::from_log(&log);
+        assert_eq!(metrics.ticks, 240);
+        let again = play(landed.header.clone(), 240);
+        assert_eq!(log.hashes(), again.hashes());
+
+        // The one promise that keeps the golden honest: with the record
+        // taken out, the round plays exactly the round the shipped params
+        // always played — the state hashes agree tick for tick (the header
+        // hash itself moves with the protocol version; the state never
+        // does).
+        let mut undone = landed.header.clone();
+        undone.vibe.clear();
+        undone
+            .params
+            .set_branchable("view_range_cells", 20)
+            .unwrap();
+        assert_eq!(play(undone, 240).hashes(), plain_log.hashes());
+    }
+
+    /// The undo restores the previous value — an earlier record's when
+    /// there is one, the shipped default when there is not — and the
+    /// re-landed header is the shipped round again.
+    #[test]
+    fn undo_restores_the_previous_value() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        let ledger_path = tmp("undo");
+        let harness_root = harness("undo");
+        let first = adopt(&ledger_path, 32);
+        let second = adopt(&ledger_path, 48);
+
+        // Two adopted records: the later one is in force.
+        let landed = land(&dict, &ledger_path, &LandSite::new(&harness_root, 7)).unwrap();
+        assert_eq!(landed.header.params.view_range_cells, 48);
+        assert_eq!(landed.header.vibe.len(), 1);
+        assert_eq!(landed.header.vibe[0].seal, second);
+        assert_eq!(landed.in_force[0].value, 48);
+
+        // Undoing the buried one is a named refusal.
+        let err = undo(&dict, &ledger_path, first, "bench", None).unwrap_err();
+        assert!(matches!(err, VibeError::NotInForce { .. }));
+
+        // Undo the one in force: back to the first record's value.
+        let done = undo(
+            &dict,
+            &ledger_path,
+            second,
+            "bench",
+            Some(&LandSite::new(&harness_root, 7)),
+        )
+        .unwrap();
+        assert_eq!(done.undo.from, 48);
+        assert_eq!(done.undo.value, 32, "the first record is in force again");
+        let landed = done.landed.unwrap();
+        assert_eq!(landed.header.params.view_range_cells, 32);
+        assert_eq!(landed.header.vibe[0].seal, first);
+
+        // Undo that too: back to the shipped default, and the header is
+        // exactly the round the flow would pin — no records, no values.
+        let done = undo(
+            &dict,
+            &ledger_path,
+            first,
+            "bench",
+            Some(&LandSite::new(&harness_root, 7)),
+        )
+        .unwrap();
+        assert_eq!(done.undo.value, 20);
+        let landed = done.landed.unwrap();
+        assert_eq!(landed.header.params.view_range_cells, 20);
+        assert!(landed.header.vibe.is_empty());
+        let harnesses = crate::flow::read_harness_set(&harness_root).unwrap();
+        assert_eq!(
+            landed.header,
+            crate::flow::round_header(7, &harnesses),
+            "with nothing in force the landing pins exactly the round the flow pins"
+        );
+
+        // A second undo of the same record is a named refusal, and so is
+        // an undo of a seal that never was.
+        assert!(matches!(
+            undo(&dict, &ledger_path, first, "bench", None),
+            Err(VibeError::Ledger(LedgerError::AlreadyUndone(_)))
+        ));
+        assert!(matches!(
+            undo(&dict, &ledger_path, 99, "bench", None),
+            Err(VibeError::Ledger(LedgerError::NoSuchSeal(99)))
+        ));
+
+        // The state says so, and the summary reads from the ledger.
+        let ledger = Ledger::open(&ledger_path).unwrap();
+        assert!(in_force(&ledger).is_empty());
+        let state = state_summary(&ledger, &dict);
+        assert!(state.contains("nothing in force"));
+        assert!(state.contains("unit.vision = 20"));
+        // And the ledger's own summary names the undos.
+        let summary = ledger_summary(&ledger);
+        assert!(summary.contains("undone (back to 32"));
+        assert!(summary.contains("undone (back to 20"));
+    }
+
+    /// A refused proposal leaves the state unchanged: nothing is written,
+    /// anywhere.
+    #[test]
+    fn a_refused_proposal_leaves_the_state_unchanged() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        let ledger_path = tmp("refused");
+        let harness_root = harness("refused");
+        let site = LandSite::new(&harness_root, 3);
+
+        // Out of bounds: a named refusal, and not one file moved.
+        let err = propose(
+            &dict,
+            &ledger_path,
+            &Ask::new("unit.vision", 65)
+                .with_prediction("sight_ticks:up")
+                .with_seeds(1)
+                .with_ticks(30)
+                .with_land(site.clone()),
+        )
+        .unwrap_err();
+        assert!(matches!(err, VibeError::OutOfBounds { .. }));
+        assert!(!ledger_path.exists());
+        assert!(!harness_root.join(STATE_FILE).exists());
+
+        // And a proposal that does not clear its test lands nothing new:
+        // the state stays empty, the header stays the round the flow pins.
+        // (One seed at 30 ticks can never meet D78; every metric is zero
+        // there.)
+        let proposed = propose(
+            &dict,
+            &ledger_path,
+            &Ask::new("unit.vision", 32)
+                .with_prediction("sight_ticks:up")
+                .with_seeds(1)
+                .with_ticks(30)
+                .with_land(site.clone()),
+        )
+        .unwrap();
+        assert!(!proposed.outcome.adopted);
+        let landed = proposed.landed.expect("the harness was named");
+        assert!(landed.in_force.is_empty());
+        assert_eq!(landed.header.params.view_range_cells, 20);
+        assert!(landed.header.vibe.is_empty());
+        let harnesses = crate::flow::read_harness_set(&harness_root).unwrap();
+        assert_eq!(landed.header, crate::flow::round_header(3, &harnesses));
+    }
+
+    /// The landing commits with `lm learn`'s discipline: the same state in
+    /// two harness repos produces the same commit, because the date comes
+    /// from the landing's id, not the clock.
+    #[test]
+    fn the_landing_commits_the_same_state_to_the_same_commit() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        let ledger_path = tmp("commit");
+        adopt(&ledger_path, 32);
+
+        let mut commits = Vec::new();
+        for tag in ["git-a", "git-b"] {
+            let root = harness(tag);
+            let out = std::process::Command::new("git")
+                .args(["init", "-q"])
+                .arg(&root)
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+            let landed = land(&dict, &ledger_path, &LandSite::new(&root, 5)).unwrap();
+            commits.push(landed.commit.expect("the harness root is a git repo"));
+        }
+        assert_eq!(
+            commits[0], commits[1],
+            "the same state must produce the same commit, whatever the clock says"
+        );
+
+        // A harness that is not a repo of its own commits nothing, and
+        // nothing is pretended.
+        let plain = harness("git-none");
+        let landed = land(&dict, &ledger_path, &LandSite::new(&plain, 5)).unwrap();
+        assert_eq!(landed.commit, None);
+    }
+
+    /// A state file the ledger cannot explain is refused, not healed.
+    #[test]
+    fn a_doctored_state_file_is_refused() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        let ledger_path = tmp("doctor");
+        let harness_root = harness("doctor");
+        adopt(&ledger_path, 32);
+        land(&dict, &ledger_path, &LandSite::new(&harness_root, 5)).unwrap();
+
+        // A value no ledger line adopted.
+        let doctored = harness_root.join(STATE_FILE);
+        fs::write(
+            &doctored,
+            fs::read_to_string(&doctored)
+                .unwrap()
+                .replace("value = 32", "value = 64"),
+        )
+        .unwrap();
+        let err = land(&dict, &ledger_path, &LandSite::new(&harness_root, 5)).unwrap_err();
+        assert!(matches!(err, VibeError::StateDrift { .. }));
+        assert!(err.to_string().contains("refused"));
+
+        // And a file that does not parse at all.
+        fs::write(&doctored, "not a toml file at all {{{{").unwrap();
+        assert!(matches!(
+            land(&dict, &ledger_path, &LandSite::new(&harness_root, 5)),
+            Err(VibeError::StateDrift { .. })
+        ));
+    }
+
+    /// `lm vibe state`'s summary names the in-force line and the ledger
+    /// line it came from, and the rest rest at their defaults.
+    #[test]
+    fn the_state_summary_names_the_ledger_lines() {
+        let dict = Dictionary::default_dictionary().unwrap();
+        let ledger_path = tmp("state");
+        let seal = adopt(&ledger_path, 32);
+        let ledger = Ledger::open(&ledger_path).unwrap();
+        let text = state_summary(&ledger, &dict);
+        assert!(text.contains("in force:"));
+        assert!(text.contains("unit.vision"));
+        assert!(text.contains("= 32"));
+        assert!(text.contains(&format!("ledger line {seal}")));
+        assert!(text.contains("unit.speed = 136"));
+        assert!(text.contains("unit.tag_range = 2048"));
+        assert!(text.contains("unit.stun_time = 90"));
     }
 }
