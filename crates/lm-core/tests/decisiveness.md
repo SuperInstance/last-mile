@@ -142,3 +142,112 @@ prints `OK 3/3` with the paint rules off. The round is bit-for-bit the round
 it was, because the paint's state is hashed only when the paint's rule is
 used — the same "hashed only when it is in use" rule the airtime counter
 follows.
+
+## Is there enough paint?
+
+The paint's rule was swept with the rule's own knobs (`DECISIVENESS_PAINT`,
+`slow_q8 x bounce_q8`) and the answer was "there is not enough of it": a tag
+is rare, a splat covers nine cells, and it dries in 150 ticks. The *medium*
+was never swept, so the other half of the question was open — what if a splat
+reached further, or stayed wet longer?
+
+The sweep has a second paint knob now: `DECISIVENESS_SPLAT`, a comma-separated
+list of `splat_radius_cells x dry_ticks`. It is the paint's **medium**, where
+`DECISIVENESS_PAINT` is its **rule**, and the two are swept together: `0x0`
+(the rule off) against `128x64` (the rule on, the strongest cell of the M2b
+sweep), over five media, from the shipped one (radius 1, dry 150) to the
+largest the params allow (radius 8, dry 600).
+
+```bash
+DECISIVENESS_CELL=1800x9000 \
+DECISIVENESS_PAINT=0x0,128x64 \
+DECISIVENESS_SPLAT=1x150,2x300,4x300,4x600,8x600 \
+cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+
+DECISIVENESS_HARNESS=assets/harness/variants/shared-ghost \
+DECISIVENESS_CELL=1800x9000 \
+DECISIVENESS_PAINT=0x0,128x64 \
+DECISIVENESS_SPLAT=1x150,2x300,4x300,4x600,8x600 \
+cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+```
+
+100 seeds per cell, win_score 1800, time_limit 9000, measured on the Thor on
+2026-10-30 at `41aac3f` (the shipped reflex run: 3m49s; the shared-ghost run:
+8m43s; both on a box that was carrying other seats' load). The rule-off rows
+are the same round in every medium: with both rule knobs at zero the paint
+plays no rule at all, so only the marks are on the ground and the radius and
+the dry time have nothing to act on.
+
+### The shipped reflex
+
+| radius | dry | slow | bounce | draws % | tags/round | collapsed rounds | median end tick |
+|---|---|---|---|---|---|---|---|
+| 1 | 150 | 0   | 0  | 63.0% | 0.62 | 2 | 4784 |
+| 2 | 300 | 0   | 0  | 63.0% | 0.62 | 2 | 4784 |
+| 4 | 300 | 0   | 0  | 63.0% | 0.62 | 2 | 4784 |
+| 4 | 600 | 0   | 0  | 63.0% | 0.62 | 2 | 4784 |
+| 8 | 600 | 0   | 0  | 63.0% | 0.62 | 2 | 4784 |
+| 1 | 150 | 128 | 64 | 63.0% | 0.77 | 2 | 4783 |
+| 2 | 300 | 128 | 64 | 63.0% | 0.75 | 4 | 4781 |
+| 4 | 300 | 128 | 64 | 63.0% | 0.79 | 4 | 4781 |
+| 4 | 600 | 128 | 64 | 63.0% | 0.79 | 4 | 4781 |
+| 8 | 600 | 128 | 64 | 63.0% | 0.79 | 4 | 4781 |
+
+### The shared-ghost doctrine
+
+| radius | dry | slow | bounce | draws % | tags/round | collapsed rounds | median end tick |
+|---|---|---|---|---|---|---|---|
+| 1 | 150 | 0   | 0  | 0.0% | 5.45 | 45 | 4578 |
+| 2 | 300 | 0   | 0  | 0.0% | 5.45 | 45 | 4578 |
+| 4 | 300 | 0   | 0  | 0.0% | 5.45 | 45 | 4578 |
+| 4 | 600 | 0   | 0  | 0.0% | 5.45 | 45 | 4578 |
+| 8 | 600 | 0   | 0  | 0.0% | 5.45 | 45 | 4578 |
+| 1 | 150 | 128 | 64 | 0.0% | 5.76 | 46 | 4476 |
+| 2 | 300 | 128 | 64 | 0.0% | 5.72 | 54 | 4231 |
+| 4 | 300 | 128 | 64 | 0.0% | 5.30 | 51 | 4184 |
+| 4 | 600 | 128 | 64 | 0.0% | 5.30 | 51 | 4184 |
+| 8 | 600 | 128 | 64 | 0.0% | 5.30 | 55 | 4212 |
+
+### Reading
+
+- **The draws do not move at all.** 63.0% in every cell of the shipped reflex
+  and 0.0% in every cell of the shared-ghost doctrine, at every radius and
+  every dry time: however much paint is on the ground, the rule on (`128x64`)
+  never decides a round that the rule off (`0x0`) left undecided, and the
+  mirror still holds.
+- **The collapsed rounds do move, and only with the rule on.** In the shipped
+  reflex the rule on leaves the 2 collapses of the shipped medium alone
+  (radius 1, dry 150) and raises them to 4 from radius 2 / dry 300 upward; in
+  the shared-ghost doctrine it raises them from 45 to 46 at the shipped medium,
+  and to 54, 51 and 55 at radius 2, 4 and 8.
+- **So the answer is: the rule starts costing rounds at radius 2 and dry 300**
+  — the smallest medium that moves anything on either doctrine — and it never
+  moves a draw at any radius or dry time.
+- **Bigger paint saturates, and it is not better.** Radius 4 and radius 8
+  give the shipped reflex the same tags/round and the same collapse count
+  (0.79 and 4), and in shared-ghost radius 8 / dry 600 is slightly *worse*
+  than radius 4 (55 collapses against 51, the win split 74–26 against 80–20).
+- **Nothing here argues for a default change.** Every medium that moves the
+  collapses moves them the wrong way, so the rule stays at `slow_q8 = 0,
+  bounce_q8 = 0` and the medium stays at the shipped radius 1, dry 150.
+
+### Two other things the sweep says
+
+- **The win split moves more than the draws do.** With the rule off the
+  shared-ghost doctrine wins 64–36; with the rule on it wins 65–35 at the
+  shipped medium, 70–30 at radius 2, 80–20 at radius 4 and 74–26 at radius 8.
+  The sweep's fairness line prints `UNFAIR` on every shared-ghost cell — with
+  the rule off as well (gap 28 against a 2-sigma bound of 20), so it is the
+  ghost doctrine's own colour asymmetry and not the paint's, but the paint's
+  rule widens that gap (to 30, 40, 60 and 48).
+- **The M2b tables above do not reproduce at this commit.** The rule-off rows
+  reproduce exactly, in both doctrines, and so does the shared-ghost `128x64`
+  cell's win split (65–35); the rest of the rule-on rows do not: the shipped
+  reflex and the `advance` variant's reflex both measure 19–18 with 0.77
+  tags/round at the shipped medium, where the table above records 18–19 with
+  0.78, and shared-ghost measures 46 collapsed rounds / 5.76 tags / a median
+  of 4476 where the table above records 47 / 5.79 / 4525. Those older numbers
+  were taken on some other build of the paint rule — a radius-0 medium does not
+  reproduce them either (measured on the shipped reflex) — so these tables
+  report the code as it stands at `41aac3f`, and the M2b tables above should
+  be re-measured before they are read as current.
