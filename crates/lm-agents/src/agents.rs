@@ -18,6 +18,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use lm_core::decision::{Decision, Tick};
@@ -29,11 +31,12 @@ use lm_core::view::menu;
 use crate::config::AgentsConfig;
 use crate::gates::Pack;
 use crate::harness::Harness;
-use crate::mind::{AskOutcome, Mind, Thinker, ThoughtRecord};
+use crate::mind::{AskOutcome, LineWatch, Mind, Thinker, ThoughtRecord};
+use crate::persona::{AppliedBias, Persona, SkippedBias};
 use crate::queue::{Budgets, LeastUseQueue};
 use crate::sink::DecisionSink;
 use crate::surprise::RoundSurprise;
-use crate::sysone::SysOne;
+use crate::sysone::{Refusal, SysOne};
 use crate::utter::Realizer;
 
 /// The round's agents: one mind per roster entry, one queue, one budget set
@@ -64,11 +67,28 @@ impl Agents {
         header: &Header,
         backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
     ) -> Agents {
+        let personas = load_personas(cfg, harness);
         let minds = header
             .roster
             .iter()
             .map(|entry| {
-                let mind = Mind::new(entry.agent, entry.role, harness, cfg)
+                let persona = match personas.get(&entry.agent) {
+                    Some(Ok(persona)) => Some(persona.clone()),
+                    Some(Err(why)) => {
+                        // A persona that did not load is a refusal with a
+                        // name: the mind plays without it, and the round
+                        // says why (D26).
+                        let why = why.clone();
+                        let mut mind = Mind::new(entry.agent, entry.role, harness, cfg)
+                            .with_params(&header.params)
+                            .with_roster(&header.roster)
+                            .with_talk(&header.talk);
+                        mind.refuse(Refusal::Malformed(why));
+                        return (entry.agent, mind);
+                    }
+                    None => None,
+                };
+                let mind = Mind::new_with_persona(entry.agent, entry.role, harness, cfg, persona)
                     .with_params(&header.params)
                     .with_roster(&header.roster)
                     .with_talk(&header.talk);
@@ -111,6 +131,18 @@ impl Agents {
         }
     }
 
+    /// Watch the lines the minds word.
+    ///
+    /// The watcher sees every line, with the agent that said it: it is how
+    /// a measurement hears whether two squads sound alike. The lines are
+    /// telemetry — the sim still decides which of them are spoken — and
+    /// the watcher never blocks the round.
+    pub fn watch_lines(&mut self, watch: LineWatch) {
+        for mind in self.minds.values_mut() {
+            mind.set_line_watch(Arc::clone(&watch));
+        }
+    }
+
     /// The round's agents, by id.
     pub fn minds(&self) -> &BTreeMap<u16, Mind> {
         &self.minds
@@ -130,6 +162,40 @@ impl Agents {
             table.merge(mind.surprise());
         }
         table
+    }
+
+    /// The personas of the round, by agent id.
+    ///
+    /// The id is the persona's own: the file stem it was read from. An
+    /// agent without a persona is not in here.
+    pub fn personas(&self) -> BTreeMap<u16, String> {
+        self.minds
+            .iter()
+            .filter_map(|(agent, mind)| mind.persona_id().map(|id| (*agent, id.to_string())))
+            .collect()
+    }
+
+    /// The biases the personas applied, by agent, and what they did.
+    ///
+    /// The record is outside the sim: the patch is applied before the
+    /// choice, so it is not a decision. It is kept because a reader cannot
+    /// tell a mind that thinks with a personality from one that does not by
+    /// looking at the round.
+    pub fn persona_log(&self) -> BTreeMap<u16, Vec<AppliedBias>> {
+        self.minds
+            .iter()
+            .filter(|(_, mind)| !mind.persona_log().is_empty())
+            .map(|(agent, mind)| (*agent, mind.persona_log().to_vec()))
+            .collect()
+    }
+
+    /// The biases the personas could not apply, by agent, and why.
+    pub fn persona_skipped(&self) -> BTreeMap<u16, Vec<SkippedBias>> {
+        self.minds
+            .iter()
+            .filter(|(_, mind)| !mind.persona_skipped().is_empty())
+            .map(|(agent, mind)| (*agent, mind.persona_skipped().to_vec()))
+            .collect()
     }
 
     /// One tick of the cognition loop.
@@ -451,6 +517,50 @@ impl fmt::Debug for Agents {
             .field("stats", &self.stats)
             .finish()
     }
+}
+
+/// The personas of the round, by agent id.
+///
+/// The configuration says which agent thinks with which persona, and the
+/// library says what a persona is. A persona that does not load, or that
+/// names a voice the harness's `voice.toml` does not carry, is a **refusal
+/// with a name**: the agent plays without it, and the round says why
+/// (D26).
+///
+/// The library is a directory of `<id>.toml` files, and the personas are
+/// shared: every harness may use every persona.
+fn load_personas(cfg: &AgentsConfig, harness: &Harness) -> BTreeMap<u16, Result<Persona, String>> {
+    let mut loaded: BTreeMap<u16, Result<Persona, String>> = BTreeMap::new();
+    if cfg.personas.is_empty() {
+        return loaded;
+    }
+    let dir = PathBuf::from(&cfg.personas_dir);
+    let voice_toml = harness.voice_toml();
+    for (agent, persona_id) in &cfg.personas {
+        let Ok(agent) = agent.parse::<u16>() else {
+            eprintln!(
+                "lm-agents: the persona table names the agent {agent:?}, which is not an agent id"
+            );
+            continue;
+        };
+        let persona = Persona::load(&dir, persona_id)
+            .map_err(|error| error.to_string())
+            .and_then(|persona| {
+                persona
+                    .validate_voice(&voice_toml)
+                    .map_err(|error| error.to_string())?;
+                Ok(persona)
+            });
+        match &persona {
+            Ok(persona) => eprintln!(
+                "lm-agents: agent {agent} thinks with the persona {} ({})",
+                persona.id, persona.name
+            ),
+            Err(why) => eprintln!("lm-agents: agent {agent} has no persona: {why}"),
+        }
+        loaded.insert(agent, persona);
+    }
+    loaded
 }
 
 /// What the round's agents did, in numbers.

@@ -1,0 +1,72 @@
+# The chatterbox.
+#
+# A persona is a **System Two patch** (ROADMAP §2.4): it biases the closed
+# choices the gates offer, it sets the voice, and it seeds the barks. It
+# never adds a question to the pack (D70).
+#
+# The bias is added to the option's log-odds, in tenths of a nat: a bias of
+# 10 is one nat, which multiplies the option's odds by e (2.718).
+
+id = "chatterbox"
+name = "Chatterbox"
+summary = "It has something to say about everything, and it says it to whoever is nearest, including nobody."
+
+marks = ["chatty", "eager", "quick"]
+voice = "jason"
+style = "Angry"
+
+barks = [
+  "wait wait wait",
+  "i said something",
+  "listen to me",
+  "ok ok but listen",
+  "one more thing",
+  "anybody want that",
+]
+
+# The move: it is not thinking about the move, so it mostly follows and
+# holds, and it does not run.
+[gate_bias.move]
+follow = 14
+hold = 10
+beacon = -6
+retreat = -4
+
+# The urgency: it feels every moment at once.
+[gate_bias.intention]
+ordinary = 10
+urgent = 6
+idle = -8
+
+# The line: it reports, it acknowledges, it asks.
+[gate_bias.intent]
+report = 12
+ack = 10
+query = 8
+warn = -4
+order = -6
+
+# The gesture: it calls out, and it states.
+[gate_bias.gesture]
+callout = 14
+statement = 10
+question = 4
+command = -8
+
+# The addressee: it talks to the nearest agent, and to the squad.
+[gate_bias.attention]
+squad = 8
+all = 4
+agent0 = 6
+agent1 = 6
+
+# The presence gates: this is the persona's whole trade. A tilt of a few
+# nats on every one of them, because the model already says "yes".
+[gate_bias.gesture_present]
+yes = 24
+[gate_bias.intent_present]
+yes = 20
+[gate_bias.attention_present]
+yes = 16
+[gate_bias.intention_present]
+yes = 12

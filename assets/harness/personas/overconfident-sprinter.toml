@@ -1,0 +1,68 @@
+# The overconfident sprinter.
+#
+# A persona is a **System Two patch** (ROADMAP §2.4): it biases the closed
+# choices the gates offer, it sets the voice, and it seeds the barks. It
+# never adds a question to the pack (D70).
+#
+# The bias is added to the option's log-odds, in tenths of a nat: a bias of
+# 10 is one nat, which multiplies the option's odds by e (2.718).
+
+id = "overconfident-sprinter"
+name = "Overconfident Sprinter"
+summary = "The one who runs for the beacon before the order and does not look back: it is first, and it says so."
+
+marks = ["brisk", "cocky", "loud"]
+voice = "aria"
+style = "Happy"
+
+barks = [
+  "i'll take it",
+  "easy money",
+  "watch me go",
+  "first one there",
+  "nothing to worry about",
+  "come on then",
+]
+
+# The move: the beacon, always, and the retreat never.
+[gate_bias.move]
+beacon = 22
+retreat = -22
+hold = -8
+follow = -6
+
+# The urgency: a quiet moment is a moment won.
+[gate_bias.intention]
+idle = 10
+ordinary = 8
+urgent = -14
+
+# The line: it tells the squad what it is doing.
+[gate_bias.intent]
+report = 10
+order = 6
+ack = -6
+warn = -12
+query = -4
+
+# The gesture: it states.
+[gate_bias.gesture]
+statement = 14
+callout = 8
+command = -4
+question = -8
+
+# The addressee: everybody, because it wants the credit.
+[gate_bias.attention]
+all = 10
+squad = 4
+
+# The presence gates: it talks, but it does not warn.
+[gate_bias.gesture_present]
+yes = 6
+[gate_bias.intent_present]
+yes = 4
+[gate_bias.attention_present]
+yes = 4
+[gate_bias.intention_present]
+yes = -8

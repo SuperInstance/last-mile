@@ -489,12 +489,33 @@ impl Realizer for TemplateRealizer {
 pub struct LlmRealizer {
     llm: Box<dyn Llm>,
     deadline: Duration,
+    /// The marks of the speaker's voice, if it has one.
+    ///
+    /// A persona's marks are how it talks, and they are in the prompt: the
+    /// model is asked for the words of *this* agent, not the words of an
+    /// agent in general.
+    marks: Vec<String>,
 }
 
 impl LlmRealizer {
     /// A realizer that asks `llm`, with `deadline` for a line's words.
     pub fn new(llm: Box<dyn Llm>, deadline: Duration) -> Self {
-        LlmRealizer { llm, deadline }
+        LlmRealizer {
+            llm,
+            deadline,
+            marks: Vec::new(),
+        }
+    }
+
+    /// The same realizer, with the marks of a voice.
+    pub fn with_marks(mut self, marks: Vec<String>) -> Self {
+        self.marks = marks;
+        self
+    }
+
+    /// The marks of the speaker's voice.
+    pub fn marks(&self) -> &[String] {
+        &self.marks
     }
 
     /// The deadline one line's words get.
@@ -515,7 +536,7 @@ impl LlmRealizer {
 
 impl Realizer for LlmRealizer {
     fn realize(&self, plan: &UtterPlan, facts: &Facts) -> Result<Worded, Refusal> {
-        let words = words_for(&*self.llm, plan, facts, self.deadline)?;
+        let words = words_for(&*self.llm, plan, facts, self.deadline, &self.marks)?;
         let line = line_for(plan, Channel::Voice, &words, self.llm.model())?;
         Ok(Worded::llm(line))
     }
@@ -532,8 +553,9 @@ fn words_for(
     plan: &UtterPlan,
     facts: &Facts,
     deadline: Duration,
+    marks: &[String],
 ) -> Result<String, Refusal> {
-    let words = written_words(llm, plan, facts, deadline)?;
+    let words = written_words(llm, plan, facts, deadline, marks)?;
     if let Some(other) = other_target(&words, plan.subject) {
         return Err(Refusal::OffPlan(format!(
             "the model named {other}, which the gates did not choose"
@@ -551,8 +573,9 @@ fn written_words(
     plan: &UtterPlan,
     _facts: &Facts,
     deadline: Duration,
+    marks: &[String],
 ) -> Result<String, Refusal> {
-    let written = llm.write(&prompt_for(plan), Instant::now() + deadline)?;
+    let written = llm.write(&prompt_for(plan, marks), Instant::now() + deadline)?;
     let words = words_of(&written);
     if words.is_empty() {
         return Err(Refusal::Malformed("the model wrote no words".to_string()));
@@ -651,9 +674,10 @@ impl AutoRealizer {
     pub fn new(template: TemplateRealizer, llm: LlmRealizer) -> Self {
         let model = llm.model().to_owned();
         let deadline = llm.deadline();
+        let marks = llm.marks().to_vec();
         AutoRealizer {
             template,
-            bank: WordBank::new(llm.into_llm(), deadline),
+            bank: WordBank::with_marks(llm.into_llm(), deadline, marks),
             model,
         }
     }
@@ -762,6 +786,8 @@ pub struct WordBank {
     inner: Arc<Mutex<BankInner>>,
     wake: Arc<Condvar>,
     worker: Option<thread::JoinHandle<()>>,
+    /// The marks of the speaker's voice, if it has one.
+    marks: Vec<String>,
 }
 
 /// What the bank holds.
@@ -785,6 +811,12 @@ impl WordBank {
     /// The thread is the realizer's own: it asks the model while the game
     /// plays on.
     pub fn new(llm: Box<dyn Llm>, deadline: Duration) -> WordBank {
+        WordBank::with_marks(llm, deadline, Vec::new())
+    }
+
+    /// A bank that asks `llm` for the wording of a line, in a voice with
+    /// `marks`.
+    pub fn with_marks(llm: Box<dyn Llm>, deadline: Duration, marks: Vec<String>) -> WordBank {
         let inner = Arc::new(Mutex::new(BankInner::default()));
         let wake = Arc::new(Condvar::new());
         let worker_inner = Arc::clone(&inner);
@@ -834,6 +866,7 @@ impl WordBank {
             inner,
             wake,
             worker: Some(worker),
+            marks,
         }
     }
 
@@ -849,7 +882,7 @@ impl WordBank {
         }
         bank.queue.push_back(Job {
             key,
-            prompt: prompt_for(plan),
+            prompt: prompt_for(plan, &self.marks),
         });
         drop(bank);
         self.wake.notify_one();
@@ -911,6 +944,19 @@ pub fn pick_realizer(cfg: &AgentsConfig) -> Box<dyn Realizer> {
 /// deadline, and says which realizer it chose and why. A model that is
 /// not serving is named in the log, and the phrasebook words the lines.
 pub fn pick_realizer_with(cfg: &AgentsConfig, phrasebook: &Phrasebook) -> Box<dyn Realizer> {
+    pick_realizer_with_voice(cfg, phrasebook, &[])
+}
+
+/// The realizer the configuration asks for, over a phrasebook, in a voice.
+///
+/// The `marks` are the marks of the speaker: a persona's voice, and the only
+/// thing that tells the model whose words it is writing. A realizer picked
+/// without marks is the shipped one, and its prompt is the shipped prompt.
+pub fn pick_realizer_with_voice(
+    cfg: &AgentsConfig,
+    phrasebook: &Phrasebook,
+    marks: &[String],
+) -> Box<dyn Realizer> {
     let template = TemplateRealizer::new(phrasebook.clone());
     let deadline = Duration::from_millis(u64::from(cfg.utter.deadline_ms));
     match cfg.utter.realizer.as_str() {
@@ -923,7 +969,7 @@ pub fn pick_realizer_with(cfg: &AgentsConfig, phrasebook: &Phrasebook) -> Box<dy
                 "the model {} words the lines (utter.realizer = llm)",
                 cfg.utter.llm_model
             ));
-            Box::new(thor_llm_realizer(cfg, deadline))
+            Box::new(thor_llm_realizer(cfg, deadline).with_marks(marks.to_vec()))
         }
         _ => match probe_llm(cfg) {
             Ok(()) => {
@@ -934,7 +980,7 @@ pub fn pick_realizer_with(cfg: &AgentsConfig, phrasebook: &Phrasebook) -> Box<dy
                 ));
                 Box::new(AutoRealizer::new(
                     template,
-                    thor_llm_realizer(cfg, deadline),
+                    thor_llm_realizer(cfg, deadline).with_marks(marks.to_vec()),
                 ))
             }
             Err(why) => {
@@ -1092,7 +1138,7 @@ word ::= [a-zA-Z0-9']+
 /// subject. Measured, dropping the facts from the prompt takes the model
 /// naming the right target from seven lines in ten to nine (see
 /// `tests/realizer_on_thor.md`).
-fn prompt_for(plan: &UtterPlan) -> String {
+fn prompt_for(plan: &UtterPlan, marks: &[String]) -> String {
     let addressee = match plan.addressee {
         Addressee::Squad => "your squad".to_owned(),
         Addressee::All => "everybody".to_owned(),
@@ -1118,12 +1164,16 @@ fn prompt_for(plan: &UtterPlan) -> String {
             format!("The line must talk about {subject}. Do not mention any other beacon or enemy.")
         }
     };
+    // The voice, when the speaker has one: a persona's marks are how it
+    // talks, and they are the only thing that makes one agent's words
+    // different from another's when the same model words both.
+    let voice = voice_sentence(marks);
     format!(
         "You are the voice of an agent of a squad in a field game. Write ONE \
          line in plain words: what the agent says on the radio.\n\n\
          Write a {act} for {addressee}. It is {intent} and {affect}. It is \
          about {subject}.\n\
-         {about}\n\
+         {about}\n{voice}\
          Write the words of the line only: no quotes, no explanation, no \
          trailing punctuation.\n\
          Keep it under eight words: it is a call over the field, not a speech.\n\n\
@@ -1140,7 +1190,31 @@ fn prompt_for(plan: &UtterPlan) -> String {
         affect = phrasebook::affect_name(plan.affect),
         subject = subject,
         about = about,
+        voice = voice,
     )
+}
+
+/// The sentence that carries a persona's marks, if it has any.
+///
+/// A persona's marks are how it talks, and they are the only thing that
+/// makes one agent's words different from another's when the same model
+/// words both.
+fn voice_sentence(marks: &[String]) -> String {
+    let marks: Vec<&str> = marks
+        .iter()
+        .map(|mark| mark.trim())
+        .filter(|mark| !mark.is_empty())
+        .collect();
+    if marks.is_empty() {
+        return String::new();
+    }
+    let spoken = match marks.as_slice() {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [one, two] => format!("{one} and {two}"),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    format!("The speaker's voice is {spoken}: it is how this agent talks.\n")
 }
 
 // ------------------------------------------------------------------ the model

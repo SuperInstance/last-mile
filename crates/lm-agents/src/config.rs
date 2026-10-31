@@ -116,6 +116,30 @@ pub struct AgentsConfig {
     /// How the agents word their lines (D37).
     #[serde(default)]
     pub utter: UterConfig,
+    /// Where the persona library is: the directory the persona files live in.
+    ///
+    /// The personas are a **library**, not a harness: every harness may use
+    /// every persona, and the persona is not part of the harness commit.
+    /// The path is absolute, or relative to the working directory.
+    #[serde(default = "default_personas_dir")]
+    pub personas_dir: String,
+    /// The persona each agent thinks with, by agent id.
+    ///
+    /// The key is the agent's id as a string (`"0"`, `"4"`, ...); the value
+    /// is the persona's id -- the file stem in the persona library. An
+    /// empty map is no persona at all: the round plays the shipped
+    /// behaviour, and the golden is what it was.
+    ///
+    /// A persona that does not load, or that names a voice the harness's
+    /// `voice.toml` does not carry, is a **refusal with a name**: the agent
+    /// plays without it, and the round's log says why (D26).
+    #[serde(default)]
+    pub personas: BTreeMap<String, String>,
+}
+
+/// Where the persona library is, by default.
+fn default_personas_dir() -> String {
+    "assets/harness/personas".to_string()
 }
 
 /// The rules of the wording: which realizer words the lines, and which
@@ -238,6 +262,8 @@ impl Default for AgentsConfig {
             stale_enemy_ticks: 6,
             ally_range_cells: 4,
             utter: UterConfig::default(),
+            personas_dir: default_personas_dir(),
+            personas: BTreeMap::new(),
         }
     }
 }

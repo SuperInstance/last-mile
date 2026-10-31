@@ -1,0 +1,69 @@
+# The middle-manager leader.
+#
+# A persona is a **System Two patch** (ROADMAP §2.4): it biases the closed
+# choices the gates offer, it sets the voice, and it seeds the barks. It
+# never adds a question to the pack (D70).
+#
+# The bias is added to the option's log-odds, in tenths of a nat: a bias of
+# 10 is one nat, which multiplies the option's odds by e (2.718).
+
+id = "middle-manager-leader"
+name = "Middle-Manager Leader"
+summary = "A squad leader who runs the squad as a rota: it gives the orders, it takes the beacon itself, and it reports back."
+
+marks = ["clipped", "procedural", "even"]
+voice = "jason"
+style = "Neutral"
+
+barks = [
+  "stay on the beacon",
+  "report in now",
+  "same plan as before",
+  "we take it in turns",
+  "hold that line",
+  "keep it moving",
+]
+
+# The move: it takes charge of the beacon and it keeps the squad together.
+[gate_bias.move]
+beacon = 8
+hold = 4
+follow = 6
+retreat = -4
+
+# The urgency: it stays level. It is not the one who panics.
+[gate_bias.intention]
+ordinary = 8
+idle = 4
+urgent = -6
+
+# The line: it orders, and it reports what happened.
+[gate_bias.intent]
+order = 20
+report = 8
+ack = 4
+warn = -6
+query = -4
+
+# The gesture: it commands.
+[gate_bias.gesture]
+command = 18
+statement = 6
+question = -6
+callout = -8
+
+# The addressee: its own squad, and nobody else.
+[gate_bias.attention]
+squad = 14
+all = -6
+
+# The presence gates: it speaks when there is something to decide, and not
+# otherwise.
+[gate_bias.gesture_present]
+yes = 4
+[gate_bias.intent_present]
+yes = 4
+[gate_bias.attention_present]
+yes = 2
+[gate_bias.intention_present]
+yes = 0

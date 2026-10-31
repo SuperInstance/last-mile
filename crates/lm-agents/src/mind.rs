@@ -57,6 +57,7 @@ use crate::agents::WordCounts;
 use crate::config::AgentsConfig;
 use crate::facts::Facts;
 use crate::gates::{answers_to_decisions, GateSet};
+use crate::persona::{AppliedBias, Persona, SkippedBias};
 use crate::surprise::{RoundSurprise, SituationKey};
 
 /// The pack a thought carries (D70): the move pack or the talk pack.
@@ -67,8 +68,8 @@ use crate::queue::ThinkReq;
 use crate::shared::SharedConfig;
 use crate::sysone::{Answers, Escalation, EscalationOutcome, Refusal, SysOne};
 use crate::utter::{
-    pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
-    WordSource, GATE_GESTURE, UTTERANCE_GATES,
+    pick_realizer_with_voice, plan_from_gates, presence_gate, utterance_from_text, GateCtx,
+    Realizer, WordSource, Worded, GATE_GESTURE, UTTERANCE_GATES,
 };
 
 /// The shipped default policy, the single source of `Policy`'s defaults.
@@ -1007,6 +1008,12 @@ struct PackLane {
     in_flight: Option<Flight>,
 }
 
+/// A watcher of the lines a mind words.
+///
+/// The watcher sees every line the mind words, with the agent's id: it is
+/// how a measurement hears whether two squads sound alike.
+pub type LineWatch = Arc<dyn Fn(u16, &Worded) + Send + Sync>;
+
 /// One agent's cognition loop.
 pub struct Mind {
     agent: u16,
@@ -1062,6 +1069,26 @@ pub struct Mind {
     /// how many the phrasebook worded, and how many the model missed its
     /// deadline on.
     words: WordCounts,
+    /// The personality patch this mind thinks with, if it has one.
+    ///
+    /// A persona is a **System Two patch** (ROADMAP §2.4): it biases the
+    /// answers before the choice is made, it sets the voice, and it seeds
+    /// the barks. It never adds a question to the pack (D70).
+    persona: Option<Persona>,
+    /// The biases the persona applied, and what they did.
+    ///
+    /// The record is outside the sim: the patch is applied before the
+    /// choice, so it is not a decision and it does not enter the sim's
+    /// state. It is kept because a reader cannot tell a mind that thinks
+    /// with a personality from one that does not by looking at the round.
+    persona_log: Vec<AppliedBias>,
+    /// The biases the persona could not apply, and why.
+    persona_skipped: Vec<SkippedBias>,
+    /// A watcher of the lines this mind words, if there is one.
+    ///
+    /// The watcher is outside the sim: the words are telemetry, and a
+    /// measurement reads them to hear whether two minds sound alike.
+    line_watch: Option<LineWatch>,
 }
 
 impl Mind {
@@ -1072,6 +1099,28 @@ impl Mind {
     /// [`Mind::with_params`] when the round starts (a mind built without
     /// them uses the parameter defaults).
     pub fn new(agent: u16, role: Role, harness: &Harness, cfg: &AgentsConfig) -> Mind {
+        Mind::new_with_persona(agent, role, harness, cfg, None)
+    }
+
+    /// A mind for `agent` playing `role`, thinking with the gates and policy
+    /// of `harness` under `cfg`, and with `persona` if it has one.
+    ///
+    /// The persona's barks are seeded into the phrasebook the mind words
+    /// its lines with, and the persona's marks are the voice the model is
+    /// asked to write in. A persona whose barks do not fit the phrasebook
+    /// is a refusal with a name: the mind plays with the harness's own
+    /// words, and the round says why (D26).
+    ///
+    /// The round's [`Params`] are not part of the harness; set them with
+    /// [`Mind::with_params`] when the round starts (a mind built without
+    /// them uses the parameter defaults).
+    pub fn new_with_persona(
+        agent: u16,
+        role: Role,
+        harness: &Harness,
+        cfg: &AgentsConfig,
+        persona: Option<Persona>,
+    ) -> Mind {
         // A harness whose gates do not load is a refusal the round can
         // see, not a silent agent that never thinks: the gates are the
         // questions, and a question that does not fit the API's schema
@@ -1086,7 +1135,27 @@ impl Mind {
                 )],
             ),
         };
-        let phrasebook = Phrasebook::parse(&harness.phrasebook_toml).unwrap_or_default();
+        let mut phrasebook = Phrasebook::parse(&harness.phrasebook_toml).unwrap_or_default();
+        // The persona's barks are seeded into the phrasebook: they are the
+        // persona's own words, and the mind's lines are worded from them.
+        // A bark the phrasebook cannot carry is a refusal with a name: the
+        // mind plays with the harness's words and the round says why (D26).
+        let mut persona = persona;
+        if let Some(patch) = persona.as_ref() {
+            match phrasebook.with_barks(&patch.barks) {
+                Ok(seeded) => phrasebook = seeded,
+                Err(error) => {
+                    refusals.push((
+                        0,
+                        Refusal::Malformed(format!(
+                            "the persona {} does not fit the phrasebook: {error}",
+                            patch.id
+                        )),
+                    ));
+                    persona = None;
+                }
+            }
+        }
         // The shared target is a harness parameter like the gates are: a
         // harness whose facts file does not load, or asks for a target the
         // facts cannot state, is a refusal the round can see — not a silent
@@ -1132,10 +1201,20 @@ impl Mind {
             seq_counter: 0,
             roster: Vec::new(),
             talk: TalkParams::default(),
-            realizer: pick_realizer_with(cfg, &phrasebook),
+            realizer: pick_realizer_with_voice(
+                cfg,
+                &phrasebook,
+                persona
+                    .as_ref()
+                    .map_or(&[][..], |patch| patch.marks.as_slice()),
+            ),
             spoken_ticks: 0,
             pre_drafted: None,
             words: WordCounts::default(),
+            persona,
+            persona_log: Vec::new(),
+            persona_skipped: Vec::new(),
+            line_watch: None,
         }
     }
 
@@ -1177,6 +1256,16 @@ impl Mind {
     /// is what a caller that watches the wording needs.
     pub fn set_realizer(&mut self, realizer: Box<dyn Realizer>) {
         self.realizer = realizer;
+    }
+
+    /// Watch the lines this mind words.
+    ///
+    /// The watcher sees every line the mind words, with the agent's id: it
+    /// is how a measurement hears whether two squads sound alike. It is
+    /// outside the sim — the words are telemetry, and the line itself is
+    /// still the sim's business.
+    pub fn set_line_watch(&mut self, watch: LineWatch) {
+        self.line_watch = Some(watch);
     }
 
     /// The tick a reply to a line now being spoken should be applied on
@@ -1322,6 +1411,11 @@ impl Mind {
                 .get(&(Pack::Move, facts.key, menu.id))
                 .cloned()
                 .expect("cached said it was there");
+            // The cached verdict is the model's own answer, so the
+            // persona's patch is applied to it here too: a mind with a
+            // personality thinks with it every time, and not only when the
+            // model was asked.
+            let answers = self.biased(&answers, menu);
             let p99 = self
                 .policy
                 .tiers
@@ -1679,12 +1773,21 @@ impl Mind {
                 // The verdict cache holds the move's verdict: the talk pack
                 // is asked on its own triggers, and a line is not repeated
                 // out of a cache.
+                //
+                // The cache holds the **model's own answer**, not the
+                // patched one: the persona's bias is applied on the way
+                // out, every time, so a cached verdict is patched like a
+                // fresh one.
                 if self.policy.verdict_cache && pack == Pack::Move {
                     self.cache.insert(
                         (pack, flight.req.situation_key, flight.menu.id),
                         answers.clone(),
                     );
                 }
+                // The persona's patch, before the choice: the bias moves
+                // the probabilities the gates are read from, and the gates
+                // are read before the line is worded (D70).
+                let answers = self.biased(&answers, &flight.menu);
                 let p99 = self
                     .policy
                     .tiers
@@ -1724,6 +1827,56 @@ impl Mind {
                 )
             }
         }
+    }
+
+    /// The answers with this mind's persona patched into them.
+    ///
+    /// The patch is a **bias on the probabilities, before the choice**: the
+    /// option's log-odds are moved by a fixed amount in fixed point, and
+    /// the gates are read from the patched distribution. A mind without a
+    /// persona gets its answers back unchanged.
+    ///
+    /// Every bias that was applied is recorded, and so is every bias that
+    /// could not be: a reader cannot tell a mind that thinks with a
+    /// personality from one that does not by looking at the round, and the
+    /// record is what says so (D26 — a refusal is an outcome, and so is a
+    /// patch).
+    fn biased(&mut self, answers: &Answers, menu: &Menu) -> Answers {
+        let outcome = match self.persona.as_ref() {
+            Some(persona) => persona.apply(answers, &self.gates, menu),
+            None => return answers.clone(),
+        };
+        self.persona_log.extend(outcome.applied);
+        self.persona_skipped.extend(outcome.skipped);
+        outcome.answers
+    }
+
+    /// The personality patch this mind thinks with, if it has one.
+    pub fn persona(&self) -> Option<&Persona> {
+        self.persona.as_ref()
+    }
+
+    /// Record a refusal this mind ran into while it was being built.
+    ///
+    /// A persona that did not load is one of these: the mind plays without
+    /// it, and the round's log says why the personality is missing (D26).
+    pub fn refuse(&mut self, refusal: Refusal) {
+        self.refusals.push((self.now, refusal));
+    }
+
+    /// The id of the personality patch, if the mind has one.
+    pub fn persona_id(&self) -> Option<&str> {
+        self.persona.as_ref().map(|persona| persona.id.as_str())
+    }
+
+    /// The biases the persona applied, and what they did.
+    pub fn persona_log(&self) -> &[AppliedBias] {
+        &self.persona_log
+    }
+
+    /// The biases the persona could not apply, and why.
+    pub fn persona_skipped(&self) -> &[SkippedBias] {
+        &self.persona_skipped
     }
 
     /// The line this mind says, if it says one (Task 4).
@@ -1814,6 +1967,11 @@ impl Mind {
         }
         if worded.late {
             self.words.late += 1;
+        }
+        // The watcher hears the line as it is worded, before the sim has
+        // it: a measurement of the voice reads the words, not the plan.
+        if let Some(watch) = &self.line_watch {
+            watch(self.agent, &worded);
         }
         let text = worded.text;
         let talk_ctx = TalkContext {

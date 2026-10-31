@@ -89,6 +89,20 @@ impl Harness {
             commit,
         })
     }
+
+    /// The harness's voice map, as text.
+    ///
+    /// The voices are the harness's business — the speaker each agent is
+    /// rendered in and the style each tone is spoken in — and the file is
+    /// read here because a persona's voice is checked against it: a
+    /// persona that names a speaker the harness does not carry is a
+    /// refusal, never a guess (D26).
+    ///
+    /// A harness with no `voice.toml` has no voices, and the text is
+    /// empty.
+    pub fn voice_toml(&self) -> String {
+        fs::read_to_string(self.dir.join("voice.toml")).unwrap_or_default()
+    }
 }
 
 /// `reflexes/*.rhai`, keyed by file stem, in sorted order.

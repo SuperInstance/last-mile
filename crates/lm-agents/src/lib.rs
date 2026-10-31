@@ -26,6 +26,8 @@ pub mod mind;
 pub use mind::{
     Ask, AskOutcome, Mind, Mode, Policy, RttEstimator, Thinker, Thought, Tier, TierTable,
 };
+pub mod persona;
+pub use persona::{AppliedBias, BiasOutcome, Persona, PersonaError, SkippedBias};
 pub mod phrasebook;
 pub use phrasebook::{Phrasebook, PhrasebookError};
 pub mod queue;
@@ -42,6 +44,6 @@ pub use sysone::{
 };
 pub mod utter;
 pub use utter::{
-    pick_realizer, pick_realizer_with, AutoRealizer, GateCtx, Llm, LlmRealizer, Realizer, StubLlm,
-    TemplateRealizer, UtterPlan, WordSource, Worded,
+    pick_realizer, pick_realizer_with, pick_realizer_with_voice, AutoRealizer, GateCtx, Llm,
+    LlmRealizer, Realizer, StubLlm, TemplateRealizer, UtterPlan, WordSource, Worded,
 };

@@ -1,0 +1,70 @@
+# The literal-minded rule-follower.
+#
+# A persona is a **System Two patch** (ROADMAP §2.4): it biases the closed
+# choices the gates offer, it sets the voice, and it seeds the barks. It
+# never adds a question to the pack (D70).
+#
+# The bias is added to the option's log-odds, in tenths of a nat: a bias of
+# 10 is one nat, which multiplies the option's odds by e (2.718).
+
+id = "literal-minded-rule-follower"
+name = "Literal-Minded Rule-Follower"
+summary = "It reads the doctrine as a rule and does what it says, branch by branch, even when the branch is a poor one."
+
+marks = ["exact", "literal", "even"]
+voice = "aria"
+style = "Neutral"
+
+barks = [
+  "that is the rule",
+  "first branch first",
+  "we do it in order",
+  "the doctrine says hold",
+  "by the book",
+  "no improvising",
+]
+
+# The move: the doctrine's own branches, in the doctrine's own order. The
+# doctrine has no branch that says follow, so it does not follow.
+[gate_bias.move]
+retreat = 10
+hold = 12
+beacon = 6
+follow = -14
+
+# The urgency: the rule says urgent only when an enemy can see you, and
+# the rule is not to be stretched.
+[gate_bias.intention]
+ordinary = 8
+idle = 6
+urgent = -8
+
+# The line: it says what the rule says, and it does not improvise.
+[gate_bias.intent]
+order = 14
+report = 10
+ack = 6
+warn = -6
+query = -8
+
+# The gesture: it states the rule, or it commands by the rule.
+[gate_bias.gesture]
+statement = 12
+command = 10
+callout = -8
+question = -10
+
+# The addressee: its own squad. Everybody would need a reason.
+[gate_bias.attention]
+squad = 10
+all = -10
+
+# The presence gates: it says what it has to say, and no more.
+[gate_bias.gesture_present]
+yes = -4
+[gate_bias.intent_present]
+yes = 4
+[gate_bias.attention_present]
+yes = 0
+[gate_bias.intention_present]
+yes = 0

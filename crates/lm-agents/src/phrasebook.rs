@@ -244,6 +244,39 @@ impl Phrasebook {
             .or_else(|| self.entries.get(&key_for(act, intent, None)))
     }
 
+    /// The phrasebook with a persona's **barks** seeded into it.
+    ///
+    /// A persona's barks are the short lines it says: they are added to
+    /// every entry as templates of their own, so the agent's lines carry
+    /// the persona's words and not only the harness's.
+    ///
+    /// The barks are the persona's own words, so they are checked the way
+    /// the harness's templates are: a bark that carries a number is
+    /// refused here, because the numbers of a line are the gates' (D37).
+    ///
+    /// The choice among the templates is a **hash**, so the same situation
+    /// always gets the same wording: a persona's line replays with the
+    /// round.
+    pub fn with_barks(&self, barks: &[String]) -> Result<Phrasebook, PhrasebookError> {
+        if barks.is_empty() {
+            return Ok(self.clone());
+        }
+        for bark in barks {
+            if bark.chars().any(|c| c.is_ascii_digit()) {
+                return Err(PhrasebookError::Numbered(bark.clone()));
+            }
+        }
+        let mut entries = self.entries.clone();
+        for entry in entries.values_mut() {
+            for bark in barks {
+                if !entry.templates.iter().any(|template| template == bark) {
+                    entry.templates.push(bark.clone());
+                }
+            }
+        }
+        Ok(Phrasebook { entries })
+    }
+
     /// Whether the phrasebook has a line for this act and intent at all.
     ///
     /// This is what the automatic realizer asks: a line the phrasebook
