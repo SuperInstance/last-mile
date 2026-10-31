@@ -2455,10 +2455,10 @@ mod tests {
         // The shipped backends: reflex plus the two model tiers of D55.
         let backends: Vec<&str> = p.tiers.tiers().iter().map(|t| t.backend()).collect();
         assert_eq!(backends, vec!["reflex", "thor-d1-2b", "jev"]);
-        // The shipped escalation set: the move gate alone (D71's accuracy
-        // was measured on the move gate; the talk gates' second opinion did
-        // not pay for its latency).
-        assert_eq!(p.escalate_gates, Some(BTreeSet::from(["move".to_owned()])));
+        // The shipped escalation set is empty: escalation is off (D79). The
+        // second opinion did not beat the d1-2B's own answer on the move
+        // gate (McNemar p = 0.37) and changed no game measure.
+        assert_eq!(p.escalate_gates, Some(BTreeSet::new()));
         // A missing or broken policy file means the defaults, never a panic.
         assert_eq!(Policy::for_harness(""), p);
         assert_eq!(Policy::for_harness("tiers = ["), p);
