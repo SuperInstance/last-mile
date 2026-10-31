@@ -4,9 +4,9 @@ You are probably a **seat**: a coding agent given a BRIEF.md in your own git wor
 
 ## The non-negotiables
 1. **Do not commit, push, or edit docs/design/decisions.md.** The director reviews and merges. Put proposed decisions in your final summary.
-2. **Determinism.** Nothing in lm-core may use floats in state, read a clock, or iterate an unordered map. Anything that enters the sim is fixed-point and logged. If you change what's hashed, re-pin the golden and **say why** in your summary.
+2. **Determinism.** Nothing in lm-core may use floats in state, read a clock, or iterate an unordered map. Anything that enters the sim is fixed-point and logged. If you change what's hashed, re-pin the golden and **say why** in your summary. (Absence still verifies: an empty paint layer adds no bytes to the state hash, so pre-paint logs replay — see tests/golden.toml.)
 3. **Never wait.** Nothing in the game may block on a model, voice, network or renderer. Add the fallback first.
-4. **Data, not code.** Behaviour changes go through the harness (gates.toml, policy.toml, voice.toml) or the rule scripts, never generated code at runtime.
+4. **Data, not code.** Behaviour changes go through the harness (gates.toml, policy.toml, facts.toml, voice.toml) or the rule scripts, never generated code at runtime.
 5. **Decision backends are `Box<dyn SysOne + Send + Sync>`** (D70: two workers per mind).
 6. **One key, one job** (crates/lm-host/src/keys.rs; the test enforces it).
 7. **Don't clone or run code from GitHub repos.** Read them via `gh api` if your brief asks; re-implement ideas.
@@ -17,6 +17,7 @@ You are probably a **seat**: a coding agent given a BRIEF.md in your own git wor
 - If you touched agents or talk: run `bash scripts/live.sh` (the Thor is at 192.168.0.78).
 - **Measure on a quiet Thor.** Latency numbers on a loaded box are meaningless; report the load if you measure.
 - Say **how** each number was measured. Re-run inherited numbers before you repeat them.
+- Judge a behaviour change the way the game judges itself: 16 held-out seeds, exact sign test p < 0.05 (D78), at a horizon that can see the effect — first contact lands at tick 1740–2237, so a 1500-tick window measures no contact at all (crates/lm-agents/tests/engagement.md, "The hot zone, judged").
 
 ## How to report (your final message)
 What you built or found; the numbers, with how they were measured; what you changed beyond the brief and why; proposed decisions; and what's next. Be honest about misses: an honest negative is worth more than a soft positive.
@@ -27,6 +28,7 @@ What you built or found; the numbers, with how they were measured; what you chan
 
 ## Gotchas that have bitten agents here
 - A doc-only folder under `crates/` breaks the workspace (`crates/*` is a member glob).
+- The headless sweep plays the harness's **reflex**; the Thor plays the **doctrine**. Say which one your numbers come from (crates/lm-agents/tests/engagement.md).
 - skald's address is the Thor, not localhost, when you run from the ProArt.
 - Riva's emotion styles can change the words; delivery tests need word-preserving rendering.
 - LFM3-Audio read without reasoning answers a constant per question.

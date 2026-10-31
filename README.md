@@ -9,7 +9,7 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 | **Jetson Orin Nano Super** (2 TB NVMe) | Archive: round logs, content-addressed asset bank, headless replay verification. It yields to Casey's desktop |
 | **Cloud subscriptions** (Claude, MiniMax, Kimi, z.ai, plus Jev/Clef APIs) | Slow "System 2" thinking and teacher-side judging, spent from per-provider allotments |
 
-**Status (2026-10-29):** the trunk is [`m1-integration`](https://github.com/SuperInstance/last-mile/tree/m1-integration). Every phase branch is merged into it, and `bash scripts/check.sh` passes.
+**Status (2026-10-30):** the trunk is [`m1-integration`](https://github.com/SuperInstance/last-mile/tree/m1-integration); the tip carrying the day's merges is `91987b7` (branches `docsync`/`trunk-91987b7`; origin's `m1-integration` sits at the morning report, `95b03e1`), and `bash scripts/check.sh` passes. Landed on the 30th: paint as hashed world state and protocol v4 (458fecf), the shared target and ghost attractor as harness variants, off by default (b4efff4), the hot zone judged by D78 — qualifies on contact, not adopted as shipped (bf0045c) — and the RL spike, measured (91987b7).
 
 | Phase | State |
 |---|---|
@@ -20,7 +20,7 @@ A procedurally generated world for game, simulation and AI-agent play, spread ac
 | 5. Learning | Done: metrics, router, sealed ledger, review, held-out eval, deposits, Rhai rulesets, `lm learn`, and the between-round screen (human overrides are carried out). Open: the D63 tie-break call |
 | 6. 3D + archive | Done: the 3D view (`--view 2d\|3d\|both`, `B` switches), integer upscale, shared fog, and the Orin archive |
 
-Measured facts that shape the design live in [`docs/design/decisions.md`](docs/design/decisions.md) (D1–D69), for example: draws are mirror ties, not timeouts (D63), and the Thor serves about 9 decisions/s on d1-2B, roughly one thought per agent per second (decision-daw x5).
+Measured facts that shape the design live in [`docs/design/decisions.md`](docs/design/decisions.md) (D1–D78), for example: draws are mirror ties, not timeouts (D63), and the Thor serves about 9 decisions/s on d1-2B, roughly one thought per agent per second (decision-daw x5).
 
 ## Start here
 
@@ -30,6 +30,9 @@ Measured facts that shape the design live in [`docs/design/decisions.md`](docs/d
 - [AGENTS.md](AGENTS.md): how coding agents work here
 - [docs/HANDOFF.md](docs/HANDOFF.md) and [docs/ROADMAP-AHEAD.md](docs/ROADMAP-AHEAD.md): the state now, schemas ahead, open questions
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): play it by hand
+- [docs/MORNING-2026-10-30.md](docs/MORNING-2026-10-30.md): the day's report (what landed, what it found)
+- [crates/lm-agents/tests/engagement.md](crates/lm-agents/tests/engagement.md): why rounds fight — the doctrine, the shared target, the hot zone judged
+- [crates/lm-learn/RL-SPIKE.md](crates/lm-learn/RL-SPIKE.md): the RL spike, measured
 
 ## Core ideas (one line each)
 - **The game is the score.** As with MIDI, a tiny stream of decisions is the whole game. Renderers are instruments: a better one sounds richer but never changes the rhythm.
@@ -111,7 +114,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 
 | Path | What |
 |---|---|
-| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D69) with reasons. **Start here.** |
+| [`docs/design/decisions.md`](docs/design/decisions.md) | Append-only log of design decisions (D1–D78) with reasons. **Start here.** |
 | [`tests/golden.toml`](tests/golden.toml) | The pinned golden hashes of the headless rounds. Re-pin with `lm golden --write`, and say in the commit why the world moved |
 | [`docs/superpowers/specs/`](docs/superpowers/specs/2026-10-28-last-mile-m1-design.md) | The Milestone 1 design spec |
 | [`docs/superpowers/plans/`](docs/superpowers/plans/) | The implementation plans: [phase 1](docs/superpowers/plans/2026-10-28-m1-phase1-core.md), [2](docs/superpowers/plans/2026-10-28-m1-phase2-host.md), [3](docs/superpowers/plans/2026-10-28-m1-phase3-agents.md), [4](docs/superpowers/plans/2026-10-29-m1-phase4-talk.md), [5](docs/superpowers/plans/2026-10-28-m1-phase5-learning.md), [6](docs/superpowers/plans/2026-10-29-m1-phase6-3d-archive.md) |

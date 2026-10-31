@@ -4,11 +4,13 @@ For whoever directs the team next, whether Claude in a fresh session or a person
 
 > **Update 2026-10-30 ~05:00:** see docs/MORNING-2026-10-30.md for the overnight state. zcode is out until 2026-10-31 14:38 and mcode hit its plan limit; the unfinished jobs and their worktrees are listed there. New lessons: never run two merges at once (they share `lm-wt/merge`); after a Thor reboot, re-mount the cold shelf with sudo (`sudo mount -o uid,gid /dev/sda1 "/media/caseydigennaro/TOSHIBA EXT"`), restart lm-realizer and lm-sysone-batched, recreate tmux, and push Thor branches through the ProArt (its keyring locks).
 
+> **Update 2026-10-30 afternoon:** §1–§4 below are refreshed for the day's merges: paint as hashed world state and protocol v4 (458fecf), the shared target and ghost attractor, off by default (b4efff4), the hot zone judged and **not** adopted (bf0045c), and the RL spike, measured (91987b7). Two seat branches are still unmerged at this writing: `conform2` (Vox E10 `lm vox conform`; its ASR word-accuracy gate fails, untuned) and `painteff` (the paint's slow-and-bounce rule; defaults stay 0/0). §5–§6 still describe the morning.
+
 ## 1. Where the project is
 
-**The trunk is `m1-integration`** (origin, tip ~`0a0994d` plus later merges). `main` has only the PR #1 docs. **Milestone 1 is functionally complete; Casey's hands-on acceptance has not happened yet.**
+**The trunk tip is `91987b7`** (branches `docsync` and `trunk-91987b7`; origin's `m1-integration` sits at the morning report, `95b03e1`). `main` has only the PR #1 docs. **Milestone 1 is functionally complete; Casey's hands-on acceptance has not happened yet.**
 
-The game today: two squads of four AI agents fight over three beacons in a generated city. Every agent's System One runs on the Thor (d1-2B). Agents talk over a squad radio: lines are worded by LFM2-1.2B and spoken in skald/Riva voices, falling back to tones when a voice isn't ready. The human commands by push-to-talk: `V` → LFM3-Audio on the Thor → an order on the score. Between rounds, the learning flow proposes a change, seals a prediction, tests it on held-out seeds, and the human adopts or rejects it. Replays are bit-exact (D69).
+The game today: two squads of four AI agents fight over four beacons in a generated city. Every agent's System One runs on the Thor (d1-2B). A tag now splats paint on the ground — hashed world state, protocol v4 — but the paint's movement knobs (`slow_q8`, `bounce_q8`) default to 0, so it changes nothing yet (`crates/lm-core/src/world/paint.rs`; `crates/lm-core/tests/decisiveness.md`). A shared target the whole team steers toward exists as a harness parameter (`facts.toml`) and is **off by default**; its walking variant, the hot zone, was judged by D78 and is not adopted (`crates/lm-agents/tests/engagement.md`, "The hot zone, judged"). Agents talk over a squad radio: lines are worded by LFM2-1.2B and spoken in skald/Riva voices, falling back to tones when a voice isn't ready. The human commands by push-to-talk: `V` → LFM3-Audio on the Thor → an order on the score. Between rounds, the learning flow proposes a change, seals a prediction, tests it on 16 held-out seeds with an exact sign test (D78), and the human adopts or rejects it; the RL spike measured that this judging can adopt a trained policy (29 of 32 seeds, `crates/lm-learn/RL-SPIKE.md`). Replays are bit-exact (D69).
 
 **How to play it:** `docs/ACCEPTANCE.md`. The fresh build is at `C:\Users\casey\src\last-mile-build-play`:
 - `.\target\release\lm-host.exe --agents thor --talk on`
@@ -18,10 +20,8 @@ The game today: two squads of four AI agents fight over three beacons in a gener
 
 ## 2. Decisions
 
-- **Recorded:** D1-D76 in `docs/design/decisions.md`. The latest: D72 the confidence rule is per gate; D73 voices pre-rendered through skald; D74 D70/D71 as measured; D75/D76 come in with esc-tune (escalate only the move gate; d1-3B floor 0.15) and are **not yet merged**, see §4.
-- **Approved by Casey, being applied** (job `apply`, queued on the ProArt), to record as **D77/D78** once merged:
-  - **D77:** the default doctrine becomes `advance` (squads meet; evidence: `crates/lm-agents/tests/engagement.md`).
-  - **D78:** the learning flow judges on **16 seeds** with "ceil(3N/4) qualified AND exact sign test p < 0.05", at 1500 ticks (evidence: `crates/lm-learn/SEEDFARM.md`: 4 seeds wrongly adopted 4 of 30).
+- **Recorded:** D1-D78 in `docs/design/decisions.md`. The latest: D75 escalate only the move gate by default (open: on it the neutral judge sided with d1-2B 4 times and clef-flash 0, so escalation may not help anywhere); D76 the d1-3B confidence floor is 0.15; D77 (Casey) the default doctrine is `advance` — the stalemate ends, but squads still rarely meet; D78 (Casey) learning is judged on 16 held-out seeds with "ceil(3N/4) qualified AND exact sign test p < 0.05", at 1500 ticks.
+- **Proposed by seats, not recorded:** from the hot zone's judged measurement (`crates/lm-agents/tests/engagement.md`): D79 judge contact at 3000 ticks; D80 check a walk order against the fairness guard; D81 judge contact and survival separately. From the Vox seat (on `conform2`): sign off the conformer's +30 dB mark-velocity re-basing and its failing ASR word-accuracy gate (`crates/lm-vox/CONFORM.md`).
 - **Waiting on Casey:**
   1. AGPL: may last-mile become AGPL to reuse Digital Extinction code? Default and recommendation: no; study and re-implement only.
   2. MIG maintenance window on the Thor: plan and risks in `docs/research/fleet/16-mig-on-thor.md` (a tech preview; it breaks Docker/Riva without a workaround). Recommendation: an experiment on a quiet day.
@@ -46,29 +46,20 @@ The game today: two squads of four AI agents fight over three beacons in a gener
 
 ## 4. Work in flight (at handoff time)
 
-**Merged tonight** (selection): urgency fix, ears/push-to-talk, in-game voices, realizer, score view, D70/D71, refusals N2/N4, surprise signal, batched server, engagement study, seed farm, soak, Vox Score core + E4b/E6, model inventory, licences, nugget reviews, sandbox design, questions-as-experience, model fit.
+**Merged today** (selection): urgency fix, ears/push-to-talk, in-game voices, realizer, score view, D70-D78 (split packs, escalation and its fence N3, the confidence floors, `advance`, 16-seed judging), refusals N2/N4, surprise signal, batched server (:8104), the engagement study, the shared target and ghost attractor (b4efff4), the hot zone judged (bf0045c), the seed farm, soak, Vox Score core + E4b/E6 + smoothing (E2 at 288 B/s), paint M2a and protocol v4 (458fecf), the RL spike (91987b7), model inventory, licences, nugget reviews, sandbox design, questions-as-experience, model fit, MIG and EdenLive research, the morning report.
 
 **Pushed branches not yet merged** (merge each with `tools/ops/merge-branch.sh <branch>`; it runs check.sh **and** the Windows build):
-- `vox-smooth`: E2 under target, 288 B/s. Clean; merge.
-- `res-mig`: MIG research doc. Merge.
-- `timing`: N1/N3. **Conflicts with the trunk**; job `timingmerge` resolves it. Its N3 `EscalationLate` must reuse N2's reserved `escalation_late`.
-- `esc-tune` / `esc-tune-2`: D75/D76. `esc-tune-2` is rebased but conflicts in `talk_on_thor.rs`; job `esc3` resolves it. Then record D75/D76.
+- `conform2`: Vox E10 `lm vox conform` — conform a rendered line to the marks a mind asked for, on the smoothing pass. Lands with the vox golden re-pinned (0xaf24a5fb5f9932b1); the class and latency gates pass (class landing 90-98% across the three arms; 187-188 ms p50 against a 1897 ms skald re-render) and the **ASR word-accuracy gate FAILS**, not tuned against (calm +4.47 points, example +2.29, against a 2.0 budget). Read `crates/lm-vox/CONFORM.md` before merging.
+- `painteff`: the paint rule — standing in the other team's paint slows by `slow_q8` and pushes back on a `bounce_q8` period, drawn on the map. Defaults stay 0/0 and the golden does not move; no knob lowered the draws (advance stays 63%, shared-ghost 0%) (`crates/lm-core/tests/decisiveness.md`).
 - `docs/thor-transfer`: main's PR #1 docs; fold into the trunk once.
 
 **Seat jobs.** The briefs are in each worktree's `BRIEF.md`: ProArt `/home/proart/lm-wt/<name>`, Thor `~/lm-wt/<name>`.
-- ProArt: `apply` (D77/D78), `esc3`, `timingmerge`, `accept2` (refresh ACCEPTANCE.md + README), `sisurvey` (SuperInstance survey; no sub-agents), `autocam` (auto-director camera), `localwords` (ProArt-GPU wording rung).
 - Thor:
-  - `decomp`: **decompose vs. escalate** on the attention gate, plus the Hodge curl test;
-  - `resdec`: Casey's 48 "decompose" repos + the rea-style question ledger;
-  - `reslucineer`: Magnus's ecosystem (craftmind, jepa-perception-lab, cuda-self-evolve/modify, the-seed, self-evolve-ai; Orin → Thor portability);
-  - `res-prior`: sandbox prior art and kids' privacy;
-  - `sharedtarget`: the engagement lever in facts.rs;
-  - `resde`: Digital Extinction study; no AGPL code;
-  - `rlspike`: ES-trained policy + coaching on the seed farm;
-  - `res-eden`: EdenLive as the restyle layer;
-  - `conform`: Vox E10 conformer.
+  - `decomp`: **decompose vs. escalate** on the attention gate — still in flight (the Hodge curl detector was refuted on the way: a single model's probabilities have zero curl by construction; docs/MORNING-2026-10-30.md);
+  - landed since this handoff opened: `sharedtarget` (b4efff4), `rlspike` (91987b7), `paint` (458fecf; its rule on `painteff`, above), `conform` (on `conform2`, above), `resdec` (5fa3180), `reslucineer` (52c2284), `res-prior` (6ba6b17), `resde` (23bddb4), `res-eden` (c9b605b).
+- ProArt: `accept2` (refresh ACCEPTANCE.md + README), `sisurvey` (SuperInstance survey; no sub-agents), `autocam` (auto-director camera) — briefs written, not started; `localwords` (ProArt-GPU wording rung) — 10 files in progress, resume. `apply` (D77/D78), `esc3`, `timingmerge` are done: their work is merged and recorded.
 
-**Free GPU batch jobs on the Thor** (no tokens): the E6 LFM3 agreement sweep (`~/lm-batch/e6`, tmux window `e6-lfm3`); the real-pack corpus for offline analysis (`~/lm-batch/packs/`, seeds 4-60, window `packs`).
+**Free GPU batch jobs on the Thor** (no tokens): the E6 LFM3 agreement sweep (`~/lm-batch/e6`, tmux window `e6-lfm3`); the real-pack corpus for offline analysis (`~/lm-batch/packs/`, now ~13k packs from seeds 4-150, window `packs`).
 
 ## 5. The plan (priority order)
 
