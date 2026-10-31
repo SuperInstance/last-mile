@@ -266,6 +266,17 @@ impl Expect {
     }
 }
 
+/// One bounded step of an entry: a kid's word for an amount, mapped to one
+/// value inside the bounds. The value question of the vibe gate asks over
+/// these — never over free text.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Step {
+    /// What the kid says (`a little farther`).
+    pub say: String,
+    /// The one value inside the bounds the step carries.
+    pub value: i64,
+}
+
 /// One entry of the Vibe dictionary: a typed change, with bounds.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Block {
@@ -295,6 +306,10 @@ pub struct Block {
     pub explain: String,
     /// Kid-safe vocabulary review passed.
     pub age_ok: bool,
+    /// The entry's own bounded options, the value question asks over. One
+    /// step must carry the default, so "back to normal" is always a choice.
+    #[serde(default)]
+    pub steps: Vec<Step>,
 }
 
 /// The parsed dictionary.
@@ -413,7 +428,37 @@ impl Block {
                 self.id, self.metric
             )));
         }
+        // The steps: the value question's own closed options. A step outside
+        // the bounds is a lie in the file (the propose path would refuse the
+        // very value the gate picked), and a dictionary without the default
+        // as a step has no way to say "back to normal".
+        if self.steps.is_empty() {
+            return Err(bad(format!(
+                "`{}` states no steps: `steps` is empty",
+                self.id
+            )));
+        }
+        for step in &self.steps {
+            if !(self.min..=self.max).contains(&step.value) {
+                return Err(bad(format!(
+                    "`{}`'s step \"{}\" carries {}, which is outside the bounds {}..={}",
+                    self.id, step.say, step.value, self.min, self.max
+                )));
+            }
+        }
+        if !self.steps.iter().any(|step| step.value == self.default) {
+            return Err(bad(format!(
+                "`{}`'s steps never say \"back to normal\": no step carries the \
+                 default {}",
+                self.id, self.default
+            )));
+        }
         Ok(())
+    }
+
+    /// The entry's step of `value`, when it carries one.
+    pub fn step_of(&self, value: i64) -> Option<&Step> {
+        self.steps.iter().find(|step| step.value == value)
     }
 
     /// The entry's default prediction, when it states a direction.

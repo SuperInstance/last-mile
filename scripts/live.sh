@@ -27,6 +27,7 @@
 #   lm-host-model  live_round_on_thor                        d1-3b
 #   lm-host-model  the_doctrine_pack_is_confident_enough...  d1-3b
 #   lm-host-model  talk_soak                                 d1-2b
+#   lm-learn       the_vibe_gate_table_on_the_thor           d1-2b
 #   lm-voice       live_skald_speaks                         the voice daemon
 #   lm-voice       live_skald_round_trip_is_intelligible     the voice daemon (+ the ears)
 #   lm-host-model  the_ears_hear_a_line...                   the ears (+ the voice daemon)
@@ -272,6 +273,20 @@ check_soak_table() {
   return 0
 }
 
+# The live fact: the vibe gate's measurement ran to its summary line. The
+# test asserts the accuracy floors; this reads the summary back out of the
+# log, so the lane still fails if that assertion is ever weakened.
+check_vibe_gate() {
+  local measured
+  measured="$(grep -oE 'the vibe gate measured: .*' "$1" | tail -1)"
+  if [ -z "$measured" ]; then
+    printf 'the measurement never reached its summary\n'
+    return 1
+  fi
+  printf '%s\n' "$measured"
+  return 0
+}
+
 # The live fact: the ears heard the line, and the line reached the score.
 # The test asserts both; this reads the marker back out of the log, so the
 # lane still fails if that assertion is ever weakened.
@@ -327,6 +342,15 @@ run_live "lm-host-model the_doctrine_pack_is_confident_enough_to_drive_play" \
 
 run_live "lm-host-model talk_soak" "$PORT_D1_2B" check_soak_table \
   -p lm-host-model --test talk_soak talk_soak
+
+# The vibe gate lane: Bench's two closed questions when a kid speaks,
+# measured over the labelled phrasing fixture (docs/design/vibe-gate.md
+# holds the table this prints and the command that reproduces it). The
+# lane's floors live in the test: a pack that stops hearing three
+# quarters of the labelled phrasings, or that matches six of the ten
+# no-match asks to changes that do not exist, fails it.
+run_live "lm-learn the_vibe_gate_table_on_the_thor" "$PORT_D1_2B" check_vibe_gate \
+  -p lm-learn --test vibe_gate the_vibe_gate_table_on_the_thor
 
 # The skald lane: the voice daemon, which runs on the Thor itself, not
 # the decision models. The daemon's health path is /v1/health, which

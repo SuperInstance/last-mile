@@ -18,6 +18,17 @@
 # actually hashes per round. Each entry's comment says where its bounds
 # come from: Params::validate where the code states them, and this file
 # where it does not.
+#
+# Each entry also carries its own bounded steps (part 3, the vibe gate):
+# the closed options the value question asks over when a kid speaks. A
+# step is a kid's word for an amount, mapped to one value inside the
+# bounds — never free text. The steps follow one rule, stated here so
+# the check is data: "a little" is one-and-a-half times the shipped
+# default in the direction the entry's `says` names (half the stun, for
+# the one entry that says "shorter"), "a lot" is the bound that
+# direction points at, and "back to normal" is the default — the same
+# value `lm vibe undo` restores. Load refuses a dictionary whose steps
+# fall outside the bounds, or that does not carry the default as a step.
 
 [[block]]
 id = "unit.vision"                 # stable id; what Bench names out loud
@@ -31,6 +42,11 @@ expect = "up"                      # up | down | either (either: bring your own 
 tier = "A"                         # A locked | B learnable
 explain = "view_range_cells is how far a Dab sees, in 2 m cells (default 20 = 40 m); seeing farther should mean more eyes meeting, so more sight ticks and more tags traded"
 age_ok = true                      # kid-safe vocabulary review passed
+steps = [
+  { say = "a little farther", value = 30 },   # 1.5x the default 20
+  { say = "a lot farther", value = 64 },      # the far bound
+  { say = "back to normal", value = 20 },     # the shipped default
+]
 
 [[block]]
 id = "unit.speed"
@@ -44,6 +60,11 @@ expect = "up"
 tier = "A"
 explain = "speed_upt is movement in units per tick (default 136 = about 4 m/s); faster Dabs close on each other sooner, so more tags should be traded"
 age_ok = true
+steps = [
+  { say = "a little faster", value = 204 },   # 1.5x the default 136
+  { say = "a lot faster", value = 2048 },     # one cell per tick, the bound
+  { say = "back to normal", value = 136 },    # the shipped default
+]
 
 [[block]]
 id = "unit.tag_range"
@@ -58,6 +79,11 @@ expect = "up"
 tier = "A"
 explain = "tag_range_units is how close a Dab must be to tag, in 1/1024 m units (default 2048 = 2 m); reaching farther should land more tags"
 age_ok = true
+steps = [
+  { say = "a little more reach", value = 3072 },  # 1.5x the default 2048 (3 m)
+  { say = "a lot more reach", value = 8192 },     # 8 m, the far bound
+  { say = "back to normal", value = 2048 },       # the shipped default
+]
 
 [[block]]
 id = "unit.stun_time"
@@ -72,3 +98,8 @@ expect = "up"
 tier = "A"
 explain = "stun_ticks is how long a tagged Dab is frozen (default 90 = 3 s at 30 Hz); shorter stuns put everyone back in play sooner, so more tags should be traded"
 age_ok = true
+steps = [                            # this entry's `says` names the other way:
+  { say = "a little shorter", value = 45 },    # half the default 90 (1.5 s)
+  { say = "a lot shorter", value = 0 },        # no stun at all, the near bound
+  { say = "back to normal", value = 90 },      # the shipped default
+]

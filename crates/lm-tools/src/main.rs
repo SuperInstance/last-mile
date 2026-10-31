@@ -321,6 +321,48 @@ enum VibeCommand {
         #[arg(long, default_value_t = 1)]
         next_seed: u64,
     },
+    /// The vibe gate: hear a kid's words as two closed questions against
+    /// the decision server — which change, and how much — and print the
+    /// typed proposal Bench would make, with the confidence of each
+    /// answer. The words go to the decision server and nowhere else; a
+    /// --propose record carries only the bounded 48-char label.
+    Hear {
+        /// The kid's words ("let them see farther").
+        words: String,
+        /// Hand the heard proposal to the propose path: the prediction is
+        /// sealed before the test, as today.
+        #[arg(long)]
+        propose: bool,
+        /// The prediction, sealed before the test: `MEASURE:up|down` with
+        /// an optional `:min_delta`, comma-separated. Omitted: the entry's
+        /// own default.
+        #[arg(long)]
+        predict: Option<String>,
+        /// How many held-out seeds to judge on (the D78 count by default).
+        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_SEEDS)]
+        seeds: usize,
+        /// How many ticks each seed plays.
+        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_TICKS)]
+        ticks: u64,
+        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
+        #[arg(long, default_value = "runs")]
+        runs: PathBuf,
+        /// A vibe.toml that overrides the shipped one.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// A vibe-gate.toml that overrides the shipped one.
+        #[arg(long)]
+        gate_file: Option<PathBuf>,
+        /// The harness root an adopted change lands in.
+        #[arg(long)]
+        harness: Option<PathBuf>,
+        /// The seed of the next round, whose header a landing writes.
+        #[arg(long, default_value_t = 1)]
+        next_seed: u64,
+        /// The decision server's base URL (default: the agents' config).
+        #[arg(long)]
+        base: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -429,6 +471,31 @@ fn cmd_vibe(command: VibeCommand) -> ExitCode {
             file,
             harness,
             next_seed,
+        }),
+        VibeCommand::Hear {
+            words,
+            propose,
+            predict,
+            seeds,
+            ticks,
+            runs,
+            file,
+            gate_file,
+            harness,
+            next_seed,
+            base,
+        } => lm_tools::vibe::cmd_vibe_hear(&lm_tools::vibe::HearArgs {
+            words,
+            propose,
+            predict,
+            seeds,
+            ticks,
+            runs,
+            file,
+            gate_file,
+            harness,
+            next_seed,
+            base,
         }),
     }
 }
