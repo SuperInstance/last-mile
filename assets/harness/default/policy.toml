@@ -41,10 +41,9 @@ quality = 2
 # follow the packs' measured cost on a busy Thor
 # (crates/lm-agents/tests/talk_on_thor.md):
 #
-#   * the move pack answers in 243 ms at the median and 436 ms at p95, and
-#     its rare escalation (the move gate alone is escalated; see
-#     `[escalate]`) adds up to 1423 ms of clef-flash -- 2.2 s in the worst
-#     case of a move thought;
+#   * the move pack answers in 243 ms at the median and 436 ms at p95
+#     (escalation is off by default, D79; when a harness turns it on, a
+#     second opinion adds up to ~2 s of clef-flash to a move thought);
 #   * the talk pack is the slow case: 1.1-1.6 s at the median, 2.3-2.4 s at
 #     p95, and a 3.5-3.7 s tail when the box is busy.
 #
@@ -84,20 +83,18 @@ pay_priority = false
 # gate below the threshold (the escalation as D71 shipped it), `gates = []`
 # is none of them (off), and the list names the ones that are.
 #
-# The default is the move gate alone. Measured on the Thor over three
-# 3000-tick rounds per arm (crates/lm-agents/tests/talk_on_thor.md):
-# escalating every gate bought 100 second opinions (9.2% of the gates
-# answered; attention 73 and subject 24 of them) at 986 ms each, and the
-# rounds spoke 98 lines and made 1808 decisions. The move gate alone bought
-# 3 second opinions (0.2% of the gates) for 142 lines and 1940 decisions;
-# with the escalation off, 170 lines and 1992 decisions. The second opinion
-# on the talk gates did not pay: an offline judge (the d1-3B, asked the same
-# question over the same facts) agreed with the d1-2B's attention choice
-# 35/54 times and with clef-flash's 12/54, so the escalation mostly
-# replaced the better answer and spent a second of latency doing it. The
-# move gate is where D71's accuracy was measured (0.98 against the d1-2B's
-# own 0.96, decision-daw x6), so it keeps the second opinion.
-gates = ["move"]
+# The default is off (D79, Casey, 2026-10-30). A pre-registered test on the
+# Thor (crates/lm-agents/tests/talk_on_thor.md, "Does escalation earn its
+# keep"; evidence/escjudge/) asked 282 escalated move situations of the
+# d1-2B, clef-flash and a judge: where the two disagree, the d1-2B's own
+# answer agreed with the judge 35 times and the second opinion 27 (exact
+# McNemar p = 0.37), so the second opinion is not better. Over 16 seeds x
+# 3000 ticks, on against off changed no game measure (tags, sight ticks,
+# draws, decisions, margins); on only added ~2 s of second opinions a round
+# and 86 escalation_late refusals, because a clef-flash answer costs ~2 s
+# against the d1-2B's 0.35 s. The mechanism stays: a harness that wants a
+# second opinion lists its gates here (e.g. gates = ["move"], D75).
+gates = []
 
 # When the talk pack is asked (D70).
 #
