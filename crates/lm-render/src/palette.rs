@@ -110,10 +110,12 @@ impl PaletteMode {
     /// mesh: the version joins the chunk's structure hash, and it has to be
     /// bumped whenever the colours of a variant change. (Version 2 added
     /// the flat face-direction shade the meshes carry, Task 8's reviewer
-    /// finding 2.)
+    /// finding 2. Version 3 is the look file: the colours are no longer a
+    /// constant in this crate but a file the host reads, so the hash covers
+    /// the palette's own values as well as this version.)
     pub const fn version(&self) -> u32 {
         match self {
-            PaletteMode::Default => 2,
+            PaletteMode::Default => 3,
         }
     }
 }
@@ -168,9 +170,10 @@ pub enum DlssQuality {
 /// The palette for rendering, containing color mappings for materials and squads.
 ///
 /// This is the **single shared palette** (D2): a squad is the same colour on
-/// the 2D map, the piano roll and the 3D view alike. The default's colours
-/// are the 2D map's own — the sRGB numbers the host's map plugin spells — so
-/// the two views of the same world agree without either asking the other.
+/// the 2D map, the piano roll and the 3D view alike. The colours come from
+/// the look file (`assets/look/look.toml`), so the two views of the same
+/// world agree without either asking the other, and a different look is a
+/// different file and not a different build.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Palette {
@@ -180,26 +183,21 @@ pub struct Palette {
     pub material_colors: MaterialColors,
     /// Leader rim color for highlighting leaders
     pub leader_rim: Color,
+    /// How much of its own colour a side face carries, beside the tops'
+    /// full colour.
+    ///
+    /// The world is flat-coloured and unlit, so its shadow is a *shade*:
+    /// the sides of a box are its top's colour, dimmed. The factor is
+    /// constant per direction, so a merged quad carries the same shade as
+    /// the cells it was merged from.
+    pub side_shade: f32,
 }
 
 impl Default for Palette {
     fn default() -> Self {
-        Palette {
-            squad_colors: [
-                Color::from_srgb(0.96, 0.45, 0.18),
-                Color::from_srgb(0.25, 0.72, 0.96),
-                Color::from_srgb(0.55, 0.85, 0.35),
-                Color::from_srgb(0.85, 0.45, 0.85),
-            ],
-            material_colors: MaterialColors {
-                floor: Color::from_srgb(0.13, 0.15, 0.19),
-                wall: Color::from_srgb(0.46, 0.48, 0.53),
-                cover: Color::from_srgb(0.24, 0.31, 0.22),
-                beacon_held: Color::from_srgb(0.98, 0.64, 0.20),
-                beacon_free: Color::from_srgb(0.92, 0.86, 0.45),
-            },
-            leader_rim: Color::from_srgb(1.0, 0.98, 0.85),
-        }
+        // The default palette is the default look: one place says what the
+        // game looks like, and the palette is what the meshes are built with.
+        crate::look::Look::default().palette()
     }
 }
 
@@ -220,6 +218,7 @@ impl Palette {
     pub fn class_color(&self, class: MaterialClass) -> Color {
         match class {
             MaterialClass::Floor => self.material_colors.floor,
+            MaterialClass::Road => self.material_colors.road,
             MaterialClass::Wall => self.material_colors.wall,
             MaterialClass::Cover => self.material_colors.cover,
             MaterialClass::BeaconHeld => self.material_colors.beacon_held,
@@ -241,6 +240,7 @@ impl Palette {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MaterialClass {
     Floor,
+    Road,
     Wall,
     Cover,
     BeaconHeld,
@@ -251,6 +251,7 @@ pub enum MaterialClass {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MaterialColors {
     pub floor: Color,
+    pub road: Color,
     pub wall: Color,
     pub cover: Color,
     pub beacon_held: Color,

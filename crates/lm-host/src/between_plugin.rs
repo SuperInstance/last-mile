@@ -349,6 +349,7 @@ fn join_flow_on_exit(world: &mut World) {
 }
 
 /// The between-round window.
+#[allow(clippy::too_many_arguments)]
 fn between_window(
     mut contexts: EguiContexts,
     mut between: ResMut<Between>,
@@ -357,8 +358,12 @@ fn between_window(
     mut round: ResMut<Round>,
     mut recording: ResMut<Recording>,
     setup: Res<NextRound>,
+    look: Res<crate::look::Look>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
+    // The theme: the between-round screen is a panel like any other, and it
+    // speaks in the same type and the same colours as the round it is about.
+    look.apply_theme(&ctx);
 
     let model = match &*between {
         Between::Ready(model) => model.clone(),
@@ -386,7 +391,7 @@ fn between_window(
                 .resizable(false)
                 .show(&ctx, |ui| {
                     ui.colored_label(
-                        egui::Color32::from_rgb(255, 120, 110),
+                        look.egui(look.0.ui.danger),
                         format!("the flow did not run: {why}"),
                     );
                 });
@@ -404,7 +409,15 @@ fn between_window(
         .open(&mut open.0)
         .default_width(560.0)
         .show(&ctx, |ui| {
-            draw_screen(ui, &model, &mut state, &mut pressed, &mut asked, &mut next);
+            draw_screen(
+                ui,
+                &model,
+                &mut state,
+                &mut pressed,
+                &mut asked,
+                &mut next,
+                &look,
+            );
         });
 
     // A decision: adopt, reject, or go against the measurement.
@@ -463,8 +476,9 @@ fn draw_screen(
     pressed: &mut Option<Action>,
     asked: &mut bool,
     next: &mut bool,
+    look: &crate::look::Look,
 ) {
-    ui.label(format!("round {} (seed {})", model.round_id, model.seed));
+    ui.heading(format!("round {} (seed {})", model.round_id, model.seed));
 
     // The screen is drawn in the order the model says: the promise before the
     // measurement that judges it.
@@ -472,7 +486,7 @@ fn draw_screen(
         match section {
             Section::Metrics => draw_metrics(ui, model),
             Section::Surprise => draw_surprise(ui, model),
-            Section::Proposal => draw_proposal(ui, model),
+            Section::Proposal => draw_proposal(ui, model, look),
             Section::Prediction => draw_prediction(ui, model),
             Section::Verdict => draw_verdict(ui, model),
             Section::Actions => draw_actions(ui, model, state, pressed),
@@ -500,10 +514,10 @@ fn draw_screen(
 
     // What happened, and what went wrong.
     if let Some(note) = &state.note {
-        ui.colored_label(egui::Color32::from_rgb(160, 220, 160), note.clone());
+        ui.colored_label(look.egui(look.0.ui.accent), note.clone());
     }
     if let Some(err) = &state.error {
-        ui.colored_label(egui::Color32::from_rgb(255, 120, 110), err.clone());
+        ui.colored_label(look.egui(look.0.ui.danger), err.clone());
     }
 }
 
@@ -511,7 +525,7 @@ fn draw_screen(
 fn draw_metrics(ui: &mut egui::Ui, model: &BetweenModel) {
     if !model.metrics.is_empty() {
         ui.separator();
-        ui.label("what the round measured");
+        ui.heading("what the round measured");
         egui::Grid::new("between_metrics")
             .num_columns(3)
             .striped(true)
@@ -537,20 +551,17 @@ fn draw_metrics(ui: &mut egui::Ui, model: &BetweenModel) {
 }
 
 /// The proposal, in words and in a diff.
-fn draw_proposal(ui: &mut egui::Ui, model: &BetweenModel) {
+fn draw_proposal(ui: &mut egui::Ui, model: &BetweenModel, look: &crate::look::Look) {
     if let Some(proposal) = &model.proposal {
         ui.separator();
-        ui.label("what was proposed");
+        ui.heading("what was proposed");
         ui.label(proposal.summary.clone());
         if !proposal.diff.is_empty() {
             ui.monospace(truncate(&proposal.diff, 2_000));
         }
     }
     if let Some(why) = &model.rejection {
-        ui.colored_label(
-            egui::Color32::from_rgb(255, 170, 110),
-            format!("refused: {why}"),
-        );
+        ui.colored_label(look.egui(look.0.ui.danger), format!("refused: {why}"));
     }
 }
 
@@ -563,7 +574,7 @@ fn draw_surprise(ui: &mut egui::Ui, model: &BetweenModel) {
         return;
     }
     ui.separator();
-    ui.label("where the minds struggled");
+    ui.heading("where the minds struggled");
     for line in &model.surprise {
         ui.label(&line.text);
     }
@@ -572,7 +583,7 @@ fn draw_surprise(ui: &mut egui::Ui, model: &BetweenModel) {
 fn draw_prediction(ui: &mut egui::Ui, model: &BetweenModel) {
     if let Some(prediction) = &model.prediction {
         ui.separator();
-        ui.label("what was promised, before the test");
+        ui.heading("what was promised, before the test");
         ui.label(format!(
             "seal {} — {} {} by at least {}, judged on {}",
             prediction.seal,
@@ -591,7 +602,7 @@ fn draw_prediction(ui: &mut egui::Ui, model: &BetweenModel) {
 fn draw_verdict(ui: &mut egui::Ui, model: &BetweenModel) {
     if let Some(verdict) = &model.verdict {
         ui.separator();
-        ui.label("what the test measured");
+        ui.heading("what the test measured");
         ui.label(format!(
             "{} — {} of {} seeds moved as promised",
             if verdict.adopted {
@@ -621,7 +632,7 @@ fn draw_actions(
     pressed: &mut Option<Action>,
 ) {
     ui.separator();
-    ui.label(format!("the flow decided: {}", model.decision));
+    ui.heading(format!("the flow decided: {}", model.decision));
     ui.label("why (for a decision against the measurement):");
     ui.text_edit_singleline(&mut state.reason);
     ui.horizontal(|ui| {

@@ -20,30 +20,55 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
 use bevy::{asset::RenderAssetUsages, image::ImageSampler};
 use lm_core::fixed::UNITS_PER_M;
+use lm_core::header::Role;
 use lm_core::utterance::Channel;
 use lm_core::world::{CellKind, CellXY};
 use lm_host_model::input::Viewer;
 use lm_host_model::map::{FogState, MapModel};
 
 use crate::input_plugin::Input;
+use crate::look::Look;
+use crate::look_effects::{Effects, MAX_STUN_PIPS};
 use crate::sim_plugin::Round;
 
-// The colours of the world.
-const FLOOR_COLOR: Color = Color::srgb(0.13, 0.15, 0.19);
-const WALL_COLOR: Color = Color::srgb(0.46, 0.48, 0.53);
-const COVER_COLOR: Color = Color::srgb(0.24, 0.31, 0.22);
-const FOG_EXPLORED: Color = Color::srgba(0.02, 0.03, 0.05, 0.55);
-const FOG_UNKNOWN: Color = Color::srgba(0.01, 0.01, 0.02, 0.88);
-const FOG_VISIBLE: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+// The colours of the world are the look's, not the map's: the map and the
+// 3D view are the same world drawn twice, and they take their colours from
+// the same file (`assets/look/look.toml`).
 
-/// A beacon nobody holds.
-const BEACON_FREE: Color = Color::srgb(0.92, 0.86, 0.45);
-/// An agent that is stunned and cannot move.
-const STUNNED_COLOR: Color = Color::srgb(0.62, 0.62, 0.65);
-/// The ring around a squad leader.
-const LEADER_RING: Color = Color::srgb(1.0, 0.98, 0.85);
-/// The nose that shows which way an agent faces.
-const FACING_COLOR: Color = Color::srgb(0.06, 0.06, 0.08);
+/// The colour of a squad.
+pub fn squad_color(look: &Look, squad: u8) -> Color {
+    look.bevy(look.squad_color(squad))
+}
+
+/// The colour of the terrain of a cell.
+///
+/// A cell that lies between two buildings is a street, and a street is
+/// painted in the road's colour: the city reads as blocks with roads
+/// between them, the same way it reads in the 3D view.
+pub fn cell_color(look: &Look, kind: CellKind, street: bool) -> Color {
+    let color = match kind {
+        CellKind::Floor => {
+            if street {
+                look.0.world.road
+            } else {
+                look.0.world.ground
+            }
+        }
+        CellKind::Wall => look.0.world.building,
+        CellKind::Cover => look.0.world.cover,
+    };
+    look.bevy(color)
+}
+
+/// The colour of the fog over a cell.
+pub fn fog_color(look: &Look, state: FogState) -> Color {
+    let color = match state {
+        FogState::Visible => lm_render::look::Rgb::new(0.0, 0.0, 0.0).alpha(0.0),
+        FogState::Explored => look.0.world.fog_explored,
+        FogState::Unknown => look.0.world.fog_unknown,
+    };
+    look.bevy(color)
+}
 
 /// The colour of a word that is spoken on each channel.
 ///
@@ -61,38 +86,6 @@ const CHANNEL_RADIO: Color = Color::srgb(0.42, 0.92, 0.62);
 /// still a word of the line.
 const UNSPOKEN_ALPHA: f32 = 0.45;
 
-/// The squads of a round, in colour order. A squad keeps its colour for the
-/// whole round, so a glance says who is who.
-const SQUAD_COLORS: [Color; 4] = [
-    Color::srgb(0.96, 0.45, 0.18),
-    Color::srgb(0.25, 0.72, 0.96),
-    Color::srgb(0.55, 0.85, 0.35),
-    Color::srgb(0.85, 0.45, 0.85),
-];
-
-/// The colour of a squad.
-pub fn squad_color(squad: u8) -> Color {
-    SQUAD_COLORS[usize::from(squad) % SQUAD_COLORS.len()]
-}
-
-/// The colour of the terrain of a cell.
-pub fn cell_color(kind: CellKind) -> Color {
-    match kind {
-        CellKind::Floor => FLOOR_COLOR,
-        CellKind::Wall => WALL_COLOR,
-        CellKind::Cover => COVER_COLOR,
-    }
-}
-
-/// The colour of the fog over a cell.
-pub fn fog_color(state: FogState) -> Color {
-    match state {
-        FogState::Visible => FOG_VISIBLE,
-        FogState::Explored => FOG_EXPLORED,
-        FogState::Unknown => FOG_UNKNOWN,
-    }
-}
-
 /// A colour of the map as an egui colour: the panels speak in the colours of
 /// the world.
 pub fn egui_color(color: Color) -> bevy_egui::egui::Color32 {
@@ -105,15 +98,29 @@ pub fn egui_color(color: Color) -> bevy_egui::egui::Color32 {
     )
 }
 
+/// How much larger the dark edge around a body is than the body itself.
+///
+/// The edge is a disc of its own behind the body, so the body covers the
+/// middle of it and only the rim shows: a piece on a board, separated from
+/// the board by a dark edge.
+const EDGE_SCALE: f32 = 1.22;
+
+/// How much larger the leader's halo is than the body itself.
+const HALO_SCALE: f32 = 1.62;
+
 /// How big an agent is drawn, in metres.
 const AGENT_RADIUS_M: f32 = 1.1;
+/// Where a splat is drawn: above the terrain and the fog, below the
+/// bodies, so a hit is seen and never covers an agent.
+const SPLAT_Z: f32 = 0.08;
 /// How big a beacon is drawn, in metres.
 const BEACON_RADIUS_M: f32 = 1.7;
 /// The smallest an agent is drawn, in pixels: a body has to stay readable
-/// when the whole 256 m world is on the screen.
-const MIN_AGENT_PX: f32 = 7.0;
+/// when the whole 256 m world is on the screen. It is a piece on a board,
+/// and it is drawn bigger than its cell so that it can be found.
+const MIN_AGENT_PX: f32 = 12.0;
 /// The smallest a beacon is drawn, in pixels.
-const MIN_BEACON_PX: f32 = 9.0;
+const MIN_BEACON_PX: f32 = 13.0;
 /// How long a speech tick is, in metres.
 const TICK_LENGTH_M: f32 = 2.2;
 /// How far above the body the speech ticks start, in metres.
@@ -166,9 +173,31 @@ enum Body {
     Fog(usize),
     /// An agent, by its id.
     Agent(u16),
+    /// The dark edge around an agent, by its id.
+    ///
+    /// The edge is a disc of its own, a shade larger than the body and
+    /// behind it: the body covers the middle of it and only the rim shows.
+    /// A piece on a board, separated from the board by a dark edge.
+    AgentEdge(u16),
+    /// The halo around the leader of a squad, by its id.
+    AgentHalo(u16),
     /// A beacon, by its order in the round.
     Beacon(u8),
 }
+
+/// One blob of a splat: a dab of paint where an agent was hit.
+///
+/// The blob is a marker only: what it holds lives in the round's effects,
+/// which the 2D map and the 3D view both read. A dab that the map knew
+/// about and the 3D view did not would be two different hits.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SplatBlob;
+
+/// How many dabs of paint the map can show at once.
+///
+/// A hit is five dabs, so this is a handful of hits: more than a child
+/// needs to read, and few enough that the board never turns to mud.
+pub const SPLAT_POOL: usize = 40;
 
 /// The layout of the window: what the panels take and what is left for the
 /// map.
@@ -326,6 +355,7 @@ fn spawn_world(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     round: Res<Round>,
+    look: Res<Look>,
     mut layer: ResMut<TileLayer>,
     mut rig: ResMut<CameraRig>,
 ) {
@@ -341,7 +371,8 @@ fn spawn_world(
     let grid = &world.grid;
     let cell_m = world.cell_units as f32 / UNITS_PER_M as f32;
 
-    // The discs the agents are drawn with: one white disc, tinted per agent.
+    // The discs the agents are drawn with: one white disc, tinted per
+    // agent — and the splats, which are dabs of the same disc.
     let disc = images.add(disc_image());
 
     // The tile layer: the terrain, and the fog over it.
@@ -351,41 +382,94 @@ fn spawn_world(
             let cell = CellXY { x, y };
             let centre = cell_centre(cell, cell_m);
             let index = usize::from(y) * usize::from(grid.w) + usize::from(x);
+            let kind = grid.get(cell);
             commands.spawn((
-                Sprite::from_color(cell_color(grid.get(cell)), Vec2::splat(cell_m)),
+                Sprite::from_color(
+                    cell_color(&look, kind, lm_render::street::is_street(world, cell)),
+                    Vec2::splat(cell_m),
+                ),
                 Transform::from_translation(centre),
             ));
             commands.spawn((
-                Sprite::from_color(FOG_VISIBLE, Vec2::splat(cell_m)),
+                Sprite::from_color(fog_color(&look, FogState::Visible), Vec2::splat(cell_m)),
                 Transform::from_translation(centre + Vec3::new(0.0, 0.0, FOG_Z)),
                 Body::Fog(index),
             ));
         }
     }
 
-    // The agents: a disc each.
+    // The agents: a disc each, with the dark edge around it and — for the
+    // leader — the halo that says which one leads.
     for id in sim.agent_ids() {
+        let agent = sim.agent(id);
+        let squad = agent.map_or(0, |agent| agent.squad);
+        let leader = agent.is_some_and(|agent| agent.role == Role::Leader);
         commands.spawn((
             Sprite {
                 image: disc.clone(),
                 custom_size: Some(Vec2::splat(AGENT_RADIUS_M * 2.0)),
-                color: squad_color(0),
+                color: squad_color(&look, squad),
                 ..default()
             },
             Transform::from_translation(Vec3::ZERO),
             Body::Agent(id),
         ));
+        // The edge: the same disc, larger, in the ink of the picture.
+        commands.spawn((
+            Sprite {
+                image: disc.clone(),
+                custom_size: Some(Vec2::splat(AGENT_RADIUS_M * 2.0 * EDGE_SCALE)),
+                color: look.bevy(look.0.outline.color),
+                ..default()
+            },
+            Transform::from_translation(Vec3::ZERO),
+            Body::AgentEdge(id),
+        ));
+        // The halo: the leader's mark, a disc again, in the look's leader
+        // colour. A leader you can only tell by a ring is a leader you have
+        // to look for.
+        if leader {
+            commands.spawn((
+                Sprite {
+                    image: disc.clone(),
+                    custom_size: Some(Vec2::splat(AGENT_RADIUS_M * 2.0 * HALO_SCALE)),
+                    color: look.bevy(look.0.ui.leader),
+                    ..default()
+                },
+                Transform::from_translation(Vec3::ZERO),
+                Body::AgentHalo(id),
+            ));
+        }
     }
 
     // The beacons: a diamond each (a square, turned on its corner).
     for index in 0..world.beacons.len() {
         commands.spawn((
-            Sprite::from_color(BEACON_FREE, Vec2::splat(BEACON_RADIUS_M * 2.0)),
+            Sprite::from_color(
+                look.bevy(look.0.world.beacon_free),
+                Vec2::splat(BEACON_RADIUS_M * 2.0),
+            ),
             Transform {
                 rotation: Quat::from_rotation_z(std::f32::consts::FRAC_PI_4),
                 ..default()
             },
             Body::Beacon(index as u8),
+        ));
+    }
+
+    // The dabs of paint: a pool, waiting for hits. They are hidden until a
+    // hit lands, and then the effects say which of them is showing what.
+    for _ in 0..SPLAT_POOL {
+        commands.spawn((
+            Sprite {
+                image: disc.clone(),
+                custom_size: Some(Vec2::ZERO),
+                color: Color::WHITE,
+                ..default()
+            },
+            Transform::from_translation(Vec3::ZERO),
+            SplatBlob,
+            Visibility::Hidden,
         ));
     }
 
@@ -556,9 +640,14 @@ fn update_camera(
 }
 
 /// Draw the map: the fog over the tiles, the agents, the beacons.
+#[allow(clippy::too_many_arguments)]
 fn draw_map(
-    mut bodies: Query<(&mut Sprite, &mut Transform, &mut Visibility, &Body)>,
+    mut bodies: Query<(&mut Sprite, &mut Transform, &mut Visibility, &Body), Without<SplatBlob>>,
+    mut blobs: Query<(&mut Sprite, &mut Transform, &mut Visibility, &SplatBlob), With<SplatBlob>>,
     map: Res<CurrentMap>,
+    look: Res<Look>,
+    mut effects: ResMut<Effects>,
+    input: Res<Input>,
     mut layer: ResMut<TileLayer>,
     rig: Res<CameraRig>,
     mut gizmos: Gizmos,
@@ -585,7 +674,7 @@ fn draw_map(
                 if layer.drawn.get(*index) == Some(&state) {
                     continue;
                 }
-                sprite.color = fog_color(state);
+                sprite.color = fog_color(&look, state);
                 if let Some(slot) = layer.drawn.get_mut(*index) {
                     *slot = state;
                 }
@@ -602,20 +691,21 @@ fn draw_map(
                 let radius = AGENT_RADIUS_M.max(MIN_AGENT_PX * 0.5 / px_per_m);
                 sprite.custom_size = Some(Vec2::splat(radius * 2.0));
                 sprite.color = if draw.stunned {
-                    STUNNED_COLOR
+                    look.bevy(look.0.ui.stunned)
                 } else {
-                    squad_color(draw.squad)
+                    squad_color(&look, draw.squad)
                 };
                 let point = bevy_point(draw.pos_m);
                 transform.translation = Vec3::new(point.x, point.y, AGENT_Z);
 
-                // The leader wears a ring, and everybody shows which way they
-                // face.
-                if draw.leader {
-                    gizmos.circle_2d(point, radius * 1.5, LEADER_RING);
-                }
+                // Everybody shows which way they face: the nose is the ink
+                // of the picture, so it reads on any of the squads' colours.
                 let facing = Vec2::new(draw.facing_rad.cos(), -draw.facing_rad.sin());
-                gizmos.line_2d(point, point + facing * (radius * 1.9), FACING_COLOR);
+                gizmos.line_2d(
+                    point,
+                    point + facing * (radius * 1.9),
+                    look.bevy(look.0.outline.color),
+                );
 
                 // The words this agent is saying: a tick per word, above
                 // the body. A word that has been said is bright; a word the
@@ -633,6 +723,32 @@ fn draw_map(
                 }
             }
 
+            // The dark edge around a body: the same place, a shade larger.
+            Body::AgentEdge(id) => {
+                let Some(draw) = model.agents.iter().find(|a| a.id == *id) else {
+                    *visibility = Visibility::Hidden;
+                    continue;
+                };
+                *visibility = Visibility::Visible;
+                let radius = AGENT_RADIUS_M.max(MIN_AGENT_PX * 0.5 / px_per_m);
+                sprite.custom_size = Some(Vec2::splat(radius * 2.0 * EDGE_SCALE));
+                let point = bevy_point(draw.pos_m);
+                transform.translation = Vec3::new(point.x, point.y, AGENT_Z - 0.01);
+            }
+
+            // The leader's halo: the mark that says which one leads.
+            Body::AgentHalo(id) => {
+                let Some(draw) = model.agents.iter().find(|a| a.id == *id) else {
+                    *visibility = Visibility::Hidden;
+                    continue;
+                };
+                *visibility = Visibility::Visible;
+                let radius = AGENT_RADIUS_M.max(MIN_AGENT_PX * 0.5 / px_per_m);
+                sprite.custom_size = Some(Vec2::splat(radius * 2.0 * HALO_SCALE));
+                let point = bevy_point(draw.pos_m);
+                transform.translation = Vec3::new(point.x, point.y, AGENT_Z - 0.02);
+            }
+
             // A beacon: a diamond in the colour of the squad holding it.
             Body::Beacon(index) => {
                 let Some(draw) = model.beacons.get(usize::from(*index)) else {
@@ -643,8 +759,8 @@ fn draw_map(
                 let radius = BEACON_RADIUS_M.max(MIN_BEACON_PX * 0.5 / px_per_m);
                 sprite.custom_size = Some(Vec2::splat(radius * 2.0));
                 sprite.color = match draw.holder {
-                    Some(squad) => squad_color(squad),
-                    None => BEACON_FREE,
+                    Some(squad) => squad_color(&look, squad),
+                    None => look.bevy(look.0.world.beacon_free),
                 };
                 let point = bevy_point(draw.pos_m);
                 transform.translation = Vec3::new(point.x, point.y, BEACON_Z);
@@ -652,7 +768,113 @@ fn draw_map(
         }
     }
 
-    // The words being spoken, over the bodies that are saying them.
+    // The tag moment: the hits of this round, and the path of the agent
+    // being watched.
+    draw_effects(
+        &mut blobs,
+        &mut gizmos,
+        &mut effects,
+        &look,
+        &input,
+        model,
+        px_per_m,
+    );
+}
+
+/// Draw the effects: the splat of a hit, the pips over a stunned agent, and
+/// the path of the agent being watched.
+///
+/// The effects are the round's, not the map's: they live in one resource
+/// that the 3D view reads too, so a hit looks like the same hit in both
+/// views. The map only draws them.
+fn draw_effects(
+    blobs: &mut Query<(&mut Sprite, &mut Transform, &mut Visibility, &SplatBlob), With<SplatBlob>>,
+    gizmos: &mut Gizmos,
+    effects: &mut Effects,
+    look: &Look,
+    input: &Input,
+    model: &MapModel,
+    px_per_m: f32,
+) {
+    // The dabs of paint: the pool is filled from the effects, and the dabs
+    // that are left over are put away.
+    let mut pool = blobs.iter_mut();
+    for splat in effects.splats.iter() {
+        let Some((mut sprite, mut transform, mut visibility, _)) = pool.next() else {
+            break;
+        };
+        *visibility = Visibility::Visible;
+        // The paint spreads as it dries, and it fades as it goes: the
+        // model says how big and how strong, so the map and the 3D view
+        // paint the same dab.
+        let radius = splat.radius();
+        sprite.custom_size = Some(Vec2::splat(radius * 2.0));
+        sprite.color = look.bevy(splat.paint).with_alpha(splat.opacity());
+        let point = bevy_point(splat.pos_m);
+        transform.translation = Vec3::new(point.x, point.y, SPLAT_Z);
+    }
+    for (_, _, mut visibility, _) in pool {
+        *visibility = Visibility::Hidden;
+    }
+
+    // The stun pips: one for each tick of the stun that is left, above the
+    // head of the agent that is out of the round.
+    let pip_h = (MIN_AGENT_PX * 1.4).max(10.0) / px_per_m;
+    let pip_gap = (MIN_AGENT_PX * 2.0).max(16.0) / px_per_m;
+    let pip_w = pip_h * 0.5;
+    for draw in model.agents.iter().filter(|draw| draw.stunned) {
+        let pips = draw.stun_ticks.min(MAX_STUN_PIPS);
+        if pips == 0 {
+            effects.forget(draw.id);
+            continue;
+        }
+        let color = effects
+            .stun_paint_of(draw.id)
+            .map_or(look.bevy(look.0.ui.stunned), |paint| look.bevy(paint));
+        let point = bevy_point(draw.pos_m);
+        let total = pips as f32 * pip_w;
+        for pip in 0..pips {
+            let x = point.x - total * 0.5 + pip as f32 * pip_w + pip_w * 0.5;
+            let base = Vec2::new(x, point.y + pip_gap);
+            gizmos.line_2d(base, base + Vec2::new(0.0, pip_h), color);
+        }
+    }
+
+    // The path of the agent being watched: the host's own bookkeeping, the
+    // places the agent has been, frame by frame.
+    let watched = input.0.viewer.possessing().or(input.0.viewer.following());
+    let pos = watched.and_then(|agent| {
+        model
+            .agents
+            .iter()
+            .find(|draw| draw.id == agent)
+            .map(|draw| draw.pos_m)
+    });
+    effects.follow(watched, pos);
+    if effects.trail.len() > 1 {
+        let color = watched
+            .and_then(|agent| {
+                model
+                    .agents
+                    .iter()
+                    .find(|draw| draw.id == agent)
+                    .map(|draw| draw.squad)
+            })
+            .map_or(look.bevy(look.0.ui.accent), |squad| {
+                squad_color(look, squad)
+            });
+        let points: Vec<Vec2> = effects
+            .trail
+            .iter()
+            .map(|&(x, y)| bevy_point((x, y)))
+            .collect();
+        for window in points.windows(2) {
+            gizmos.line_2d(window[0], window[1], color.with_alpha(0.35));
+        }
+        for point in &points {
+            gizmos.circle_2d(*point, 0.18, color);
+        }
+    }
 }
 
 /// The colour of a word spoken on a channel.

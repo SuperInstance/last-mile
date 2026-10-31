@@ -92,6 +92,11 @@ pub struct AgentDraw {
     pub facing_rad: f32,
     /// Whether it is stunned on the tick being drawn.
     pub stunned: bool,
+    /// How many ticks of the stun are left, when it is stunned.
+    ///
+    /// The pips over a stunned agent are one for each of these: a stunned
+    /// agent that looks the same as a free one is a round nobody can read.
+    pub stun_ticks: u32,
     /// Whether it leads its squad.
     pub leader: bool,
     /// Whether the viewer sees it now. Everything the model draws is seen —
@@ -243,6 +248,9 @@ impl MapModel {
                     pos_m: pos_m(from, agent.pos, alpha),
                     facing_rad: facing_rad(agent.facing),
                     stunned: agent.stunned_until.is_some_and(|t| now < t),
+                    stun_ticks: agent.stunned_until.filter(|t| now < *t).map_or(0, |t| {
+                        u32::try_from(t.saturating_sub(now)).unwrap_or(u32::MAX)
+                    }),
                     leader: agent.role == Role::Leader,
                     visible: true,
                 })

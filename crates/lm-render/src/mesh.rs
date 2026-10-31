@@ -16,7 +16,9 @@
 use lm_core::fixed::UNITS_PER_M;
 use lm_core::world::World;
 
-use crate::greedy::{chunk_quads, greedy_merge, RawQuad, MATERIAL_COVER, MATERIAL_WALL};
+use crate::greedy::{
+    chunk_quads, greedy_merge, RawQuad, MATERIAL_COVER, MATERIAL_ROAD, MATERIAL_WALL,
+};
 use crate::palette::{Color, MaterialClass, Palette};
 
 pub use crate::palette::RenderConfig;
@@ -84,7 +86,10 @@ fn mesh_of(quads: &[RawQuad], world: &World, palette: &Palette) -> ChunkMesh {
     };
     for (face, quad) in quads.iter().enumerate() {
         let normal = quad.normal().unwrap_or([0, 0, 1]);
-        let color = shaded(class_color(palette, quad.material), face_shade(&normal));
+        let color = shaded(
+            class_color(palette, quad.material),
+            face_shade(&normal, palette.side_shade),
+        );
         // The corners step by the quad's own lengths: a merged quad is
         // `u_len × v_len` cells (or millimetres) on its axes, and every
         // corner of the face sits that far from the origin. Stepping by one
@@ -109,7 +114,7 @@ fn mesh_of(quads: &[RawQuad], world: &World, palette: &Palette) -> ChunkMesh {
     mesh
 }
 
-/// How much of its own colour a side carries, beside the tops' full colour.
+/// How much light a face's own colour carries, by the direction it faces.
 ///
 /// A **flat** shade by face direction — the tops full, the sides dimmed —
 /// is what makes an unlit box read as a box: its sides are darker than its
@@ -118,14 +123,14 @@ fn mesh_of(quads: &[RawQuad], world: &World, palette: &Palette) -> ChunkMesh {
 /// shade as the cells it was merged from: the greedy mesh and the unmerged
 /// one stay the same picture. (The scene's lattice counts z up, so a top
 /// is `normal[2] == 1`, not `normal[1]`.)
-const SIDE_SHADE: f32 = 0.62;
-
-/// How much light a face's own colour carries, by the direction it faces.
-fn face_shade(normal: &[i32; 3]) -> f32 {
+///
+/// How dark a side is is the look's business, not the mesher's: it comes
+/// from the palette, so a look file can say how the toy is lit.
+fn face_shade(normal: &[i32; 3], side_shade: f32) -> f32 {
     if normal[2] > 0 {
         1.0 // a top: the ground, a wall's roof, a cover's lid
     } else {
-        SIDE_SHADE // a side: a wall's or a cover's faces of height
+        side_shade // a side: a wall's or a cover's faces of height
     }
 }
 
@@ -164,6 +169,7 @@ fn class_color(palette: &Palette, material: u8) -> Color {
     let class = match material {
         MATERIAL_WALL => MaterialClass::Wall,
         MATERIAL_COVER => MaterialClass::Cover,
+        MATERIAL_ROAD => MaterialClass::Road,
         _ => MaterialClass::Floor,
     };
     palette.class_color(class)
@@ -295,7 +301,7 @@ mod tests {
         // And the side's vertices carry the side shade, the top's the full
         // colour: the sides are visibly darker than the tops.
         let top = class_color(&palette, MATERIAL_WALL);
-        let side = shaded(top, SIDE_SHADE);
+        let side = shaded(top, palette.side_shade);
         let colors: Vec<[f32; 4]> = mesh.colors.clone();
         assert!(
             colors.iter().any(|c| (c[0] - top.r).abs() < 1e-6),

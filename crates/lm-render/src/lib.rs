@@ -5,9 +5,11 @@ pub mod figure;
 pub mod fog;
 pub mod greedy;
 pub mod hash;
+pub mod look;
 pub mod mesh;
 pub mod palette;
 pub mod scene;
+pub mod street;
 pub mod upscale;
 
 #[cfg(test)]
