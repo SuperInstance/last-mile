@@ -138,6 +138,7 @@ fn slow_second() -> StubBackend {
             model: "stub".to_owned(),
             input_tokens: 0,
             latency_ms: 0,
+            questions: BTreeMap::new(),
         }),
     )])
 }

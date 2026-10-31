@@ -15,6 +15,8 @@
 
 pub mod agents;
 pub use agents::{AgentStats, Agents, AskTiming, WordCounts};
+pub mod cache;
+pub use cache::{AnswerCache, CacheStats, CachedBackend};
 pub mod config;
 pub use config::AgentsConfig;
 pub mod facts;
@@ -22,12 +24,16 @@ pub mod gates;
 pub use gates::Pack;
 pub mod harness;
 pub use harness::Harness;
+pub mod ledger;
+pub use ledger::{LedgerRow, QuestionLedger};
 pub mod mind;
 pub use mind::{
     Ask, AskOutcome, Mind, Mode, Policy, RttEstimator, Thinker, Thought, Tier, TierTable,
 };
 pub mod phrasebook;
 pub use phrasebook::{Phrasebook, PhrasebookError};
+pub mod question;
+pub use question::{QuestionIdentity, QuestionOption, QuestionStamp};
 pub mod queue;
 pub use queue::{Budgets, LeastUseQueue, Popped, ThinkReq};
 pub mod shared;

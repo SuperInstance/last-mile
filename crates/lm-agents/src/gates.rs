@@ -36,6 +36,9 @@ use lm_core::{Decision, Kind, Lane, Menu, MenuOption, Provenance, Source, Tick};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
+use std::sync::OnceLock;
+
+use crate::question::{QuestionIdentity, QuestionOption};
 use crate::sysone::{Answer, Answers, Refusal, MAX_SCORE_LEVELS, MIN_SCORE_LEVELS};
 use crate::utter::{PRESENCE_SUFFIX, UTTERANCE_GATES};
 
@@ -45,6 +48,20 @@ use crate::utter::{PRESENCE_SUFFIX, UTTERANCE_GATES};
 /// the option's *position* in the menu is its name, and the menu's own id
 /// says which options those positions were.
 const OPTION_PREFIX: &str = "opt";
+
+/// The kinds of menu option, and the default text of each.
+///
+/// A menu gate's options come from the simulation, so the file cannot name
+/// them: what the file may say is how each *kind* is described, and the
+/// code's own wording is the fallback. These templates are part of the
+/// question's identity — the version's digest covers them — so a change to
+/// one of them is a new version of the question, like a rewording.
+const MENU_OPTION_TEMPLATES: [(&str, &str); 4] = [
+    ("beacon", "go to beacon {beacon}"),
+    ("hold", "hold position"),
+    ("follow", "follow the squad leader"),
+    ("retreat", "retreat to the squad's spawn"),
+];
 
 /// The scale a probability is quantised to: 255 is 1.0.
 ///
@@ -156,6 +173,14 @@ pub struct Gate {
     /// The gate's id: the key its answer comes back under.
     #[serde(rename = "id")]
     pub id: String,
+    /// The gate's question identity, computed once and kept.
+    ///
+    /// The identity is the gate's own bytes digested, so it never changes:
+    /// it is worked out when the gate set is read and then held, because
+    /// the pack is built on every think and a digest per gate per think is
+    /// work the round does not need to do again.
+    #[serde(skip)]
+    identity: OnceLock<QuestionIdentity>,
     /// The kind of question.
     #[serde(rename = "type")]
     pub kind: GateKind,
@@ -212,6 +237,62 @@ impl Gate {
         format!("{OPTION_PREFIX}{index}")
     }
 
+    /// The identity of this question: its id, its version and its
+    /// normalized form.
+    ///
+    /// The id is the gate's slot and its kind, so it survives a rewording;
+    /// the version is the digest of the normalized form, so a rewording is
+    /// a new version. Both are derived from the harness's own bytes, so two
+    /// machines that play the same round agree on them (D69).
+    ///
+    /// The digest is worked out once, when the gate set is read.
+    pub fn identity(&self) -> &QuestionIdentity {
+        self.identity.get_or_init(|| {
+            QuestionIdentity::of(
+                &self.id,
+                self.kind.as_str(),
+                &self.instructions,
+                &self.defined_options(),
+            )
+        })
+    }
+
+    /// The options of this gate as the harness defines them.
+    ///
+    /// A gate over the file's own options lists them. A gate over the menu
+    /// cannot: the menu is the simulation's business, so what the file says
+    /// is how each *kind* of option is described, and the code's own wording
+    /// is the fallback. A score gate's options are its levels, in score
+    /// order.
+    fn defined_options(&self) -> Vec<QuestionOption> {
+        match self.kind {
+            GateKind::Choice => match self.options_from {
+                OptionsFrom::Fixed => self
+                    .criteria
+                    .iter()
+                    .map(|(key, text)| QuestionOption::new(key, text))
+                    .collect(),
+                OptionsFrom::Menu => MENU_OPTION_TEMPLATES
+                    .iter()
+                    .map(|(kind, default)| {
+                        let text = self
+                            .criteria
+                            .get(*kind)
+                            .cloned()
+                            .unwrap_or_else(|| (*default).to_string());
+                        QuestionOption::new(*kind, text)
+                    })
+                    .collect(),
+            },
+            GateKind::Score => self
+                .levels_by_score()
+                .iter()
+                .map(|level| QuestionOption::new(level.score.to_string(), &level.description))
+                .collect(),
+            GateKind::Noul => Vec::new(),
+        }
+    }
+
     /// The criteria of this gate over `menu`: one per option, in menu order.
     ///
     /// A menu gate takes its options from the menu, even when the file also
@@ -253,10 +334,19 @@ impl Gate {
     }
 
     /// The question this gate asks, as the System One pack carries it.
+    ///
+    /// The pack names every question: the gate's id and its version travel
+    /// with it, so anything holding the pack — the answer cache, the
+    /// ledger, the model server's own log — can say which question it is
+    /// and which revision of it, without knowing the harness it came from.
     fn question(&self, menu: &Menu) -> Value {
         let mut question = Map::new();
         question.insert("type".to_string(), json!(self.kind.as_str()));
         question.insert("instructions".to_string(), json!(self.instructions));
+        let identity = self.identity();
+        question.insert("id".to_string(), json!(identity.id));
+        question.insert("version".to_string(), json!(identity.version));
+        question.insert("normalized".to_string(), json!(identity.normalized));
         match self.kind {
             // A yes/no question has no options.
             GateKind::Noul => {}
@@ -510,6 +600,18 @@ impl GateSet {
     /// The gates, in the order the file lists them.
     pub fn gates(&self) -> &[Gate] {
         &self.gates
+    }
+
+    /// The identity of every gate, by slot.
+    ///
+    /// The slot is the gate's key: the name its answer comes back under.
+    /// The identities are the harness's own: derived from the file's
+    /// bytes, so they are the same on every machine (D69).
+    pub fn identities(&self) -> BTreeMap<String, QuestionIdentity> {
+        self.gates
+            .iter()
+            .map(|gate| (gate.id.clone(), gate.identity().clone()))
+            .collect()
     }
 
     /// The gate with this id, if the set has one.
@@ -829,6 +931,7 @@ mod tests {
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,
+            questions: BTreeMap::new(),
         }
     }
 
@@ -841,6 +944,79 @@ mod tests {
             probs: probs.iter().map(|(key, p)| (key.to_string(), *p)).collect(),
             confidence: 0.7,
         }
+    }
+
+    #[test]
+    fn the_pack_names_every_question() {
+        let set = default_set();
+        let questions = set.to_questions(&menu());
+        for (slot, question) in questions.as_object().expect("the pack") {
+            let id = question["id"].as_str().expect("the question has an id");
+            let version = question["version"]
+                .as_str()
+                .expect("the question has a version");
+            let normalized = question["normalized"]
+                .as_str()
+                .expect("the question has a normalized form");
+            assert!(id.starts_with("q_"), "{slot} is named");
+            assert!(version.starts_with("v_"), "{slot} has a version");
+            assert!(
+                normalized.starts_with(&format!("{} |", question["type"].as_str().unwrap())),
+                "{slot} has a normalized form that starts with its kind"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reworded_gate_is_a_new_version_in_the_pack() {
+        let first = GateSet::parse(
+            r#"
+            [[gates]]
+            id = "move"
+            type = "choice"
+            options_from = "fixed"
+            instructions = "What do you do?"
+            [gates.criteria]
+            opt0 = "go"
+            "#,
+        )
+        .expect("the gate set loads");
+        let reworded = GateSet::parse(
+            r#"
+            [[gates]]
+            id = "move"
+            type = "choice"
+            options_from = "fixed"
+            instructions = "What should you do now?"
+            [gates.criteria]
+            opt0 = "go"
+            "#,
+        )
+        .expect("the gate set loads");
+        let a = first.to_questions(&menu());
+        let b = reworded.to_questions(&menu());
+        assert_eq!(a["move"]["id"], b["move"]["id"], "the id is the question");
+        assert_ne!(
+            a["move"]["version"], b["move"]["version"],
+            "a rewording is a new version"
+        );
+        assert_ne!(
+            a["move"]["normalized"], b["move"]["normalized"],
+            "and a new normalized form"
+        );
+    }
+
+    #[test]
+    fn a_menu_gate_survives_the_menu() {
+        // The version is the harness's own: a menu that changes with the
+        // world is a new context, not a new question.
+        let set = default_set();
+        let one = set.to_questions(&menu());
+        let mut other = menu();
+        other.id = 0x5eed_0002;
+        let two = set.to_questions(&other);
+        assert_eq!(one["move"]["version"], two["move"]["version"]);
+        assert_eq!(one["move"]["id"], two["move"]["id"]);
     }
 
     #[test]
@@ -1243,6 +1419,7 @@ beacon = "walk to beacon {beacon}"
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,
+            questions: BTreeMap::new(),
         };
 
         let decisions = answers_to_decisions(&set, Pack::Move, &answers, &menu, 2, 7, 3, SITUATION)

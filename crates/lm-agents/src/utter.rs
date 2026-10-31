@@ -1430,6 +1430,7 @@ mod tests {
             model: "stub".to_owned(),
             input_tokens: 64,
             latency_ms: 12,
+            questions: BTreeMap::new(),
         }
     }
 

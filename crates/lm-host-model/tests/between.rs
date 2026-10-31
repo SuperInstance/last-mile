@@ -400,6 +400,7 @@ fn the_screen_shows_where_the_minds_struggled() {
         model: "d1-2b".to_owned(),
         input_tokens: 0,
         latency_ms: 1,
+        questions: Default::default(),
     };
     let mut table = RoundSurprise::default();
     for _ in 0..9 {

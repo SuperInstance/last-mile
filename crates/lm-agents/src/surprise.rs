@@ -724,6 +724,7 @@ mod tests {
             model: "test".to_owned(),
             input_tokens: 0,
             latency_ms: 1,
+            questions: BTreeMap::new(),
         }
     }
 
