@@ -1201,3 +1201,243 @@ that changes in 33 of 58 cases. That is D75's reason for escalating only the
 move gate, measured again on a larger sample on the same gate (55/75 against
 13/75), and it is the opposite of what the note was reaching for: on this
 gate the answer is not to decompose the question, it is to leave it alone.
+
+---
+
+# Does escalation earn its keep (D75's open question)
+
+D75 kept the escalation for the move gate alone on the strength of D71's
+bench accuracy (0.98 against the d1-2B's own 0.96, on the decision-daw
+scenes) — and its own measurement then argued the other way: after N3, on
+the 21 escalated move situations of three rounds, the two models differed
+in 20 and the d1-3B judge sided with the d1-2B 4 times and clef-flash 0,
+neither 17. A later 75-situation sample read 73% agreement with the judge
+for the d1-2B's own answer against 17% for clef-flash's, and the
+escalation changed the answer in 33 of 58 cases — but that sample was
+small and taken under heavy load. This is the pre-registered measurement
+that settles it, on at least 200 situations.
+
+## The pre-registration (written before any data was collected)
+
+**The judge.** The Thor's d1-3B (:8093), the same third model the
+attention-gate measurement used: neither party in the dispute, resident on
+the same box, asked the same single move question over the same facts,
+alone, with its floor at zero and a 10 s deadline. Its answer is its own
+top option. The caveat is D62's and stands: the d1-3B measured the weaker
+decider on the move gate (0.84 against the d1-2B's 0.96), so its agreement
+is evidence, not ground truth — which is why the round-level arms below,
+which need no judge, are measured alongside.
+
+**The situations.** Every distinct escalated move situation from real
+rounds on the Thor's d1-2B (:8094): rounds of 3000 ticks at the round's
+own rate, the shipped harness and the shipped policy (`escalate_gates =
+["move"]`), seeds spread across at least 30 rounds, until at least 200
+**distinct** (facts, move question) pairs are in hand — distinct, because
+the same situation asked twice is one situation, as everywhere in this
+file. A situation is *escalated* exactly as the harness defines it: the
+d1-2B's move-gate confidence below `escalate_below` (0.50), whether above
+its floor (an answer not acted on alone) or below it (unsure). The seed
+and the tick the situation landed on are recorded with it.
+
+**The answers.** Both parties' answers are the models' own top options on
+the move menu, read the same way (`top_option`): the d1-2B's own choice
+and confidence from the escalation record the round produced (and from an
+offline re-ask of the same single question for the sub-floor situations
+the record does not carry a choice for — the d1 servers are deterministic,
+and the overlap is cross-checked), and clef-flash's answer from an offline
+ask of exactly the question the escalation asks, one question in one call.
+**The escalated answer** — the answer the escalation would act on — is
+clef-flash's top option when clef-flash's confidence clears its own floor
+(0.05); below it the gate stays unsure and the escalated answer is *no
+answer*, which cannot agree with the judge. Both models' offline round
+trips are recorded, and the load on the box when they were taken.
+
+**The metric and the test.** Agreement with the judge: a model's answer
+is *right* when its top option is the judge's top option. Over the
+situations, a 2x2 table of (the d1-2B's own answer right?, the escalated
+answer right?), and on its paired discordants — b = the d1-2B wrong and
+the escalated answer right, c = the d1-2B right and the escalated answer
+wrong — an **exact two-sided McNemar test**: p = 2·P(X ≤ min(b, c)) for
+X ~ Binomial(b+c, ½), computed in integer arithmetic (the spirit of D69:
+no float near a verdict). Situations the judge refused or answered nothing
+on are excluded and counted; they are not silently dropped.
+
+**The decision rule.** Keep D75's escalation only if the escalated answer
+agrees with the judge **significantly more often** than the d1-2B's own
+answer: b > c and p < 0.05. Otherwise — a null result or the other way —
+the proposal is to turn the escalation off (`escalate_gates = []`): a
+second opinion that does not measurably improve the answer buys ~0.6-1.4 s
+of latency and, under the fence, lost moves, for nothing.
+
+**Secondary, not gating:** the same table restricted to the situations
+where the two models' own choices differ (the only situations where the
+escalation changes anything), the split at the d1-2B's 0.30 floor, both
+models' offline latencies, and the in-round escalation outcomes.
+
+**The arms.** Whether turning the escalation off changes the game at all:
+16 seeds x 3000 ticks, paired per seed, the `on` arm the shipped
+`escalate_gates = ["move"]` and the `off` arm `escalate_gates = []`,
+identical otherwise (same floors, same deadline, same policy). Per seed:
+tags, enemy-sight ticks, draws (score margin 0 at the cutoff) and
+refusals, next to decisions, lines and the escalation's own count and
+cost. Each metric's per-seed deltas go through **D78's exact one-sided
+sign test** (ties excluded, integer arithmetic, p < 0.05), run both ways
+— the two-sided reading is twice the smaller one-sided p. The arms do not
+gate the decision on their own: a game that does not move is consistent
+with "off" (the escalation changed nothing) and with "on" alike; they
+price what the McNemar test buys.
+
+## The measurement
+
+Collected 2026-10-30, on the Thor itself (the box the models live on),
+which was **not quiet**: the load ran 13-131 on its 14 cores across the
+day (other seats' jobs), and every number below says so where it matters.
+The rounds were the shipped game throughout — the harness, the policy,
+`escalate_gates = ["move"]`, the floors — played by
+`cargo test --release -p lm-agents --test escalation_keep`; the raw
+record is `evidence/escjudge/` and `analysis.py` there recomputes every
+number in this section.
+
+| | |
+|---|---|
+| rounds played | 40 (seeds 1-40; 33 of them produced an escalated situation) |
+| distinct escalated situations | **282** (facts + move question; repeats count once) |
+| the ticks they landed on | 1926-2995 — the escalation band is a contact phenomenon: it opens when the squads meet, which the advance doctrine (D77) puts in the round's last third |
+| the d1-2B's confidence on them | 0.262-0.499, 0.416 at the median; 9 of the 282 below its own 0.30 floor |
+| the in-round outcome of those escalations | 281 late, 1 taken — the fence (N3) refused 99.6% of the second opinions on this load |
+| the judge's refusals | 0; clef-flash's refusals 0; every situation was judged |
+
+**The determinism cross-check held.** The d1-2B answered its own 282
+situations again offline, one question in one call: on the 273 situations
+whose in-round record carries a choice (the 9 sub-floor ones cannot — the
+floor withholds the answer), the offline choice and confidence matched
+the round's own on **273 of 273**. The offline asks are the round's own
+answers, not a re-roll.
+
+### The 2x2 and the test
+
+| | the escalated answer right | the escalated answer wrong | |
+|---|---|---|---|
+| the d1-2B's own answer right | 17 | 35 | 52 |
+| the d1-2B's own answer wrong | 27 | 203 | 230 |
+| | 44 | 238 | 282 |
+
+- the d1-2B's own answer agrees with the judge on **52 of 282 (18.4%)**;
+  the escalated answer on **44 of 282 (15.6%)**;
+- the paired discordants: b = 27 (the escalation would fix the answer),
+  c = 35 (it would break it), n = 62;
+- the exact two-sided McNemar: p = 2·P(X ≤ 27), X ~ Bin(62, ½) =
+  1725470220867857748/4611686018427387904 = **0.3741**.
+
+**The registered rule says turn it off**: keep needed the escalated
+answer significantly *more* often right; it is numerically less often
+right (44 against 52) and the difference is nowhere near significance.
+The 75-situation sample's 73%-against-17% is not reproduced — on this
+bigger, contact-heavy sample the judge agrees with **neither** party on
+203 of 282 (72%): the escalated band is hard for everyone (the parties
+agree with each other on 146 of 282, and the judge differs from both on
+129 of those). What does reproduce is the *direction*: the d1-2B's own
+unsure answer is at least as good as the second opinion that replaces it
+— here 35-27 in the d1-2B's favour where they disagree.
+
+The caveat the registration already carried, now with numbers: the judge
+is itself unsure on these situations (0.16-0.87, 0.58 at the median, and
+its confidence sits under the d1-2B's own floor on 19 of them), and D62
+measured it the weaker decider on the move gate. So "no significant
+improvement" is judge-relative — which is why the arms below, which need
+no judge, were measured alongside.
+
+### What the second opinion costs
+
+Offline, one move question in one call, back to back on the same box:
+
+| model | min | p50 | p95 | max |
+|---|---|---|---|---|
+| d1-2B | 119 ms | 347 ms | 756 ms | 1596 ms |
+| clef-flash | 1082 ms | 2022 ms | 2952 ms | 3955 ms |
+| d1-3B (the judge) | 270 ms | 512 ms | 1162 ms | 3793 ms |
+
+A second opinion costs about **six times the primary's own answer**
+(p50 2022 against 347 ms) — and the fence makes most of them moot: in
+the arms' `on` rounds (below), 86 of 94 second opinions were refused as
+late and never bought anything but a refused move.
+
+### The arms: does turning it off change the game
+
+16 seeds x 3000 ticks, paired per seed, `on` the shipped
+`escalate_gates = ["move"]` and `off` `escalate_gates = []`, identical
+otherwise. The D78 exact one-sided sign test on the per-seed deltas
+(off − on), ties excluded; the two-sided reading is twice the smaller
+one-sided p.
+
+| metric | on | off | the sign test |
+|---|---|---|---|
+| tags | 5 | 4 | moved 4 of 16 (2 up, 2 down); two-sided p = 1.0000 |
+| sight ticks | 6786 | 5403 | moved 14 of 16 (6 up, 8 down); p = 0.7905 |
+| draws (margin 0 at the cutoff) | 0 | 0 | no ties to test: every round was decided |
+| refusals | 522 | 442 | moved 14 of 16 (0 up, 14 down); p = 0.0001 |
+| decisions | 3117 | 3111 | moved 16 of 16 (11 up, 5 down); p = 0.2101 |
+| score margin (sum) | 9462 | 10092 | moved 16 of 16 (9 up, 7 down); p = 0.8036 |
+| lines | 134 | 103 | moved 15 of 16 (7 up, 8 down); p = 1.0000 |
+
+**No game-level metric can tell the arms apart.** The one highly
+significant difference is the escalation's own signature, and the
+refusal kinds show it exactly: the `on` arm's refusals differ from the
+`off` arm's by `escalation_late` alone — 86 against 0 — while every
+other kind is level across the arms (256 schema refusals each — the deep
+tier's unregistered backend; 176 timeouts each — the loaded box; 4
+against 10 low-confidence — the sub-floor answers the `on` arm
+escalates instead of refusing). The decisions do not drop when the fence
+refuses a move (3117 against 3111): the reflex still moves the agent, so
+what changes is *who* decides, not *how often*.
+
+What the escalation bought in the `on` arm, over 16 rounds:
+
+- 94 escalations (5.9 a round), every one below the 0.50 threshold by
+  definition — the band the collection measured at 0.262-0.499;
+- 86 of them refused by the fence — the move handed to the reflex, ~5.4
+  d1-2B answers a round converted into reflex moves;
+- 8 taken (8.5%), at a second-opinion round trip of p95 1365 ms and max
+  1625 ms in-round; 32.2 s of second opinions in all, **2015 ms a
+  round**;
+- and the table above says those 8 replacements moved nothing the game
+  can measure, while the judge table says they were, if anything, worse
+  than the answers they replaced.
+
+## The proposed decision
+
+**Turn the escalation off: `escalate_gates = []`.** Proposed to the
+director as D75's close — not applied here (the default policy is not
+this seat's to change). The case:
+
+1. **The registered test failed.** The escalated answer does not agree
+   with the judge significantly more often than the d1-2B's own answer
+   (p = 0.3741); the point estimate favours the d1-2B's own answer (52
+   against 44 overall, and 35 against 27 on the situations where the two
+   models' own choices disagree). This confirms D75's own 4-against-0
+   open question on a 13x bigger sample.
+2. **The arms show no benefit.** Tags, sight ticks, draws, decisions,
+   margins, lines: nothing separates `on` from `off` over 16 paired
+   seeds.
+3. **The cost is direct.** ~2 s of latency a round for opinions that
+   arrive (8.5% of them on this box), and 5.4 moves a round handed to
+   the reflex on the opinions that cannot.
+
+What stays honestly open:
+
+- **The judge is weak where it matters.** On 72% of the situations the
+  d1-3B agrees with neither party, and D62 measured it the weaker mover.
+  A stronger judge — or ground truth from outcomes — could still find a
+  difference; this measurement can only say none was visible.
+- **One busy day.** On a quieter box the fence lets more second opinions
+  through (77% late against 91% here), so `on` would act on clef-flash's
+  answer more often — and the judge table says those replacements are,
+  if anything, worse. The direction of every number in this section is
+  the same.
+- **Whether any gate deserves a second opinion** stays a parameter, not
+  a doctrine: the subject gate's 6-of-7 for clef-flash (above) remains 7
+  situations deep.
+- If the escalation is turned off, the D26 reflex remains the answer for
+  every sub-floor move gate — 9 of these 282 situations — and the
+  `escalate_below` threshold and the fence (N3) stay in the tree for the
+  harness that wants them.

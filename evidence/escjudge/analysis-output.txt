@@ -1,0 +1,94 @@
+# the situations: 282 distinct, from real rounds on the Thor
+- seeds 1-40 (33 of them), ticks 1926-2995
+- the determinism cross-check: 273 of 273 comparable agree (0 mismatched)
+- judged: 282; excluded and counted: {'judge refused': 0, 'judge answered nothing': 0, 'd1-2B has no answer': 0}
+
+## the 2x2 (agreement with the judge)
+
+| | the escalated answer right | the escalated answer wrong | |
+|---|---|---|---|
+| the d1-2B's own answer right | 17 | 35 | 52 |
+| the d1-2B's own answer wrong | 27 | 203 | 230 |
+| | 44 | 238 | 282 |
+
+- the d1-2B's own answer agrees with the judge on 52 of 282 (18.4%)
+- the escalated answer agrees on 44 of 282 (15.6%)
+- the exact two-sided McNemar on the paired discordants (b = 27, c = 35, n = 62): p = 1725470220867857748/4611686018427387904 = 0.3741
+- the registered rule: TURN OFF (keep needs b > c and p < 0.05)
+
+## secondary: where the two models differ
+- the two parties answer differently on 136 of 282 (146 identical answers)
+- of those: the escalated answer right 27, the d1-2B right 35, neither 74
+- McNemar on the differing situations: p = 0.3741 (1725470220867857748/4611686018427387904)
+
+## secondary: the split at the d1-2B's floor (0.30)
+- at or above the floor (acted on alone when the escalation is off): 273 situations; the d1-2B right 52, the escalated answer right 44
+- below the floor (refused when the escalation is off): 9 situations; the d1-2B right 0, the escalated answer right 0
+
+## the latencies (ms, one move question, offline)
+- d1-2B: min 119, p50 347, p95 756, max 1596 over 282 asks
+- clef-flash: min 1082, p50 2022, p95 2952, max 3955 over 282 asks
+- d1-3B (the judge): min 270, p50 512, p95 1162, max 3793 over 282 asks
+
+## the in-round outcomes of these escalations: {'late': 281, 'taken': 1}
+- the d1-2B's confidence on the escalated gate: min 0.262, p50 0.416, max 0.499
+
+# the arms: 16 seeds played both (16 on, 16 off)
+| seed | on: tags | sight | margin | refusals | decisions | esc | esc ms | | off: tags | sight | margin | refusals | decisions |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 0 | 0 | 1095 | 29 | 235 | 3 | 1053 | 3 | 346 | 368 | 26 | 288 |
+| 2 | 0 | 623 | 736 | 33 | 293 | 6 | 1355 | 0 | 126 | 1195 | 25 | 297 |
+| 3 | 0 | 0 | 1294 | 29 | 262 | 2 | 0 | 0 | 0 | 677 | 29 | 111 |
+| 4 | 0 | 684 | 271 | 39 | 196 | 14 | 7607 | 0 | 190 | 737 | 28 | 217 |
+| 5 | 0 | 789 | 21 | 35 | 153 | 6 | 4172 | 0 | 588 | 793 | 25 | 176 |
+| 6 | 0 | 0 | 446 | 31 | 110 | 2 | 2549 | 0 | 462 | 428 | 31 | 127 |
+| 7 | 2 | 345 | 1011 | 30 | 172 | 3 | 0 | 0 | 389 | 504 | 29 | 117 |
+| 8 | 0 | 576 | 232 | 31 | 131 | 2 | 1907 | 1 | 466 | 230 | 30 | 200 |
+| 9 | 0 | 293 | 420 | 33 | 165 | 5 | 5639 | 0 | 416 | 528 | 31 | 174 |
+| 10 | 0 | 270 | 615 | 39 | 212 | 11 | 1446 | 0 | 0 | 1128 | 28 | 228 |
+| 11 | 0 | 575 | 385 | 33 | 189 | 8 | 4715 | 0 | 1051 | 8 | 31 | 215 |
+| 12 | 0 | 0 | 1200 | 29 | 286 | 3 | 0 | 0 | 0 | 1263 | 22 | 231 |
+| 13 | 0 | 460 | 494 | 39 | 151 | 12 | 255 | 0 | 0 | 735 | 28 | 99 |
+| 14 | 0 | 1041 | 125 | 34 | 185 | 7 | 1545 | 0 | 677 | 299 | 27 | 158 |
+| 15 | 0 | 478 | 1046 | 30 | 152 | 6 | 0 | 0 | 0 | 1187 | 27 | 201 |
+| 16 | 3 | 652 | 71 | 28 | 225 | 4 | 0 | 0 | 692 | 12 | 25 | 272 |
+
+## the totals
+
+| metric | on | off | delta (off - on) |
+|---|---|---|---|
+| tags | 5 | 4 | -1 |
+| sight ticks | 6786 | 5403 | -1383 |
+| draws (margin 0) | 0 | 0 | +0 |
+| refusals | 522 | 442 | -80 |
+| decisions | 3117 | 3111 | -6 |
+| margin | 9462 | 10092 | +630 |
+| lines | 134 | 103 | -31 |
+| escalations | 94 | 0 | -94 |
+| escalation cost ms | 32243 | 0 | -32243 |
+
+## the D78 sign test on the per-seed deltas (off - on), ties excluded
+
+- tags: moved 4 of 16 (up 2, down 2); p(off > on) = 0.6875, p(off < on) = 0.6875, two-sided 1.0000
+- sight ticks: moved 14 of 16 (up 6, down 8); p(off > on) = 0.7880, p(off < on) = 0.3952, two-sided 0.7905
+- draws (margin 0): moved 0 of 16 (up 0, down 0); p(off > on) = 1.0000, p(off < on) = 1.0000, two-sided 1.0000
+- refusals: moved 14 of 16 (up 0, down 14); p(off > on) = 1.0000, p(off < on) = 0.0000, two-sided 0.0001 (below 0.05)
+- decisions: moved 16 of 16 (up 11, down 5); p(off > on) = 0.1050, p(off < on) = 0.9615, two-sided 0.2101
+- margin: moved 16 of 16 (up 9, down 7); p(off > on) = 0.4018, p(off < on) = 0.7727, two-sided 0.8036
+- lines: moved 15 of 16 (up 7, down 8); p(off > on) = 0.6963, p(off < on) = 0.5000, two-sided 1.0000
+- escalations: moved 16 of 16 (up 0, down 16); p(off > on) = 1.0000, p(off < on) = 0.0000, two-sided 0.0000 (below 0.05)
+- escalation cost ms: moved 11 of 16 (up 0, down 11); p(off > on) = 1.0000, p(off < on) = 0.0004, two-sided 0.0009 (below 0.05)
+
+## the escalation in the on arm: 94 escalations over 16 rounds (5.9 a round), 32243 ms of second opinions in all (2015 ms a round)
+- the second opinion's round trip: p50 0 ms, p95 1365 ms, max 1625 ms
+- the outcomes: {'late': 86, 'taken': 8}
+
+## the refusals by kind
+
+| kind | on | off |
+|---|---|---|
+| the answer did not match the schema | 256 | 256 |
+| the answer was below the confidence floor | 4 | 10 |
+| the model did not answer before the deadline | 176 | 176 |
+| the second opinion did not answer in time | 86 | 0 |
+- the load while the on arm ran, first to last: '13.48 29.81 41.48 17/1588 1108275' ... '215.99 130.92 80.50 216/1816 1271386'
