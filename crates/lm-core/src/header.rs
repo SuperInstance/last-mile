@@ -7,7 +7,7 @@
 
 use crate::decision::{Source, Tick};
 use crate::hash::{Fnv64, StateHash};
-use crate::params::{Params, ParamsV3};
+use crate::params::Params;
 use crate::talk::TalkParams;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -23,23 +23,7 @@ use std::collections::BTreeMap;
 /// cannot be read as a version-3 one. The old shape has its own type
 /// ([`crate::log::SegmentV2`]) and is migrated on the way in, so an old log
 /// still reads and still replays to the state hashes it recorded.
-///
-/// Version 4 added the paint's knobs to the params. That is an append too,
-/// but a postcard blob is read positionally, so a params blob written
-/// before the paint is short by four fields and cannot be read as the
-/// current params. The old shape has its own type ([`crate::params::
-/// ParamsV3`]) and is migrated on the way in, the same way: an old log
-/// still reads, and the paint takes the defaults the current build ships.
-///
-/// Version 5 added the Vibe records a round carries to the header. The
-/// values themselves were always there — a Vibe change writes a branchable
-/// param, and the params travel in the header — so the new field is the
-/// *provenance*: which sealed ledger lines put those values in force. The
-/// field is hashed only when it holds a record, so a round with no Vibe
-/// records in force keeps the hash it always had. The postcard shape moved,
-/// so a version-4 header is read through [`HeaderV4`] and migrated, the
-/// same way every older shape is.
-pub const PROTO_VERSION: u16 = 5;
+pub const PROTO_VERSION: u16 = 3;
 
 /// An agent's role inside its squad.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,32 +150,6 @@ impl StateHash for Lineage {
     }
 }
 
-/// One Vibe record a round carries: a change adopted out of the Vibe
-/// Dictionary, in force for this round (the sandbox, M2b).
-///
-/// The value itself rides in [`Header::params`] — the field the dictionary
-/// entry names — so this record is the provenance: the ledger line (the
-/// seal) the value was adopted by, and the entry's stable id. A replay
-/// that finds a value it cannot explain can name the line that put it
-/// there.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VibeCarried {
-    /// The ledger line (the seal) of the adopted proposal.
-    pub seal: u64,
-    /// The dictionary entry (`unit.vision`): what Bench names out loud.
-    pub block: String,
-    /// The value in force (`32`).
-    pub value: i64,
-}
-
-impl StateHash for VibeCarried {
-    fn hash_into(&self, h: &mut Fnv64) {
-        h.u64(self.seal);
-        write_str(h, &self.block);
-        h.i64(self.value);
-    }
-}
-
 /// Everything a round is decided by, in declaration order for the hash.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Header {
@@ -218,17 +176,6 @@ pub struct Header {
     /// who hears what — so they join the header hash and stay out of
     /// `Params::BRANCH_FIELDS`.
     pub talk: TalkParams,
-    /// The Vibe records this round carries: the changes adopted out of the
-    /// Vibe Dictionary that are in force (M2b). The values live in `params`;
-    /// these name the ledger lines that put them there, so a replay knows
-    /// where each value came from.
-    ///
-    /// The field is hashed — and joins the round's identity — only when it
-    /// holds a record, so every header hashed before it existed keeps its
-    /// hash: a round with no Vibe records in force is exactly the round it
-    /// always was.
-    #[serde(default)]
-    pub vibe: Vec<VibeCarried>,
 }
 
 impl Header {
@@ -263,7 +210,6 @@ impl Header {
             start_tick: 0,
             lineage: None,
             talk: TalkParams::default(),
-            vibe: Vec::new(),
         }
     }
 
@@ -300,16 +246,6 @@ impl StateHash for Header {
         // talk params change what the round is, so they are part of its
         // identity.
         self.talk.hash_into(h);
-        // The Vibe records join the identity only when there are any: an
-        // empty list adds no bytes, so the hash of every header serialized
-        // before the field existed is unchanged — a round with no Vibe
-        // records in force is exactly the round it always was.
-        if !self.vibe.is_empty() {
-            h.u32(self.vibe.len() as u32);
-            for record in &self.vibe {
-                record.hash_into(h);
-            }
-        }
     }
 }
 
@@ -318,13 +254,12 @@ impl StateHash for Header {
 /// The fields are the phase-1 header's fields, in the same order and with the
 /// same types, so a version-1 header blob decodes through this shim exactly
 /// as it decoded through the phase-1 `Header` — and hashes exactly as it
-/// hashed then. The params are the phase-1 shape too
-/// ([`crate::params::ParamsV3`]): the paint's knobs were not there to decode.
+/// hashed then.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeaderV1 {
     pub proto_version: u16,
     pub seed: u64,
-    pub params: ParamsV3,
+    pub params: Params,
     pub ruleset: String,
     pub roster: Vec<RosterEntry>,
     pub scripts: BTreeMap<String, String>,
@@ -337,119 +272,10 @@ impl HeaderV1 {
     /// Migrate the header to the current version.
     ///
     /// The talk params take their defaults — a phase-1 round had no talk
-    /// rules, and the default talk rules are the ones the plan pins — the
-    /// paint takes its defaults, the Vibe records are none — a round from
-    /// before the Vibe Dictionary carried none — and the version becomes the
-    /// current one. Nothing else moves: the seed, the parameters, the
-    /// roster, the scripts and the lineage are the round that was played.
-    pub fn migrate(self) -> Header {
-        Header {
-            proto_version: PROTO_VERSION,
-            seed: self.seed,
-            params: self.params.migrate(),
-            ruleset: self.ruleset,
-            roster: self.roster,
-            scripts: self.scripts,
-            start_tick: self.start_tick,
-            lineage: self.lineage,
-            talk: TalkParams::default(),
-            vibe: Vec::new(),
-        }
-    }
-}
-
-/// The version-3 header: the shape a version-3 log carries.
-///
-/// It is the current header — the talk rules are in it — with the params of
-/// version 3 ([`crate::params::ParamsV3`]): the paint's knobs were appended
-/// to the params in version 4, and a postcard blob is read positionally, so
-/// a version-3 params blob is short by four fields and cannot be read as
-/// the current params.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeaderV3 {
-    pub proto_version: u16,
-    pub seed: u64,
-    pub params: ParamsV3,
-    pub ruleset: String,
-    pub roster: Vec<RosterEntry>,
-    pub scripts: BTreeMap<String, String>,
-    pub start_tick: u64,
-    #[serde(default)]
-    pub lineage: Option<Lineage>,
-    pub talk: TalkParams,
-}
-
-impl HeaderV3 {
-    /// Migrate the header to the current version.
-    ///
-    /// The paint takes its defaults — a version-3 round had no paint, and the
-    /// defaults are the ones this build ships — the Vibe records are none,
-    /// and the version becomes the current one. Nothing else moves: the
-    /// seed, the parameters, the roster, the scripts, the lineage and the
-    /// talk rules are the round that was played.
-    pub fn migrate(self) -> Header {
-        Header {
-            proto_version: PROTO_VERSION,
-            seed: self.seed,
-            params: self.params.migrate(),
-            ruleset: self.ruleset,
-            roster: self.roster,
-            scripts: self.scripts,
-            start_tick: self.start_tick,
-            lineage: self.lineage,
-            talk: self.talk,
-            vibe: Vec::new(),
-        }
-    }
-}
-
-/// The version-4 header: the shape a version-4 log carries.
-///
-/// It is the current header with the Vibe records missing: the records were
-/// appended in version 5, and a postcard blob is read positionally, so a
-/// version-4 header blob is short by the list and cannot be read as the
-/// current header. This is the shape those logs carry, so they decode
-/// through it and migrate into the current header — with no records in
-/// force, because a round from before the dictionary carried none.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeaderV4 {
-    pub proto_version: u16,
-    pub seed: u64,
-    pub params: Params,
-    pub ruleset: String,
-    pub roster: Vec<RosterEntry>,
-    pub scripts: BTreeMap<String, String>,
-    pub start_tick: u64,
-    #[serde(default)]
-    pub lineage: Option<Lineage>,
-    pub talk: TalkParams,
-}
-
-impl From<&Header> for HeaderV4 {
-    /// The version-4 view of a header: every field as it is, with the Vibe
-    /// records dropped, because they were not there.
-    fn from(h: &Header) -> HeaderV4 {
-        HeaderV4 {
-            proto_version: 4,
-            seed: h.seed,
-            params: h.params,
-            ruleset: h.ruleset.clone(),
-            roster: h.roster.clone(),
-            scripts: h.scripts.clone(),
-            start_tick: h.start_tick,
-            lineage: h.lineage.clone(),
-            talk: h.talk.clone(),
-        }
-    }
-}
-
-impl HeaderV4 {
-    /// Migrate the header to the current version.
-    ///
-    /// Nothing moves but the version: a version-4 round had the paint's
-    /// knobs and the talk rules, and it carried no Vibe records. The
-    /// parameters, the roster, the scripts, the lineage and the talk rules
-    /// are the round that was played.
+    /// rules, and the default talk rules are the ones the plan pins — and
+    /// the version becomes the current one. Nothing else moves: the seed,
+    /// the parameters, the roster, the scripts and the lineage are the round
+    /// that was played.
     pub fn migrate(self) -> Header {
         Header {
             proto_version: PROTO_VERSION,
@@ -460,59 +286,8 @@ impl HeaderV4 {
             scripts: self.scripts,
             start_tick: self.start_tick,
             lineage: self.lineage,
-            talk: self.talk,
-            vibe: Vec::new(),
+            talk: TalkParams::default(),
         }
-    }
-}
-
-impl StateHash for HeaderV4 {
-    fn hash_into(&self, h: &mut Fnv64) {
-        // The version-4 header hashes as it hashed then: the Vibe records
-        // were not there to hash.
-        h.u16(self.proto_version);
-        h.u64(self.seed);
-        self.params.hash_into(h);
-        write_str(h, &self.ruleset);
-        h.u32(self.roster.len() as u32);
-        for r in &self.roster {
-            r.hash_into(h);
-        }
-        h.u32(self.scripts.len() as u32);
-        for (name, src) in &self.scripts {
-            write_str(h, name);
-            write_str(h, src);
-        }
-        h.u64(self.start_tick);
-        if let Some(lineage) = &self.lineage {
-            h.write(&[1]);
-            lineage.hash_into(h);
-        }
-        self.talk.hash_into(h);
-    }
-}
-
-impl StateHash for HeaderV3 {
-    fn hash_into(&self, h: &mut Fnv64) {
-        h.u16(self.proto_version);
-        h.u64(self.seed);
-        self.params.hash_into(h);
-        write_str(h, &self.ruleset);
-        h.u32(self.roster.len() as u32);
-        for r in &self.roster {
-            r.hash_into(h);
-        }
-        h.u32(self.scripts.len() as u32);
-        for (name, src) in &self.scripts {
-            write_str(h, name);
-            write_str(h, src);
-        }
-        h.u64(self.start_tick);
-        if let Some(lineage) = &self.lineage {
-            h.write(&[1]);
-            lineage.hash_into(h);
-        }
-        self.talk.hash_into(h);
     }
 }
 
@@ -624,13 +399,6 @@ mod tests {
             prior: None,
         });
         variants.push(v);
-        let mut v = base.clone();
-        v.vibe = vec![VibeCarried {
-            seal: 3,
-            block: "unit.vision".to_owned(),
-            value: 32,
-        }];
-        variants.push(v);
         for v in &variants {
             assert_ne!(base.hash(), v.hash());
         }
@@ -727,77 +495,11 @@ mod tests {
         let h = Header::default_round(1, "src");
         assert_eq!(h.talk, TalkParams::default());
         assert_eq!(h.proto_version, PROTO_VERSION);
-        // Version 3 is the one that put the refusals in the log's segments,
-        // version 4 the one that put the paint's knobs in the params, and
-        // version 5 the one that put the Vibe records in the header. A
-        // postcard blob is read positionally, so a blob written in the
-        // older shape cannot be read in the newer one — the version had to
-        // move with the shape, and the older shapes are read through their
-        // own shims and migrated.
-        assert_eq!(PROTO_VERSION, 5);
-    }
-
-    /// A round with no Vibe records in force hashes exactly as it did
-    /// before the field existed: this is the promise that keeps the golden
-    /// and every pinned header hash honest.
-    #[test]
-    fn vibe_records_join_the_hash_only_when_there_are_any() {
-        let base = Header::default_round(1, "src");
-        let original = base.hash();
-
-        // No records: the same hash, whether the list is empty by default
-        // or emptied by hand.
-        let mut emptied = base.clone();
-        emptied.vibe.clear();
-        assert_eq!(original, emptied.hash());
-
-        // One record: a new identity, covered field by field.
-        let mut carried = base.clone();
-        carried.vibe = vec![VibeCarried {
-            seal: 0,
-            block: "unit.vision".to_owned(),
-            value: 32,
-        }];
-        assert_ne!(original, carried.hash());
-        let mut other_seal = carried.clone();
-        other_seal.vibe[0].seal = 1;
-        assert_ne!(carried.hash(), other_seal.hash());
-        let mut other_value = carried.clone();
-        other_value.vibe[0].value = 48;
-        assert_ne!(carried.hash(), other_value.hash());
-        let mut other_block = carried.clone();
-        other_block.vibe[0].block = "unit.speed".to_owned();
-        assert_ne!(carried.hash(), other_block.hash());
-
-        // And the header survives the log's codec, both with records and
-        // without.
-        for header in [&base, &carried] {
-            let bytes = postcard::to_allocvec(header).expect("the header encodes");
-            let back: Header = postcard::from_bytes(&bytes).expect("the header decodes");
-            assert_eq!(&back, header);
-        }
-    }
-
-    /// A version-4 header — the shape before the Vibe records — migrates
-    /// into the current one carrying none, and its own hash is the hash it
-    /// hashed then.
-    #[test]
-    fn a_v4_header_migrates_into_the_current_one() {
-        let v4 = HeaderV4 {
-            proto_version: 4,
-            ..HeaderV4::from(&Header::default_round(7, "src"))
-        };
-        let migrated = v4.clone().migrate();
-        assert_eq!(migrated.proto_version, PROTO_VERSION);
-        assert_eq!(migrated.seed, 7);
-        assert!(migrated.vibe.is_empty());
-        assert_eq!(migrated.params, Header::default_round(7, "src").params);
-        assert_ne!(v4.state_hash(), migrated.state_hash());
-
-        // A version-4 blob is short by the Vibe list: it is refused as the
-        // current shape, loudly, never read as a round that carried none.
-        let old_bytes = postcard::to_allocvec(&v4).expect("the v4 header encodes");
-        assert!(postcard::from_bytes::<Header>(&old_bytes).is_err());
+        // Version 3 is the one that put the refusals in the log's segments.
+        // A version-2 segment cannot be read as a version-3 one — a postcard
+        // blob is read positionally — so the version had to move with the
+        // shape.
+        assert_eq!(PROTO_VERSION, 3);
     }
 
     #[test]
@@ -805,7 +507,7 @@ mod tests {
         let v1 = HeaderV1 {
             proto_version: 1,
             seed: 7,
-            params: ParamsV3::from(&Params::default()),
+            params: Params::default(),
             ruleset: "beacons".to_owned(),
             roster: Vec::new(),
             scripts: BTreeMap::new(),

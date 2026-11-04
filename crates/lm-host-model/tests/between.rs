@@ -6,7 +6,6 @@
 //! answer would touch. Nothing here reaches the network: the reviewer is a
 //! stub and every file lives in a temporary directory.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -397,7 +396,6 @@ fn the_screen_shows_where_the_minds_struggled() {
     let answered = Answers {
         per_gate: Default::default(),
         escalated: Default::default(),
-        decomposed: BTreeMap::new(),
         unsure: [("attention".to_owned(), 0.2)].into_iter().collect(),
         model: "d1-2b".to_owned(),
         input_tokens: 0,

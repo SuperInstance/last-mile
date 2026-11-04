@@ -64,7 +64,6 @@ pub use crate::gates::Pack;
 use crate::harness::Harness;
 use crate::phrasebook::Phrasebook;
 use crate::queue::ThinkReq;
-use crate::shared::SharedConfig;
 use crate::sysone::{Answers, Escalation, EscalationOutcome, Refusal, SysOne};
 use crate::utter::{
     pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
@@ -1016,8 +1015,6 @@ pub struct Mind {
     params: Params,
     gates: GateSet,
     policy: Policy,
-    /// The shared target the facts builder states (off by default).
-    shared: SharedConfig,
     mode: Mode,
     now: Tick,
     last_ask: Option<Tick>,
@@ -1076,7 +1073,7 @@ impl Mind {
         // see, not a silent agent that never thinks: the gates are the
         // questions, and a question that does not fit the API's schema
         // is refused by the model anyway (D26).
-        let (gates, mut refusals) = match GateSet::parse(&harness.gates_toml) {
+        let (gates, refusals) = match GateSet::parse(&harness.gates_toml) {
             Ok(gates) => (gates, Vec::new()),
             Err(error) => (
                 GateSet::default(),
@@ -1087,24 +1084,6 @@ impl Mind {
             ),
         };
         let phrasebook = Phrasebook::parse(&harness.phrasebook_toml).unwrap_or_default();
-        // The shared target is a harness parameter like the gates are: a
-        // harness whose facts file does not load, or asks for a target the
-        // facts cannot state, is a refusal the round can see — not a silent
-        // agent that states the wrong target (D26).
-        let (shared, shared_refusal) = match SharedConfig::parse(&harness.facts_toml)
-            .map_err(|error| format!("the harness facts do not load: {error}"))
-            .and_then(|shared| {
-                shared
-                    .validate()
-                    .map_err(|error| format!("the harness facts cannot be stated: {error}"))?;
-                Ok(shared)
-            }) {
-            Ok(shared) => (shared, None),
-            Err(error) => (SharedConfig::default(), Some(Refusal::Malformed(error))),
-        };
-        if let Some(refusal) = shared_refusal {
-            refusals.push((0, refusal));
-        }
         Mind {
             agent,
             role,
@@ -1113,7 +1092,6 @@ impl Mind {
             params: Params::default(),
             gates,
             policy: Policy::for_harness(&harness.policy_toml),
-            shared,
             mode: Mode::parse(&cfg.mode),
             now: 0,
             last_ask: None,
@@ -1303,7 +1281,7 @@ impl Mind {
             return None;
         }
 
-        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg, &self.shared);
+        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
         let situation = SituationKey::of(view, &facts, &self.params);
         let fresh_threat = view
             .enemies
@@ -1470,7 +1448,7 @@ impl Mind {
             return None;
         }
 
-        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg, &self.shared);
+        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
         let situation = SituationKey::of(view, &facts, &self.params);
         let tier =
             match self
@@ -2066,7 +2044,6 @@ mod tests {
             gates_toml: DEFAULT_GATES.to_owned(),
             policy_toml: policy.to_owned(),
             phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-            facts_toml: String::new(),
             reflexes: BTreeMap::new(),
             commit: "test".to_owned(),
         }
@@ -2088,14 +2065,12 @@ mod tests {
             beacons: vec![CellXY { x: 9, y: 2 }],
             spawns: vec![CellXY { x: 2, y: 2 }, CellXY { x: 9, y: 9 }],
             cell_units: 1024,
-            paint: lm_core::world::Paint::new(),
         }
     }
 
     /// A member's view standing at (x, y) on the tiny world.
     fn view_at(id: u16, x: u16, y: u16) -> ScoreView {
         ScoreView {
-            paint: Vec::new(),
             heard: Vec::new(),
             tick: 0,
             me: lm_core::view::AgentSnap {
@@ -2104,7 +2079,6 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
-                paint_slow_q8: 0,
             },
             squad: vec![lm_core::view::AgentSnap {
                 id,
@@ -2112,7 +2086,6 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
-                paint_slow_q8: 0,
             }],
             enemies: vec![],
             beacons: vec![lm_core::view::BeaconSnap {
@@ -2141,7 +2114,6 @@ mod tests {
             )]),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
-            decomposed: BTreeMap::new(),
             model: "stub".to_owned(),
             input_tokens: 64,
             latency_ms: 0,
@@ -2455,10 +2427,10 @@ mod tests {
         // The shipped backends: reflex plus the two model tiers of D55.
         let backends: Vec<&str> = p.tiers.tiers().iter().map(|t| t.backend()).collect();
         assert_eq!(backends, vec!["reflex", "thor-d1-2b", "jev"]);
-        // The shipped escalation set is empty: escalation is off (D79). The
-        // second opinion did not beat the d1-2B's own answer on the move
-        // gate (McNemar p = 0.37) and changed no game measure.
-        assert_eq!(p.escalate_gates, Some(BTreeSet::new()));
+        // The shipped escalation set: the move gate alone (D71's accuracy
+        // was measured on the move gate; the talk gates' second opinion did
+        // not pay for its latency).
+        assert_eq!(p.escalate_gates, Some(BTreeSet::from(["move".to_owned()])));
         // A missing or broken policy file means the defaults, never a panic.
         assert_eq!(Policy::for_harness(""), p);
         assert_eq!(Policy::for_harness("tiers = ["), p);
@@ -2698,10 +2670,8 @@ mod tests {
                 gate: "move".to_owned(),
                 primary_confidence: 0.2,
                 primary_choice: None,
-                primary_probs: BTreeMap::new(),
                 second_confidence: None,
                 second_choice: None,
-                second_probs: BTreeMap::new(),
                 latency_ms: 10,
                 outcome,
                 refusal,
@@ -2858,7 +2828,7 @@ mod tests {
         let view_b = view_at(3, 5, 5);
         let menu_a = menu(&view_a);
         let menu_b = menu(&view_b);
-        let key_a = Facts::from_view(&view_a, &world, 0, &cfg, &SharedConfig::default()).key;
+        let key_a = Facts::from_view(&view_a, &world, 0, &cfg).key;
 
         let mut m = mind(3, &cfg, STUB_POLICY);
 
@@ -2952,10 +2922,8 @@ mod tests {
                 gate: "move".to_owned(),
                 primary_confidence: 0.2,
                 primary_choice: None,
-                primary_probs: BTreeMap::new(),
                 second_confidence: second,
                 second_choice: None,
-                second_probs: BTreeMap::new(),
                 latency_ms: 500,
                 outcome,
                 // The mechanism behind the outcome (N2): the second opinion
@@ -3217,7 +3185,6 @@ mod tests {
                 .map(|(id, confidence)| (id.clone(), *confidence))
                 .collect(),
             escalated: answers.escalated.clone(),
-            decomposed: BTreeMap::new(),
             model: answers.model.clone(),
             input_tokens: answers.input_tokens,
             latency_ms: answers.latency_ms,
@@ -3354,35 +3321,6 @@ mod tests {
                 .1
                 .to_string()
                 .contains("the harness gates do not load"),
-            "got {:?}",
-            m.refusals()[0].1
-        );
-    }
-
-    #[test]
-    fn a_harness_whose_facts_cannot_be_stated_is_a_refusal() {
-        // The shared target is a fact the builder says out loud, and a
-        // repulsor cannot be one: the beacon would be named as the target
-        // and described as pushing away from it. So the round sees the
-        // refusal rather than a silent agent with the wrong target (D26).
-        let mut h = harness(STUB_POLICY);
-        h.facts_toml = r#"
-            [shared]
-            rule = "ghost"
-
-            [shared.ghost]
-            kind = "repulsor"
-        "#
-        .to_owned();
-
-        let m = Mind::new(1, Role::Member, &h, &AgentsConfig::default());
-
-        assert_eq!(m.refusals().len(), 1);
-        assert!(
-            m.refusals()[0]
-                .1
-                .to_string()
-                .contains("the harness facts cannot be stated"),
             "got {:?}",
             m.refusals()[0].1
         );

@@ -48,7 +48,6 @@ use std::time::{Duration, Instant};
 use lm_agents::config::AgentsConfig;
 use lm_agents::facts::Facts;
 use lm_agents::gates::GateSet;
-use lm_agents::shared::SharedConfig;
 use lm_agents::sysone::{Answer, Refusal, SysOne, ThorBackend};
 use lm_core::header::Header;
 use lm_core::sim::Sim;
@@ -143,13 +142,7 @@ fn situations(seed: u64, cfg: &AgentsConfig) -> (Situation, Vec<Situation>) {
 /// One situation: the view of one agent, and what the doctrine says.
 fn situation_of(sim: &Sim, agent: u16, seed: u64, tick: u64, cfg: &AgentsConfig) -> Situation {
     let view = sim.view(agent);
-    let facts = Facts::from_view(
-        &view,
-        sim.world(),
-        view.squad_id,
-        cfg,
-        &SharedConfig::default(),
-    );
+    let facts = Facts::from_view(&view, sim.world(), view.squad_id, cfg);
     let menu = menu(&view);
     let oracle = oracle(&facts);
     Situation {
