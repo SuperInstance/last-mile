@@ -1,4 +1,0 @@
-# the binaries the build makes, not the sources
-/sysone-batched
-/probe-batching
-/probe-concurrency

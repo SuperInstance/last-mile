@@ -11,26 +11,12 @@
 //! | 4 | `airtime_ticks` | the ticks of speech the round spent |
 //! | 5 | `utterances_per_1k_ticks` | the utterances per 1000 ticks |
 //! | 6 | `decisions` | the decisions the agents' answers became |
-//! | 7 | `asked` | the questions the minds asked |
-//! | 8 | `accepted` | the answers that came home and were taken |
-//! | 9 | `late` | the answers that came home after the tick the tier said |
-//! | 10 | `refused` | the questions that never became an answer |
-//! | … | *one per kind* | the refusals split by kind, in `RefusalKind::ALL`'s order |
-//! | last | `scores` | the round's scores, as the debug rendering of the map |
-//!
-//! The refusals are **split by kind** (N2): "8 refusals" hides four different
-//! fixes, and one column cannot tell them apart. Every kind has a column,
-//! even the kinds that never happened, so the columns do not move when a kind
-//! starts happening. The kinds are the variants of `RefusalKind::ALL`, in
-//! that order — `timeout`, `unreachable`, `http`, `malformed`,
-//! `invalid_pack`, `low_confidence`, `menu_changed`, `budget`, `off_plan`,
-//! `expired`, `superseded`, `escalation_late`, `panicked` — and a kind that
-//! is appended lands at the end of them, before `scores`.
+//! | 7 | `refusals` | the thoughts the model refused |
+//! | 8 | `scores` | the round's scores, as the debug rendering of the map |
 //!
 //! The last column is the last one: the scores are a debug rendering and
-//! may themselves contain commas, so a parser that wants the columns before
-//! them splits the line as many times as there are kinds, and leaves the
-//! rest whole.
+//! may themselves contain commas, so a parser that wants the first seven
+//! columns splits the line seven times, not eight.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -41,7 +27,6 @@ use lm_agents::mind::Policy;
 use lm_agents::sysone::{StubBackend, SysOne, ThorBackend};
 use lm_agents::Agents;
 use lm_core::header::Header;
-use lm_core::refusal::RefusalKind;
 
 use lm_core::talk::talk_metrics;
 use lm_host_model::HostLoop;
@@ -66,7 +51,6 @@ fn default_harness() -> Harness {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     }
@@ -76,7 +60,7 @@ fn default_harness() -> Harness {
 ///
 /// The tiers stay the ones the game would use — the same gates, the same
 /// policy, the same ladder — and only the model behind them changes.
-fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
+fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send>> {
     let policy = Policy::for_harness(&harness.policy_toml);
     policy
         .tiers
@@ -86,7 +70,7 @@ fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send + 
         .map(|tier| {
             (
                 tier.backend().to_owned(),
-                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>,
+                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send>,
             )
         })
         .collect()
@@ -128,11 +112,11 @@ fn settle(host: &mut HostLoop) {
 /// The confidence floor is pinned low on purpose. The test proves the
 /// *pipeline* — the question, the answer, the decision, the log — and
 /// leaves the calibration where it belongs: a decision about the floor is
-/// Casey's, not the test's. The floor is a rule per gate now, so at 0.15 no
-/// gate of the d1-2B is ever dropped and the presence gates alone decide
-/// whether a line is spoken; the model's own numbers are measured in
-/// `lm-agents`'s `tests/talk_on_thor.rs` and written up in
-/// crates/lm-agents/tests/talk_on_thor.md.
+/// Casey's, not the test's. The pack's own confidence is measured
+/// separately, in `tests/gates_tuning.rs` and written up in
+/// docs/research/poc/thor/GATES-TUNING.md: the "what should you do now?"
+/// pack scored 0.20-0.57 (p10-p50), and the pack that states the squad's
+/// doctrine as a rule scores 0.40-0.91 with a median of 0.87.
 fn live_round_on_thor(header: &Header) -> Agents {
     let harness = default_harness();
     let cfg = AgentsConfig::default();
@@ -143,7 +127,7 @@ fn live_round_on_thor(header: &Header) -> Agents {
         .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
     let backends = BTreeMap::from([(
         "thor-d1-2b".to_owned(),
-        Box::new(backend) as Box<dyn SysOne + Send + Sync>,
+        Box::new(backend) as Box<dyn SysOne + Send>,
     )]);
 
     Agents::new(&cfg, &harness, header, backends)
@@ -192,26 +176,18 @@ fn soak(backend: &str, seed: u64) {
     let metrics = talk_metrics(talk_records);
     let stats = host.agent_stats().expect("the round has agents");
 
-    // Print one line per (backend, seed). The refusals are split by kind,
-    // so a reader can see which rule failed without adding the kinds up
-    // first, and every kind has a column whether it happened or not.
-    let mut columns = vec![
-        backend.to_owned(),
-        seed.to_string(),
-        metrics.utterances.to_string(),
-        metrics.airtime_ticks.to_string(),
-        (metrics.utterances * 1000 / TICKS).to_string(),
-        stats.decisions.to_string(),
-        stats.asked.to_string(),
-        stats.accepted.to_string(),
-        stats.late.to_string(),
-        stats.refused.to_string(),
-    ];
-    for kind in RefusalKind::ALL {
-        columns.push(stats.refusal_counts.get(kind).to_string());
-    }
-    columns.push(format!("{:?}", host.sim().scores()));
-    println!("{}", columns.join(","));
+    // Print one line per (backend, seed)
+    println!(
+        "{},{},{},{},{},{},{},{:?}",
+        backend,
+        seed,
+        metrics.utterances,
+        metrics.airtime_ticks,
+        metrics.utterances * 1000 / TICKS,
+        stats.decisions,
+        stats.refusals,
+        host.sim().scores()
+    );
 
     // Assert only that the round finished
     assert!(!host.sim().scores().is_empty());

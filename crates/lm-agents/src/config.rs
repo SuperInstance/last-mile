@@ -52,20 +52,6 @@ pub struct AgentsConfig {
     /// a refusal, never a decision (D26/D49 — each model its own threshold,
     /// never averaged).
     pub min_confidence: BTreeMap<String, f32>,
-    /// The confidence below which a gate is escalated to a second model
-    /// (D71).
-    ///
-    /// The cheap model's own confidence decides when to pay for the second
-    /// opinion: a gate it answers below this is not acted on alone.
-    pub escalate_below: f32,
-    /// The backend that answers an escalated gate (D71).
-    ///
-    /// It is asked that gate **alone**, one question in one call, so its
-    /// pack always fits.
-    pub escalate_backend: String,
-    /// How a gate may be asked (see [`ShapeConfig`]).
-    #[serde(default)]
-    pub shape: ShapeConfig,
     /// Member think rate in Hz. 1 by default (D68): the Thor serves ~9
     /// requests/s for the whole match, so 8 agents asking at 4 Hz only queue
     /// up and go stale; at 1 Hz they get ~93% of the decisions with headroom
@@ -89,18 +75,6 @@ pub struct AgentsConfig {
     /// The deadline follows the pack: the eleven-question pack of phase 4
     /// is a longer prompt than the one gate of phase 3, and a deadline
     /// that fits the old pack would refuse every real answer.
-    ///
-    /// Measured on the Thor's d1-2B: the eleven-question pack costs 600 ms
-    /// on an idle box and 1400 ms when the box is busy, so the deadline has
-    /// to clear the slow case and not only the median
-    /// (crates/lm-agents/tests/talk_on_thor.md).
-    ///
-    /// D70 split the pack and D71's second opinion now rides the move gate
-    /// alone (`escalate_gates`), so the deadline clears the talk pack's own
-    /// slow case: the ten talk gates cost the d1-2B 1.1-1.6 s at the
-    /// median, 2.3-2.4 s at p95, and 3.5-3.7 s on a busy box. The move
-    /// lane's worst case — the pack plus its rare escalation — is 2.2 s
-    /// (445 ms of d1-2B and up to 1423 ms of clef-flash on top).
     pub request_timeout_ms: u32,
     /// How strongly a squad's shared usage counts in queue priority (D16).
     pub squad_weight: f32,
@@ -130,31 +104,13 @@ pub struct AgentsConfig {
 #[serde(default)]
 pub struct UterConfig {
     /// Which realizer words the lines: `template` (the phrasebook),
-    /// `llm` (the model on the Thor) or `auto` (the model first, the
-    /// phrasebook for the lines the model misses its deadline on).
+    /// `llm` (the model on the Thor) or `auto` (the phrasebook first, the
+    /// model only for a line the phrasebook does not have).
     pub realizer: String,
     /// The model that writes the lines, on the Thor.
     pub llm_model: String,
     /// The port that model serves on.
     pub llm_port: u16,
-    /// The deadline of one line's wording, in milliseconds.
-    ///
-    /// This is how long the model may take to write a line: the wording
-    /// is asked on the realizer's own thread, and a line whose words are
-    /// not in hand when it is due is worded by the phrasebook instead.
-    ///
-    /// It is not a wait the game pays: the model is asked in the
-    /// background, and the round plays on while it writes. It is the
-    /// model's own budget, and it has to cover what the model actually
-    /// takes -- on a busy Thor that is about six hundred milliseconds,
-    /// because the decision tier is on the same GPU (see
-    /// `tests/realizer_on_thor.md`).
-    pub deadline_ms: u32,
-    /// The deadline of the startup probe of the model, in milliseconds.
-    ///
-    /// The probe asks the model for a line before the round starts, so
-    /// that `auto` can say which realizer it chose and why.
-    pub probe_ms: u32,
 }
 
 impl Default for UterConfig {
@@ -163,26 +119,7 @@ impl Default for UterConfig {
             realizer: "auto".to_owned(),
             llm_model: "LFM2-1.2B".to_owned(),
             llm_port: 8092,
-            deadline_ms: 1_000,
-            probe_ms: 2_000,
         }
-    }
-}
-
-impl UterConfig {
-    /// The same rules with a different deadline for a line's wording.
-    pub fn with_deadline_ms(mut self, deadline_ms: u32) -> Self {
-        self.deadline_ms = deadline_ms;
-        self
-    }
-
-    /// The same rules with a different deadline for the startup probe.
-    ///
-    /// The probe is a startup check, so a caller that wants it to be quick
-    /// -- a test, a box whose model is known to be down -- sets its own.
-    pub fn with_probe_ms(mut self, probe_ms: u32) -> Self {
-        self.probe_ms = probe_ms;
-        self
     }
 }
 
@@ -200,42 +137,16 @@ impl Default for AgentsConfig {
                 ("clef-flash".to_owned(), 8096),
             ]),
             min_confidence: BTreeMap::from([
-                // The d1-2B's own calibration, measured over a round: the
-                // move gate answers 0.80-0.94 confident, but the attention
-                // gate — ten options, so unsure by nature — answers
-                // 0.29-0.64. The floor is per gate now, so it has to clear
-                // the model's weakest gate and not only its best one
-                // (crates/lm-agents/tests/talk_on_thor.md).
-                ("thor-d1-2b".to_owned(), 0.30),
-                // The d1-3B's own calibration, measured the same way
-                // (crates/lm-agents/tests/talk_on_thor.md): its gates
-                // bottom out at 0.15-0.23 (the intent gate's minimum is
-                // 0.149), so the floor sits just above that; the one gate
-                // that answers below it is the intention score, which the
-                // d1-3B answers near-flat (0.00-0.37 over three levels) —
-                // those 34 of 82 situations are honestly unsure and the
-                // line is silent, but no move is ever refused (the move
-                // gate answers 0.28-0.96). The 0.55 this replaces silenced
-                // every line of every talk round: 82 of 82 situations.
-                ("thor-d1-3b".to_owned(), 0.15),
-                // The second opinion (D71). Its confidence scale runs about
-                // half of the d1-2B's on the same gates — the attention gate
-                // reads 0.13 against the d1-2B's 0.33 — so the d1-2B's 0.30
-                // floor has no counterpart on it: a second opinion that
-                // answered is taken, and the gate stays unsure only when the
-                // second model is down, slow or shrugs.
-                ("thor-clef-flash".to_owned(), 0.05),
+                ("thor-d1-2b".to_owned(), 0.60),
+                ("thor-d1-3b".to_owned(), 0.55),
                 ("jev".to_owned(), 0.5),
             ]),
-            escalate_below: 0.5,
-            escalate_backend: "thor-clef-flash".to_owned(),
-            shape: ShapeConfig::default(),
             think_hz_member: 1,
             think_hz_leader: 1,
             mode: "auto".to_owned(),
             presence_hz: 10,
             max_questions: 11,
-            request_timeout_ms: 4_000,
+            request_timeout_ms: 1_200,
             squad_weight: 0.5,
             budget_calls_per_round: 400,
             on_exhaust: "reflex".to_owned(),
@@ -244,39 +155,6 @@ impl Default for AgentsConfig {
             utter: UterConfig::default(),
         }
     }
-}
-
-/// How a gate may be asked.
-///
-/// A gate is asked as it is written, unless a parameter says otherwise.
-/// Both shapes are **off** by default: a harness that writes a tree in
-/// `gates.toml` and does not name it here keeps asking the gate as it is
-/// written.
-///
-/// The shape is the harness's own: the tree is written next to the gate
-/// it decomposes, and the parameters here only say which gate is asked in
-/// which shape, and how many options a ghosted gate is asked with.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ShapeConfig {
-    /// The gate asked as a **two-step tree**: the coarse partition first,
-    /// then the choice inside the partition it picked.
-    ///
-    /// The tree itself is the harness's, in `gates.toml`.
-    pub tree_gate: Option<String>,
-    /// Whether the tree's **last** step is escalated to the second model
-    /// when it is unsure.
-    ///
-    /// The step that decides the answer is the one worth a second
-    /// opinion; the partition before it is not.
-    pub escalate_tree_step: bool,
-    /// The gate asked with its **rarely-chosen options ghosted**: only the
-    /// options that have been winning are asked at all.
-    pub prune_gate: Option<String>,
-    /// How many options a ghosted gate is asked with.
-    ///
-    /// Zero means the gate is not ghosted at all.
-    pub prune_k: u16,
 }
 
 impl AgentsConfig {
@@ -320,20 +198,11 @@ mod tests {
         assert_eq!(
             c.min_confidence,
             BTreeMap::from([
-                ("thor-d1-2b".to_owned(), 0.30),
-                // The d1-3B's own calibration: its gates bottom out near
-                // 0.15 (talk_on_thor.md); the old 0.55 silenced every line.
-                ("thor-d1-3b".to_owned(), 0.15),
-                // The second opinion (D71): its confidence scale runs about
-                // half of d1-2B's, so its floor is lower.
-                ("thor-clef-flash".to_owned(), 0.05),
+                ("thor-d1-2b".to_owned(), 0.60),
+                ("thor-d1-3b".to_owned(), 0.55),
                 ("jev".to_owned(), 0.5),
             ])
         );
-        // The escalation (D71): the cheap model's confidence decides when to
-        // pay for the second opinion.
-        assert_eq!(c.escalate_below, 0.5);
-        assert_eq!(c.escalate_backend, "thor-clef-flash");
         assert_eq!(
             (
                 c.think_hz_member,
@@ -353,7 +222,7 @@ mod tests {
                 c.stale_enemy_ticks,
                 c.ally_range_cells
             ),
-            (11, 4_000, 0.5, 400, "reflex", 6, 4)
+            (11, 1_200, 0.5, 400, "reflex", 6, 4)
         );
         assert_eq!(
             (
@@ -444,29 +313,6 @@ jev = 0.7
     fn missing_file_loads_defaults() {
         let c = AgentsConfig::load(Path::new("no-such-agents.toml")).expect("missing file is ok");
         assert_eq!(c, AgentsConfig::default());
-    }
-
-    #[test]
-    fn the_shape_is_off_by_default() {
-        // Nothing is asked in another shape until a parameter says so: a
-        // harness that writes a tree and does not ask for it keeps asking
-        // the gate as it is written.
-        let c = AgentsConfig::default();
-        assert_eq!(c.shape, ShapeConfig::default());
-        assert!(c.shape.tree_gate.is_none());
-        assert!(c.shape.prune_gate.is_none());
-        assert_eq!(c.shape.prune_k, 0);
-    }
-
-    #[test]
-    fn a_shape_can_be_written() {
-        let c = AgentsConfig::from_toml(
-            "[shape]\ntree_gate = \"attention\"\nprune_gate = \"gesture\"\nprune_k = 4\n",
-        )
-        .expect("the shape table loads");
-        assert_eq!(c.shape.tree_gate.as_deref(), Some("attention"));
-        assert_eq!(c.shape.prune_gate.as_deref(), Some("gesture"));
-        assert_eq!(c.shape.prune_k, 4);
     }
 
     #[test]
