@@ -22,7 +22,6 @@ use std::collections::{BTreeMap, VecDeque};
 use lm_core::decision::{Provenance, Tick};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
-use lm_core::refusal::RefusalCounts;
 use lm_core::rules::Event;
 use lm_core::sim::Sim;
 use serde::{Deserialize, Serialize};
@@ -43,34 +42,12 @@ pub struct RoundMetrics {
     pub tags_against: Vec<u64>,
     /// The ticks each squad held at least one beacon, in squad order.
     pub beacon_hold_ticks: Vec<u64>,
-    /// The view updates on which each squad sighted at least one enemy, in
-    /// squad order.
-    ///
-    /// A sighting is only counted on the update it happened: the squad's
-    /// knowledge is written every `view_update_ticks`, and a fresh sighting
-    /// is told from an ageing memory by its age. Updates run every
-    /// `view_update_ticks`, so the ceiling of this count is the tick count
-    /// divided by that interval — it is a rate of contact, not a total of
-    /// ticks.
-    pub sight_ticks: Vec<u64>,
-    /// Whether the round ended with no winner: a tie at the top of the
-    /// score (both squads reaching `win_score` on the same tick, D63's
-    /// mirror tie) or a tied clock at the time limit.
-    pub draw: bool,
     /// Decision counts by provenance, the reflex implied (D8/D10).
     pub decisions: ProvenanceCounts,
     /// On-time, late and stale decisions, from `Stamped::late_by`.
     pub timeliness: Timeliness,
     /// Refusals seen in the replay.
     pub refusals: Refusals,
-    /// The model path's refusals, by name.
-    ///
-    /// These are the *model's* refusals, read from the log's own record
-    /// (N2): a model that timed out, a model that answered 503 and a gate
-    /// the backend was unsure about are three different problems, and one
-    /// counter cannot tell them apart. The rules layer's own refusals are in
-    /// `refusals` above — they are a different thing.
-    pub model_refusals: RefusalCounts,
     /// The model-vs-code dial per agent, in agent-id order (D25/D40).
     pub dial: BTreeMap<u16, Dial>,
     /// The ticks worth a reviewer's attention, in tick order.
@@ -134,10 +111,8 @@ pub struct Timeliness {
 
 /// Refusals the round produced, recovered from the replay.
 ///
-/// The **rules layer's** refusals: what the reflex refused when the sim asked
-/// it. The model path has its own vocabulary, counted by kind in
-/// [`RoundMetrics::model_refusals`] — the two are different things and
-/// neither is folded into the other.
+/// M1's log carries no refusal records of its own; the replayed sim counts
+/// what its reflexes refused, which is what the log implies.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Refusals {
     /// Reflex calls that refused to answer (D26: a refusal is an outcome).
@@ -253,12 +228,9 @@ impl RoundMetrics {
             tags_for: vec![0; squads],
             tags_against: vec![0; squads],
             beacon_hold_ticks: vec![0; squads],
-            sight_ticks: vec![0; squads],
-            draw: false,
             decisions: ProvenanceCounts::default(),
             timeliness: Timeliness::default(),
             refusals: Refusals::default(),
-            model_refusals: RefusalCounts::new(),
             dial: dial_of(header),
             moments: Vec::new(),
         };
@@ -273,21 +245,7 @@ impl RoundMetrics {
             .iter()
             .map(|entry| (entry.agent, entry.squad))
             .collect();
-        // The first agent of each squad, in squad order: the one whose view
-        // the sight ticks are read from (a squad's knowledge is shared, so
-        // any member's view says the same thing).
-        let sight_probe: BTreeMap<u8, u16> =
-            header
-                .roster
-                .iter()
-                .fold(BTreeMap::new(), |mut first, entry| {
-                    first.entry(entry.squad).or_insert(entry.agent);
-                    first
-                });
-        // The stale window, and the interval the squads' knowledge updates
-        // on: the sight ticks are read against both.
         let stale_window = u64::from(header.params.stale_window_ticks);
-        let view_update = u64::from(header.params.view_update_ticks);
 
         // The trailing state the moments are read against.
         let initial: Vec<i64> = sim.scores().to_vec();
@@ -335,30 +293,7 @@ impl RoundMetrics {
                         Event::BeaconLost { beacon } => {
                             holders.remove(beacon);
                         }
-                        Event::RoundOver(outcome) if outcome.winner.is_none() => {
-                            // D63's draw: the round is over and nobody won.
-                            metrics.draw = true;
-                        }
                         _ => {}
-                    }
-                }
-                // The sight, counted on the update it happened. The
-                // knowledge is written by the view update (every
-                // `view_update` ticks), and the view is read here one tick
-                // after the sim's clock has moved on — so a sighting from
-                // this very update carries an age of at most `view_update`,
-                // and an older memory carries more. One view per squad says
-                // it: the squad's knowledge is shared.
-                if view_update > 0 && tick.is_multiple_of(view_update) {
-                    for (squad, agent) in &sight_probe {
-                        if sim
-                            .view(*agent)
-                            .enemies
-                            .iter()
-                            .any(|enemy| u64::from(enemy.age_ticks) <= view_update)
-                        {
-                            metrics.sight_ticks[usize::from(*squad)] += 1;
-                        }
                     }
                 }
                 // Every beacon still held after the tick scored a point for
@@ -424,10 +359,6 @@ impl RoundMetrics {
             out_of_fuel: stats.reflex_out_of_fuel,
             error: stats.reflex_error,
         };
-        // The model path's own refusals, by name, from the log's record: the
-        // replay reads the same record the live round wrote, so the two
-        // agree (N2).
-        metrics.model_refusals = log.refusal_counts();
         // The reflex never logs decisions; its count is implied by the ticks
         // it drove (D8/D10).
         metrics.decisions.reflex += metrics
@@ -574,8 +505,6 @@ mod tests {
         assert_eq!(m.tags_for, vec![0, 0]);
         assert_eq!(m.tags_against, vec![0, 0]);
         assert_eq!(m.beacon_hold_ticks, vec![0, 0]);
-        assert_eq!(m.sight_ticks, vec![0, 0]);
-        assert!(!m.draw);
         assert_eq!(m.decisions, ProvenanceCounts::default());
         assert_eq!(m.timeliness, Timeliness::default());
         assert_eq!(m.refusals, Refusals::default());
@@ -681,59 +610,6 @@ mod tests {
         // Every tag landed by one squad was taken by the other.
         assert_eq!(m.tags_for[0], m.tags_against[1]);
         assert_eq!(m.tags_for[1], m.tags_against[0]);
-    }
-
-    #[test]
-    fn sight_ticks_count_the_update_of_the_sighting() {
-        // A brawl of 800 ticks: both squads are pinned to one beacon, so
-        // enemies are in sight over and over, and the count is bounded by
-        // the view update interval — a sighting is only counted on the
-        // update it happened.
-        let m = RoundMetrics::from_log(&melee_log());
-        let interval = u64::from(Header::default_round(1, REFLEX).params.view_update_ticks);
-        for (squad, &sight) in m.sight_ticks.iter().enumerate() {
-            assert!(
-                sight > 0,
-                "squad {squad} never sighted an enemy in a brawl of {} tags",
-                m.tags_for.iter().sum::<u64>()
-            );
-            assert!(
-                sight <= m.ticks / interval + 1,
-                "squad {squad} sighted on {sight} ticks of {}, more than the \
-                 {interval}-tick view interval allows",
-                m.ticks
-            );
-        }
-    }
-
-    #[test]
-    fn a_tied_clock_is_a_draw() {
-        // Nobody reaches the score and nobody is ahead when the clock runs
-        // out: the round ends with no winner, and that is a draw (D63's
-        // tie is the same verdict reached at the top of the score). One
-        // pin keeps the log's segment from being empty; the round plays
-        // out around it.
-        let pin = |t: Tick| {
-            vec![stamped(
-                0,
-                t,
-                u32::try_from(t).unwrap() + 1,
-                Kind::ActionOn(Action::Hold),
-                Provenance::Test,
-            )]
-        };
-        let mut h = Header::default_round(1, REFLEX);
-        h.params.win_score = 1_800_000;
-        h.params.time_limit_ticks = 60;
-        let log = recorded(h, 120, pin);
-        let m = RoundMetrics::from_log(&log);
-        assert_eq!(m.scores, vec![0, 0], "the setup scored without contact");
-        assert!(m.draw, "a tied clock was not read as a draw");
-
-        // And a round that never ended is not one: no verdict, no draw.
-        let log = recorded(Header::default_round(2, REFLEX), 60, pin);
-        let m = RoundMetrics::from_log(&log);
-        assert!(!m.draw);
     }
 
     #[test]

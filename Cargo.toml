@@ -15,7 +15,6 @@ default-members = [
     "crates/lm-agents",
     "crates/lm-host-model",
     "crates/lm-voice",
-    "crates/lm-vox",
 ]
 resolver = "2"
 

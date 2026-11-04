@@ -4130,7 +4130,6 @@ dependencies = [
  "lm-tools",
  "lm-voice",
  "serde_json",
- "ureq",
 ]
 
 [[package]]
@@ -4143,7 +4142,6 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "toml",
 ]
 
 [[package]]
@@ -4181,11 +4179,8 @@ name = "lm-tools"
 version = "0.1.0"
 dependencies = [
  "clap",
- "lm-agents",
  "lm-core",
  "lm-learn",
- "lm-voice",
- "lm-vox",
  "serde",
  "serde_json",
  "toml",
@@ -4199,14 +4194,6 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
- "ureq",
-]
-
-[[package]]
-name = "lm-vox"
-version = "0.1.0"
-dependencies = [
- "serde_json",
  "ureq",
 ]
 
@@ -4288,22 +4275,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "mime"
-version = "0.3.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
-
-[[package]]
-name = "mime_guess"
-version = "2.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
-dependencies = [
- "mime",
- "unicase",
 ]
 
 [[package]]
@@ -6346,12 +6317,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "214ca0b2191785cbc06209b9ca1861e048e39b5ba33574b3cedd58363d5bb5f6"
 
 [[package]]
-name = "unicase"
-version = "2.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
-
-[[package]]
 name = "unicode-general-category"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6407,9 +6372,7 @@ dependencies = [
  "base64",
  "cookie_store",
  "flate2",
- "getrandom 0.4.3",
  "log",
- "mime_guess",
  "percent-encoding",
  "rustls",
  "rustls-pki-types",
