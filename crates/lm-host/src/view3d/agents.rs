@@ -28,8 +28,30 @@ use crate::view3d::{View3dMaterials, View3dSettings};
 /// The figure body of an agent of the roster. Which agent it is lives in
 /// [`FigureEntities`] — the entity map is the view's own bookkeeping, and
 /// the component only marks what the entity is.
+///
+/// The body is the **parent** of the piece: the outline shell, the base it
+/// stands on and the leader's hat are its children, so a frame's transform
+/// is written once and the whole piece moves with it.
 #[derive(Component)]
 pub struct FigureBody;
+
+/// The outline shell of a figure: the same mesh, a shade larger, drawn with
+/// its back faces only.
+///
+/// The figure covers the middle of the shell, so only the rim shows: the
+/// outline is the figure's own silhouette, drawn a little larger — a piece
+/// on a board, separated from the board by a dark edge.
+#[derive(Component)]
+pub struct FigureOutline;
+
+/// The base a figure stands on: a flat plate on the ground, in the ink of
+/// the picture. It is the piece's contact shadow and its footing at once.
+#[derive(Component)]
+pub struct FigureBase;
+
+/// The leader's hat: the mark that says which figure leads its squad.
+#[derive(Component)]
+pub struct LeaderHat;
 
 /// The one figure mesh every agent shares.
 #[derive(Resource)]
@@ -161,14 +183,44 @@ pub fn figure_mesh(figure: &Figure) -> Mesh {
 /// The basis change is the chunks' own — x east, y up, z north — and the
 /// yaw turns the figure's +Z forward into the agent's facing: a facing of
 /// zero looks east, a quarter turn looks south (which is north's `-z`).
-fn figure_transform(figure: &FigureDraw) -> Transform {
+/// The scale is the look's: a figure is a game piece, and how big a game
+/// piece is a thing the look file says.
+fn figure_transform(figure: &FigureDraw, scale: f32) -> Transform {
     let translation = Vec3::new(figure.pos_m.0, 0.0, -figure.pos_m.1);
     let yaw = std::f32::consts::FRAC_PI_2 + figure.facing_rad;
-    Transform::from_translation(translation).with_rotation(Quat::from_rotation_y(yaw))
+    Transform::from_translation(translation)
+        .with_rotation(Quat::from_rotation_y(yaw))
+        .with_scale(Vec3::splat(scale))
 }
 
-/// The figures of this frame: one entity per agent of the roster, no more,
+/// The height of the figure mesh, in the mesh's own units.
+///
+/// The mesh is a body and a head, 1.5 units tall; the look says how tall a
+/// figure stands in metres, and the scale is the ratio.
+pub const FIGURE_MESH_HEIGHT: f32 = 1.5;
+
+/// The radius of the leader's hat, in the mesh's own units.
+///
+/// The hat is a brim of this radius, and the look says how wide it should
+/// be in metres; the two are the ratio the hat is scaled by.
+pub const HAT_BRIM_MESH_RADIUS: f32 = 0.5;
+
+/// The figures of the last frame: the pieces, as the view drew them.
+///
+/// The view draws them, and the effects read them: the pips go over the
+/// head of the agent that is out of the round, and the path follows the
+/// agent being watched. One list, so the two cannot disagree about where
+/// a piece is standing.
+#[derive(Resource, Default, Debug, Clone)]
+pub struct Figures(pub Vec<lm_render::scene::FigureDraw>);
+
+/// The figures of this frame: one piece per agent of the roster, no more,
 /// each at its lerped position in its squad's colour.
+///
+/// The piece is four entities: the body, the outline shell around it, the
+/// base it stands on, and — for the leader — the hat. The body is the
+/// parent, so a frame's transform is written once and the whole piece
+/// follows it.
 #[allow(clippy::too_many_arguments)]
 pub fn update_figures(
     mut commands: Commands,
@@ -177,6 +229,7 @@ pub fn update_figures(
     materials: Res<View3dMaterials>,
     figure_mesh: Res<FigureMesh>,
     mut entities: ResMut<FigureEntities>,
+    mut drawn: ResMut<Figures>,
     fixed: Res<Time<Fixed>>,
     mut placed: Query<&mut Transform, With<FigureBody>>,
 ) {
@@ -189,11 +242,20 @@ pub fn update_figures(
         fixed.overstep_fraction(),
         &settings.palette,
     );
+    // The effects read the same list the pieces are drawn from.
+    drawn.0 = figures.clone();
+
+    let look = &settings.look.0;
+    let scale = look.figure.height_m / FIGURE_MESH_HEIGHT;
+    // The shell stands off the figure by the look's outline width, in
+    // metres: the scale says how big the figure is, so the width has to be
+    // read in the same units the figure is measured in.
+    let shell_scale = 1.0 + look.outline.width_m / scale;
 
     let mut seen = BTreeSet::new();
     for figure in &figures {
         seen.insert(figure.id);
-        let transform = figure_transform(figure);
+        let transform = figure_transform(figure, scale);
         match entities.0.get(&figure.id) {
             Some(&entity) => {
                 if let Ok(mut placed) = placed.get_mut(entity) {
@@ -204,7 +266,7 @@ pub fn update_figures(
                 // The figure is shared by every agent; the material is the
                 // squad's own, and that pair is what the engine instances.
                 let squad = usize::from(figure.squad % 4);
-                let entity = commands
+                let body = commands
                     .spawn((
                         Mesh3d(figure_mesh.0.clone()),
                         MeshMaterial3d(materials.squads[squad].clone()),
@@ -212,7 +274,43 @@ pub fn update_figures(
                         FigureBody,
                     ))
                     .id();
-                entities.0.insert(figure.id, entity);
+                // The outline: the same mesh, a shade larger, drawn with its
+                // back faces only, so the figure covers the middle of it and
+                // only the rim shows.
+                commands.entity(body).with_children(|parent| {
+                    parent.spawn((
+                        Mesh3d(figure_mesh.0.clone()),
+                        MeshMaterial3d(materials.outline.clone()),
+                        Transform::from_scale(Vec3::splat(shell_scale)),
+                        FigureOutline,
+                    ));
+                    // The base: the plate the piece stands on, and the
+                    // shadow it drops.
+                    parent.spawn((
+                        Mesh3d(materials.base.clone()),
+                        MeshMaterial3d(materials.shadow.clone()),
+                        Transform::from_translation(Vec3::new(0.0, 0.01, 0.0)),
+                        FigureBase,
+                    ));
+                    // The hat: the leader's mark. A leader you can only
+                    // tell by its colour is not a leader you can tell apart
+                    // at a glance.
+                    //
+                    // The hat is a brim: it sits on the head and its width
+                    // is the look's, so the leader's mark is a parameter
+                    // rather than a constant.
+                    if figure.leader && look.figure.leader_hat {
+                        let brim = look.figure.leader_hat_m / (HAT_BRIM_MESH_RADIUS * scale);
+                        parent.spawn((
+                            Mesh3d(materials.hat.clone()),
+                            MeshMaterial3d(materials.leader_hat.clone()),
+                            Transform::from_translation(Vec3::new(0.0, FIGURE_MESH_HEIGHT, 0.0))
+                                .with_scale(Vec3::new(brim, 1.0, brim)),
+                            LeaderHat,
+                        ));
+                    }
+                });
+                entities.0.insert(figure.id, body);
             }
         }
     }

@@ -24,6 +24,7 @@
 //! opened is not a crash either: the [`LogError`] it came back with is
 //! written across the panel.
 
+use crate::look::Look;
 use crate::map_plugin::{channel_color, egui_color, squad_color, Bottom, Layout};
 use crate::score_plugin::draw_score;
 use crate::sim_plugin::{CurrentRoll, CurrentScore, Replay, Round, ScoreZoom};
@@ -58,8 +59,12 @@ fn roll_panel(
     mut bottom: ResMut<Bottom>,
     keys: Res<ButtonInput<KeyCode>>,
     layout: Res<Layout>,
+    look: Res<Look>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
+    // The theme: the roll and the score are two readings of one round, and
+    // they are drawn in one type and one set of colours.
+    look.apply_theme(&ctx);
     let mut root = egui::Ui::new(
         ctx.clone(),
         "roll_root".into(),
@@ -79,9 +84,9 @@ fn roll_panel(
         .show(&mut root, |ui| {
             draw_replay(ui, &round, &mut replay);
             match mode {
-                lm_host_model::view::BottomMode::Roll => draw_roll(ui, &roll),
+                lm_host_model::view::BottomMode::Roll => draw_roll(ui, &roll, &look),
                 lm_host_model::view::BottomMode::Score => {
-                    draw_score(ui, &score, &round, &zoom, mode)
+                    draw_score(ui, &score, &round, &zoom, mode, &look)
                 }
             }
         });
@@ -137,7 +142,7 @@ fn draw_replay(ui: &mut egui::Ui, round: &Round, replay: &mut Replay) {
 }
 
 /// The lanes: one per agent, over the window of ticks.
-fn draw_roll(ui: &mut egui::Ui, roll: &CurrentRoll) {
+fn draw_roll(ui: &mut egui::Ui, roll: &CurrentRoll, look: &Look) {
     let lanes = &roll.model.lanes;
 
     ui.horizontal(|ui| {
@@ -196,7 +201,7 @@ fn draw_roll(ui: &mut egui::Ui, roll: &CurrentRoll) {
             painter.rect_filled(
                 egui::Rect::from_min_max(egui::pos2(from, top + 1.0), egui::pos2(to, bottom - 1.0)),
                 0.0,
-                span_color(span.what),
+                span_color(span.what, look),
             );
         }
 
@@ -245,10 +250,10 @@ pub(crate) fn mark_color(kind: MarkKind) -> egui::Color32 {
 }
 
 /// The colour of a span: what the run on it was.
-fn span_color(what: SpanKind) -> egui::Color32 {
+fn span_color(what: SpanKind, look: &Look) -> egui::Color32 {
     match what {
         SpanKind::Stunned => egui::Color32::from_rgb(170, 60, 60),
-        SpanKind::HoldingBeacon(squad) => egui_color(squad_color(squad)),
+        SpanKind::HoldingBeacon(squad) => egui_color(squad_color(look, squad)),
         SpanKind::OnIntent => egui::Color32::from_rgb(70, 170, 160),
         SpanKind::OnSafeBranch => egui::Color32::from_rgb(120, 130, 70),
         // A line: the span is the length of the line, and the colour is the

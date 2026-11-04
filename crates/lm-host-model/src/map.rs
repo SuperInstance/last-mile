@@ -92,6 +92,11 @@ pub struct AgentDraw {
     pub facing_rad: f32,
     /// Whether it is stunned on the tick being drawn.
     pub stunned: bool,
+    /// How many ticks of the stun are left, when it is stunned.
+    ///
+    /// The pips over a stunned agent are one for each of these: a stunned
+    /// agent that looks the same as a free one is a round nobody can read.
+    pub stun_ticks: u32,
     /// Whether it leads its squad.
     pub leader: bool,
     /// Whether the viewer sees it now. Everything the model draws is seen —
@@ -131,24 +136,6 @@ pub struct SpeechTick {
     pub channel: Channel,
 }
 
-/// One painted cell as the map draws it.
-///
-/// The paint is what the tags of a round leave on the ground. It is drawn in
-/// the colour of the squad that splatted it, and it fades as it dries, so a
-/// fresh splat is bright and an old one is barely there.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PaintDraw {
-    /// The cell the paint is on.
-    pub cell: CellXY,
-    /// The squad whose paint it is.
-    pub owner: u8,
-    /// How wet the paint is, in Q8: 255 is fresh, 0 is dry.
-    pub wet_q8: u8,
-    /// The centre of that cell, in metres. Paint does not move, so it does
-    /// not interpolate.
-    pub pos_m: (f32, f32),
-}
-
 /// Everything one frame of the map draws.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapModel {
@@ -158,11 +145,6 @@ pub struct MapModel {
     pub agents: Vec<AgentDraw>,
     /// The round's beacons, in world order.
     pub beacons: Vec<BeaconDraw>,
-    /// The paint on the ground the viewer may see, in cell order.
-    ///
-    /// A spectator sees all of it; a possessing player sees it only on the
-    /// cells the view vouches for, the same rule the fog uses.
-    pub paint: Vec<PaintDraw>,
     /// The words being spoken right now, one tick per word.
     pub speech: Vec<SpeechTick>,
     /// The tick of the round the map is drawn at.
@@ -266,6 +248,9 @@ impl MapModel {
                     pos_m: pos_m(from, agent.pos, alpha),
                     facing_rad: facing_rad(agent.facing),
                     stunned: agent.stunned_until.is_some_and(|t| now < t),
+                    stun_ticks: agent.stunned_until.filter(|t| now < *t).map_or(0, |t| {
+                        u32::try_from(t.saturating_sub(now)).unwrap_or(u32::MAX)
+                    }),
                     leader: agent.role == Role::Leader,
                     visible: true,
                 })
@@ -298,31 +283,10 @@ impl MapModel {
         let metres =
             |cells_wide: u16| f32::from(cells_wide) * world.cell_units as f32 / UNITS_PER_M as f32;
         let speech = speech_ticks(sim, &view, &agents, alpha);
-
-        // The paint on the ground: the cells the viewer may see. A
-        // spectator sees the lot; a possessing player sees the paint only
-        // where the view vouches for the cell, the same rule the fog uses,
-        // so the map never shows paint the player has not seen.
-        let paint: Vec<PaintDraw> = world
-            .paint
-            .cells()
-            .filter(|(cell, _)| fog.cell(*cell) != lm_render::fog::CellFog::Unknown)
-            .map(|(cell, cell_paint)| {
-                let centre = grid.center(cell, world.cell_units);
-                PaintDraw {
-                    cell,
-                    owner: cell_paint.owner,
-                    wet_q8: cell_paint.wet_q8,
-                    pos_m: pos_m(centre, centre, alpha),
-                }
-            })
-            .collect();
-
         MapModel {
             cells,
             agents,
             beacons,
-            paint,
             speech,
             now_tick: now,
             world_m: (metres(grid.w), metres(grid.h)),

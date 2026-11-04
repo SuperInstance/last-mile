@@ -31,6 +31,7 @@
 
 pub mod agents;
 pub mod chunks;
+pub mod effects;
 pub mod upscale;
 pub mod warmup;
 
@@ -47,16 +48,6 @@ use lm_render::palette::{Palette, UpscaleMode};
 
 use crate::keys::{FOLLOW, LET_GO, LET_GO_ESCAPE, PAN_BACK, PAN_FORWARD, PAN_LEFT, PAN_RIGHT};
 use crate::sim_plugin::Round;
-
-/// The sky: the world camera's clear colour, and the colour its distance
-/// fog ramps the far ground into.
-///
-/// The floor is a blue-grey navy (`Palette`'s floor class), so the sky
-/// **may not be** — Task 6's reviewer finding 1 was a navy sky over a navy
-/// floor, in which the world's edge and the ground were one surface. The
-/// dusk violet sits a hue away from the floor while staying the quiet
-/// background the retro-modern look wants.
-pub const SKY: Color = Color::srgb(0.30, 0.24, 0.38);
 
 /// The stage of the 3D view: the warmup card, then the round.
 ///
@@ -96,6 +87,10 @@ pub struct View3dSettings {
     pub render: RenderConfig,
     /// The palette the configuration names.
     pub palette: Palette,
+    /// The look: the colours, sizes and shadows every view of the game
+    /// reads. The 3D view takes its sky, its light and its figures from it,
+    /// so the diorama and the 2D map are the same world drawn twice.
+    pub look: crate::look::Look,
 }
 
 impl View3dSettings {
@@ -105,7 +100,7 @@ impl View3dSettings {
     /// A configuration the view cannot honour — DLSS without its project
     /// id, DLSS in a build without the feature — is an error here, at
     /// start-up, not a panic at the first frame.
-    pub fn load(path: &std::path::Path) -> Result<Self, String> {
+    pub fn load(path: &std::path::Path, look: crate::look::Look) -> Result<Self, String> {
         let render = RenderConfig::load(path)?;
         lm_render::upscale::validate(&render)?;
         if render.upscale == UpscaleMode::Dlss && !cfg!(feature = "dlss") {
@@ -116,9 +111,19 @@ impl View3dSettings {
             ));
         }
         Ok(View3dSettings {
-            palette: Palette::for_mode(&render.palette),
+            palette: look.0.palette(),
             render,
+            look,
         })
+    }
+
+    /// The sky: the world camera's clear colour, and the colour its
+    /// distance fog ramps the far ground into.
+    ///
+    /// The sky is the look's own, so the far ground melts into a colour the
+    /// file chose — not into a constant in the code.
+    pub fn sky(&self) -> Color {
+        self.look.bevy(self.look.0.world.sky)
     }
 }
 
@@ -141,6 +146,21 @@ pub struct View3dMaterials {
     pub beacon_free: Handle<StandardMaterial>,
     /// The marker of a held beacon: the palette's `beacon_held`.
     pub beacon_held: Handle<StandardMaterial>,
+    /// The dark shell that draws the outline around a figure.
+    ///
+    /// It is drawn with its back faces only, so the figure itself covers
+    /// the middle of the shell and only the rim shows: the outline is the
+    /// figure's own silhouette, drawn a little larger.
+    pub outline: Handle<StandardMaterial>,
+    /// The hat of the leader: the mark that tells a leader apart from the
+    /// rest of the squad at a glance.
+    pub leader_hat: Handle<StandardMaterial>,
+    /// The shadow a figure drops on the ground.
+    pub shadow: Handle<StandardMaterial>,
+    /// The plate a figure stands on.
+    pub base: Handle<Mesh>,
+    /// The hat of the leader.
+    pub hat: Handle<Mesh>,
 }
 
 /// The 3D camera rig: where it looks, from how far, at what angle, and
@@ -264,10 +284,14 @@ impl Plugin for View3dPlugin {
             .init_resource::<chunks::ChunkStore>()
             .init_resource::<agents::FigureEntities>()
             .init_resource::<agents::BeaconEntities>()
+            .init_resource::<agents::Figures>()
             .init_resource::<CameraRig3d>()
+            // The tag moment: the paint of the hits, the pips of the
+            // stunned, and the path of the agent being watched.
+            .add_plugins(effects::Effects3dPlugin)
             // The retro-modern look starts in the sky's colour; the fog
             // ramps the far ground into it, and the letterbox shows it.
-            .insert_resource(ClearColor(SKY))
+            .insert_resource(ClearColor(self.settings.sky()))
             .add_systems(
                 Startup,
                 // The upscale makes the picture before the camera that

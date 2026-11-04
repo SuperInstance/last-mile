@@ -2104,7 +2104,6 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
-                paint_slow_q8: 0,
             },
             squad: vec![lm_core::view::AgentSnap {
                 id,
@@ -2112,7 +2111,6 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
-                paint_slow_q8: 0,
             }],
             enemies: vec![],
             beacons: vec![lm_core::view::BeaconSnap {
@@ -2141,7 +2139,6 @@ mod tests {
             )]),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
-            decomposed: BTreeMap::new(),
             model: "stub".to_owned(),
             input_tokens: 64,
             latency_ms: 0,
@@ -2455,10 +2452,10 @@ mod tests {
         // The shipped backends: reflex plus the two model tiers of D55.
         let backends: Vec<&str> = p.tiers.tiers().iter().map(|t| t.backend()).collect();
         assert_eq!(backends, vec!["reflex", "thor-d1-2b", "jev"]);
-        // The shipped escalation set is empty: escalation is off (D79). The
-        // second opinion did not beat the d1-2B's own answer on the move
-        // gate (McNemar p = 0.37) and changed no game measure.
-        assert_eq!(p.escalate_gates, Some(BTreeSet::new()));
+        // The shipped escalation set: the move gate alone (D71's accuracy
+        // was measured on the move gate; the talk gates' second opinion did
+        // not pay for its latency).
+        assert_eq!(p.escalate_gates, Some(BTreeSet::from(["move".to_owned()])));
         // A missing or broken policy file means the defaults, never a panic.
         assert_eq!(Policy::for_harness(""), p);
         assert_eq!(Policy::for_harness("tiers = ["), p);
@@ -2698,10 +2695,8 @@ mod tests {
                 gate: "move".to_owned(),
                 primary_confidence: 0.2,
                 primary_choice: None,
-                primary_probs: BTreeMap::new(),
                 second_confidence: None,
                 second_choice: None,
-                second_probs: BTreeMap::new(),
                 latency_ms: 10,
                 outcome,
                 refusal,
@@ -2952,10 +2947,8 @@ mod tests {
                 gate: "move".to_owned(),
                 primary_confidence: 0.2,
                 primary_choice: None,
-                primary_probs: BTreeMap::new(),
                 second_confidence: second,
                 second_choice: None,
-                second_probs: BTreeMap::new(),
                 latency_ms: 500,
                 outcome,
                 // The mechanism behind the outcome (N2): the second opinion
@@ -3217,7 +3210,6 @@ mod tests {
                 .map(|(id, confidence)| (id.clone(), *confidence))
                 .collect(),
             escalated: answers.escalated.clone(),
-            decomposed: BTreeMap::new(),
             model: answers.model.clone(),
             input_tokens: answers.input_tokens,
             latency_ms: answers.latency_ms,

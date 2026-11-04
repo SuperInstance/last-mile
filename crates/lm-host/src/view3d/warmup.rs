@@ -58,19 +58,6 @@ const CARD_FRAMES: u32 = 8;
 /// acceptance asks for a beacon tower in the opening frame).
 pub const OVERVIEW_PITCH_RAD: f32 = 0.35;
 
-/// The colour of the ground under the world: the void the world floats on.
-///
-/// It has to read as *neither* the floor nor the sky — Task 8's reviewer
-/// finding 1 was a floor the colour of the clear colour, in which the
-/// world's edge could not be seen. The void is darker than both, so the
-/// edge of the board shows as an edge.
-const VOID_GROUND: lm_render::palette::Color = lm_render::palette::Color {
-    r: 0.004,
-    g: 0.004,
-    b: 0.009,
-    a: 1.0,
-};
-
 /// How far the void ground spreads past the world, in metres: far enough
 /// that a camera looking from beyond the world's edge sees ground below the
 /// horizon rather than sky, near enough to stay inside the camera's far
@@ -93,14 +80,9 @@ const VOID_DROP_M: f32 = 0.2;
 #[derive(Component)]
 pub struct VoidGround;
 
-/// The weak ambient light of the round: enough that a lit figure's own
-/// shadowed side is not a black hole, no more.
-const AMBIENT_BRIGHTNESS: f32 = 40.0;
-
 /// How many frames the card has been on screen.
 #[derive(Resource, Default)]
 pub struct WarmupFrames(pub u32);
-
 /// The scene model's warmup: which materials are compiled, and whether the
 /// round may start.
 #[derive(Resource)]
@@ -214,15 +196,19 @@ pub fn setup(
         // upscale's offscreen picture, or the window by default.
         upscale::world_target(&targets),
         DistanceFog {
-            color: crate::view3d::SKY,
+            color: settings.sky(),
             falloff: FogFalloff::Linear {
                 start: settings.render.fog_near_m,
                 end: settings.render.fog_far_m,
             },
             ..default()
         },
+        // The weak ambient light of the round: enough that a lit figure's
+        // own shadowed side is not a black hole, no more. How weak it is
+        // is the look's business: the strength is in
+        // `assets/look/look.toml`, under `[light]`.
         AmbientLight {
-            brightness: AMBIENT_BRIGHTNESS,
+            brightness: settings.look.0.light.ambient_brightness,
             ..default()
         },
         Transform::from_translation(centre + Vec3::new(0.0, 7.0, 12.0)).looking_at(centre, Vec3::Y),
@@ -238,14 +224,21 @@ pub fn setup(
     }
 
     // The sun: flat unlit terrain ignores it, the lit figures read as solid
-    // for it.
+    // for it. Its colour, its strength and where it stands are the look's.
+    let light = settings.look.0.light;
+    let sun_color = settings.look.bevy(light.sun_color);
+    let rotation = light.sun_rotation;
     commands.spawn((
-        DirectionalLight::default(),
+        DirectionalLight {
+            color: sun_color,
+            illuminance: light.sun_illuminance,
+            ..default()
+        },
         Transform::from_rotation(Quat::from_euler(
             EulerRot::XYZ,
-            -std::f32::consts::PI * 0.35,
-            std::f32::consts::PI * 0.25,
-            0.0,
+            rotation[0],
+            rotation[1],
+            rotation[2],
         )),
     ));
 
@@ -282,11 +275,62 @@ pub fn setup(
     };
     let beacon_free = beacon_of(lm_render::palette::MaterialClass::BeaconFree);
     let beacon_held = beacon_of(lm_render::palette::MaterialClass::BeaconHeld);
+    // The plate a piece stands on, and the hat the leader wears. Both are
+    // made here, at start-up, so the pipelines that draw them exist before
+    // the round does: nothing is compiled mid-round.
+    let base = meshes.add(Cuboid::new(1.5, 0.03, 1.5).mesh().build());
+    // The leader's hat: a brim, of the radius the look says, sitting on
+    // the head. Its own height is small: the mark is the width, not the
+    // height.
+    let hat = meshes.add(
+        Cylinder::new(agents::HAT_BRIM_MESH_RADIUS, 0.08)
+            .mesh()
+            .build(),
+    );
+    // The outline: the figure's own mesh, a shade larger, drawn with its
+    // back faces only. The figure covers the middle of the shell, so only
+    // the rim shows — a dark edge that separates a piece from the board it
+    // stands on. It is unlit, so the edge is the same dark everywhere.
+    let outline = materials.add(StandardMaterial {
+        base_color: settings.look.bevy(settings.look.0.outline.color),
+        unlit: true,
+        // The back faces only: the figure covers the middle of the shell,
+        // so only the rim of it shows.
+        cull_mode: Some(bevy::render::render_resource::Face::Front),
+        ..default()
+    });
+    // The leader's hat: the mark that tells a leader apart from the rest of
+    // the squad at a glance, in the look's own leader colour.
+    let leader_hat = materials.add(StandardMaterial {
+        base_color: settings.look.bevy(settings.look.0.ui.leader),
+        unlit: true,
+        ..default()
+    });
+    // The shadow under a figure: a flat disc on the ground, in the outline's
+    // ink, at the look's own strength.
+    let shadow = materials.add(StandardMaterial {
+        base_color: settings.look.bevy(
+            settings
+                .look
+                .0
+                .outline
+                .color
+                .alpha(settings.look.0.light.shadow_alpha),
+        ),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
     commands.insert_resource(View3dMaterials {
         chunk: chunk.clone(),
         squads: squads.clone(),
         beacon_free: beacon_free.clone(),
         beacon_held: beacon_held.clone(),
+        outline: outline.clone(),
+        leader_hat: leader_hat.clone(),
+        shadow: shadow.clone(),
+        base: base.clone(),
+        hat: hat.clone(),
     });
 
     // The one figure mesh every agent shares, instanced by the engine, and
@@ -296,12 +340,13 @@ pub fn setup(
     let figure = meshes.add(agents::figure_mesh(&lm_render::figure::Figure::new()));
     commands.insert_resource(FigureMesh(figure.clone()));
     let marker = meshes.add(Cuboid::new(1.2, 7.2, 1.2).mesh().build());
+    let void_ground = settings.look.0.world.void.to_linear();
     commands.insert_resource(agents::BeaconMesh(marker.clone()));
 
     // The ground under the world, out past its edges: the world floats on
     // the void, and the camera never sees sky below the horizon.
     commands.spawn((
-        Mesh3d(meshes.add(void_ground_mesh(world))),
+        Mesh3d(meshes.add(void_ground_mesh(world, void_ground))),
         MeshMaterial3d(chunk.clone()),
         Transform::from_translation(centre + Vec3::new(0.0, -VOID_DROP_M, 0.0)),
         VoidGround,
@@ -369,7 +414,7 @@ pub fn setup(
 /// Built like a chunk's quads are — flat normal, one flat colour on every
 /// corner — so it renders through the chunk material and its pipeline
 /// without a thing of its own.
-fn void_ground_mesh(world_m: (f32, f32)) -> Mesh {
+fn void_ground_mesh(world_m: (f32, f32), color: lm_render::palette::Color) -> Mesh {
     let half = VOID_SPREAD_M + world_m.0.max(world_m.1) * 0.5;
     let corners = [
         (-half, 0.0, half),
@@ -390,7 +435,7 @@ fn void_ground_mesh(world_m: (f32, f32)) -> Mesh {
     let _ = out.try_insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; corners.len()]);
     let _ = out.try_insert_attribute(
         Mesh::ATTRIBUTE_COLOR,
-        vec![[VOID_GROUND.r, VOID_GROUND.g, VOID_GROUND.b, VOID_GROUND.a]; corners.len()],
+        vec![[color.r, color.g, color.b, color.a]; corners.len()],
     );
     out.insert_indices(Indices::U32(vec![0, 1, 2, 0, 2, 3]));
     out
@@ -411,6 +456,7 @@ pub fn advance(
     mut rig: ResMut<crate::view3d::CameraRig3d>,
     mut cameras: Query<&mut Transform, With<ViewCamera>>,
     cards: Query<Entity, With<WarmupCard>>,
+    settings: Res<View3dSettings>,
 ) {
     if *stage != ViewStage::Warming {
         return;
@@ -461,7 +507,9 @@ pub fn advance(
         .unwrap_or_default();
     rig.focus_m = focus;
     rig.distance_m = lm_render::scene::overview_distance(radius);
-    rig.pitch_rad = OVERVIEW_PITCH_RAD;
+    // The tilt is the look's: a diorama is looked at from above, and how
+    // far above is a thing a file says, not a thing the code knows.
+    rig.pitch_rad = settings.look.0.camera.pitch_rad;
     rig.yaw_rad = lm_render::scene::opening_yaw(focus, &beacons, world);
     store.focus_m = focus;
     for mut transform in &mut cameras {
