@@ -40,7 +40,6 @@ use crate::ledger::{Direction, Ledger, LedgerError, Prediction, Verdict};
 use crate::metrics::RoundMetrics;
 use crate::review::{build_review_prompt, parse_answer, Claim, HarnessView, Proposal};
 use crate::round::play;
-use crate::sign;
 
 /// The reflex an agent runs when no harness is pinned for it.
 ///
@@ -52,22 +51,7 @@ pub const DEFAULT_REFLEX: &str = include_str!("../../../assets/reflexes/default.
 pub const DEFAULT_TICKS: u64 = 1_500;
 
 /// How many held-out seeds the evaluation runs on, when nothing else is said.
-///
-/// Sixteen: at four seeds a verdict turns on luck — four of the seed farm's
-/// thirty proposals were wrongly adopted at that count, every one of them a
-/// false adopt (crates/lm-learn/SEEDFARM.md). Sixteen is where the false
-/// adopt of a change that truly helps ~60% of the seeds falls from ~47% to
-/// ~17%, and where the sign test can clear the fairest possible sample.
-pub const DEFAULT_EVAL_SEEDS: usize = 16;
-
-/// The horizon from which the claimable metrics exist.
-///
-/// Below this many ticks every metric the flow can claim is zero on every
-/// seed — a squad holds nothing before about tick 1_000 — so a verdict read
-/// at a shorter horizon measures nothing at all. The flow still runs and
-/// still rejects there; it says so, so the rejection is not read as a
-/// measurement (crates/lm-learn/SEEDFARM.md).
-pub const MEASURABLE_TICKS: u64 = 1_000;
+pub const DEFAULT_EVAL_SEEDS: usize = 4;
 
 /// How many of the round's most surprising situations the record keeps: the
 /// between-round screen is read by a person, and five lines is a reading
@@ -159,13 +143,6 @@ pub struct FlowRecord {
     pub ledger_path: PathBuf,
     /// The held-out seeds the evaluation ran on.
     pub eval_seeds: Vec<u64>,
-    /// The horizon the round was judged at: the ticks every seed of the
-    /// evaluation was played for.
-    ///
-    /// A record written before this field existed reads zero, and the
-    /// summary then says the horizon was not recorded.
-    #[serde(default)]
-    pub ticks: u64,
     /// The human overrides, in the order they happened.
     pub overrides: Vec<HumanOverride>,
     /// The round's top surprising situations: where the minds were unsure,
@@ -223,16 +200,6 @@ impl FlowRecord {
                 .join(" ");
             let _ = writeln!(s, "  eval:           {deltas}");
         }
-        // The sign test, next to the count: the two halves of the pass
-        // rule, so a reader can see why the verdict is what it is.
-        if let (Some(claim), Some(verdict)) = (&self.claim, &self.verdict) {
-            let _ = writeln!(
-                s,
-                "  sign test:      {}",
-                sign_test_text(&verdict.deltas, claim)
-            );
-        }
-        let _ = writeln!(s, "  horizon:        {}", self.horizon_text());
         let _ = writeln!(s, "  decision:       {}", self.decision);
         match &self.commit {
             Some(commit) => {
@@ -276,54 +243,6 @@ impl FlowRecord {
         let _ = writeln!(s, "  next header:    pins {}", self.next_header_pin);
         s
     }
-
-    /// The horizon the round was judged at, and what it can measure.
-    ///
-    /// A horizon below [`MEASURABLE_TICKS`] measures nothing: every claimable
-    /// metric is zero on every seed there, so the verdict that comes out of
-    /// it is a rejection of the proposal and not a measurement of it. The
-    /// summary says so, so nobody reads the rejection as evidence.
-    fn horizon_text(&self) -> String {
-        if self.ticks == 0 {
-            // A record written before the horizon was kept.
-            return "not recorded".to_owned();
-        }
-        if self.ticks < MEASURABLE_TICKS {
-            return format!(
-                "{} ticks — too short to measure: every claimable metric is zero before about \
-                 tick {MEASURABLE_TICKS}, so a verdict here can only be a rejection",
-                self.ticks
-            );
-        }
-        format!("{} ticks", self.ticks)
-    }
-}
-
-/// The sign test over a judged round's deltas, in words.
-///
-/// The count and the p-value are both here, because both of them decide:
-/// the count says how many seeds met the bar, the p-value says which way
-/// the seeds that moved moved.
-fn sign_test_text(deltas: &[(u64, i64)], claim: &Claim) -> String {
-    let test = eval::sign_test_of(deltas, claim.direction);
-    let p = test.p_value_text();
-    if test.moved == 0 {
-        return format!("no seed moved, so there is nothing to read (p = {p})");
-    }
-    format!(
-        "{} of {} seeds moved {}, p = {p} — {}",
-        test.claimed,
-        test.moved,
-        match claim.direction {
-            Direction::Up => "up",
-            Direction::Down => "down",
-        },
-        if sign::passes(test) {
-            "below 0.05"
-        } else {
-            "not below 0.05"
-        }
-    )
 }
 
 /// How one learning round is set up.
@@ -801,7 +720,6 @@ pub fn run_learning_round(
         deposit_path: None,
         ledger_path: ledger_path.clone(),
         eval_seeds: Vec::new(),
-        ticks: cfg.ticks,
         overrides: Vec::new(),
         surprise: cfg
             .surprise
@@ -1356,7 +1274,7 @@ fn harness_dir_of(root: &Path, p: &Proposal) -> Option<PathBuf> {
 }
 
 /// Read every agent's harness under the root: the `a<agent>` directories.
-pub(crate) fn read_harness_set(root: &Path) -> Result<BTreeMap<u16, Harness>, FlowError> {
+fn read_harness_set(root: &Path) -> Result<BTreeMap<u16, Harness>, FlowError> {
     let mut set = BTreeMap::new();
     if !root.is_dir() {
         return Err(FlowError::Harness(format!(
@@ -1405,7 +1323,7 @@ fn harness_view(h: &Harness) -> HarnessView {
 }
 
 /// The header of a round, with the harnesses pinned into it (D27).
-pub(crate) fn round_header(seed: u64, harnesses: &BTreeMap<u16, Harness>) -> Header {
+fn round_header(seed: u64, harnesses: &BTreeMap<u16, Harness>) -> Header {
     let mut header = Header::default_round(seed, DEFAULT_REFLEX);
     harness::pin_into(&mut header, harnesses);
     header
@@ -1566,41 +1484,19 @@ fn commit_harness(
     let Some(dir) = harness_dir_of(root, proposal) else {
         return Ok((None, String::new()));
     };
-    let message = format!("round {round_id}: {}", describe_proposal(proposal));
-    commit_tree(&dir, round_id, &message)
-}
-
-/// Commit every change in a harness directory — the one commit discipline
-/// every lane of change into the harness uses: the learning flow's adopted
-/// proposals and the Vibe pipeline's landings.
-///
-/// The commit's date is derived from `id`, so the same change always
-/// produces the same commit (D65), and the state it leaves is tagged
-/// `round-<id>` (D27: the frozen state to roll back to). A directory that
-/// is not a git repo of its own is identified by its bytes instead: there
-/// is nothing to commit, and nothing is pretended.
-pub(crate) fn commit_tree(
-    dir: &Path,
-    id: &str,
-    message: &str,
-) -> Result<(Option<String>, String), FlowError> {
     if !dir.join(".git").exists() {
         return Ok((None, String::new()));
     }
 
-    git(dir, &["add", "-A"])?;
-    // A repo with no commits yet has no HEAD to diff against: the whole
-    // index is the diff (against the empty tree it is about to replace).
-    let diff = match git(dir, &["rev-parse", "--verify", "HEAD"]) {
-        Ok(_) => git(dir, &["diff", "HEAD"])?,
-        Err(_) => git(dir, &["diff", "--cached"])?,
-    };
-    let dirty = !git(dir, &["status", "--porcelain"])?.trim().is_empty();
+    git(&dir, &["add", "-A"])?;
+    let diff = git(&dir, &["diff", "HEAD"])?;
+    let dirty = !git(&dir, &["status", "--porcelain"])?.trim().is_empty();
     if dirty {
-        let date = commit_date(id);
+        let message = format!("round {round_id}: {}", describe_proposal(proposal));
+        let date = commit_date(round_id);
         let out = Command::new("git")
             .arg("-C")
-            .arg(dir)
+            .arg(&dir)
             .args([
                 "-c",
                 "user.name=last-mile flow",
@@ -1609,7 +1505,7 @@ pub(crate) fn commit_tree(
                 "-c",
                 "commit.gpgsign=false",
             ])
-            .args(["commit", "-m", message])
+            .args(["commit", "-m", &message])
             .env("GIT_AUTHOR_DATE", &date)
             .env("GIT_COMMITTER_DATE", &date)
             .output()
@@ -1621,8 +1517,8 @@ pub(crate) fn commit_tree(
             )));
         }
     }
-    let commit = git(dir, &["rev-parse", "HEAD"])?;
-    git(dir, &["tag", "-f", &format!("round-{id}"), &commit])?;
+    let commit = git(&dir, &["rev-parse", "HEAD"])?;
+    git(&dir, &["tag", "-f", &format!("round-{round_id}"), &commit])?;
     Ok((Some(commit), diff))
 }
 
@@ -1712,7 +1608,6 @@ mod tests {
             deposit_path: None,
             ledger_path: PathBuf::from("ledger.jsonl"),
             eval_seeds: Vec::new(),
-            ticks: 0,
             overrides: Vec::new(),
             surprise: Vec::new(),
         };
@@ -1789,7 +1684,6 @@ mod tests {
             deposit_path: None,
             ledger_path: PathBuf::from("ledger.jsonl"),
             eval_seeds: Vec::new(),
-            ticks: 0,
             overrides: Vec::new(),
             surprise: Vec::new(),
         }

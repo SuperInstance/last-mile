@@ -37,21 +37,13 @@ quality = 2
 # every ask was refused and the agents never thought at all
 # (crates/lm-agents/tests/talk_on_thor.md).
 #
-# D70 split the pack and D71 added the second opinion, and the budgets
-# follow the packs' measured cost on a busy Thor
-# (crates/lm-agents/tests/talk_on_thor.md):
-#
-#   * the move pack answers in 243 ms at the median and 436 ms at p95
-#     (escalation is off by default, D79; when a harness turns it on, a
-#     second opinion adds up to ~2 s of clef-flash to a move thought);
-#   * the talk pack is the slow case: 1.1-1.6 s at the median, 2.3-2.4 s at
-#     p95, and a 3.5-3.7 s tail when the box is busy.
-#
-# 105 ticks (3.5 s at 30 Hz) clears the talk pack's p95 with room to spare;
-# the rare 3.7 s tail misses it, no tier fits and the reflex plays the
-# moment (D26) -- cheaper for the round than a budget that never lets the
-# talk pack think at all. The move pack is one question and 162 ms, so the
-# decision that moves the game is not waiting for any of this.
+# D70 split the pack and D71 added the second opinion, and the talk pack
+# carries both costs: the ten talk gates cost the d1-2B 1350 ms, and an
+# escalated gate is another 550 ms of clef-flash on top of it. The budget
+# has to clear the pair, or the talk pack never fits a tier and the agents
+# never say anything (measured: 28 talk asks per round against the timer's
+# 80). The move pack is one question and 162 ms, so the decision that moves
+# the game is not waiting for any of this.
 threat_horizon_ticks = 105
 # Quiet thinking (no threat, a beacon plan) may take up to this many ticks.
 max_think_ticks = 105
@@ -76,25 +68,6 @@ verdict_cache = true
 pay_priority = false
 # Questions per ask; absent means AgentsConfig.max_questions.
 # max_questions = 3
-
-[escalate]
-# Which gates a second opinion is bought for (D71), when the cheap model
-# answers below AgentsConfig.escalate_below (0.50). `gates` absent is every
-# gate below the threshold (the escalation as D71 shipped it), `gates = []`
-# is none of them (off), and the list names the ones that are.
-#
-# The default is off (D79, Casey, 2026-10-30). A pre-registered test on the
-# Thor (crates/lm-agents/tests/talk_on_thor.md, "Does escalation earn its
-# keep"; evidence/escjudge/) asked 282 escalated move situations of the
-# d1-2B, clef-flash and a judge: where the two disagree, the d1-2B's own
-# answer agreed with the judge 35 times and the second opinion 27 (exact
-# McNemar p = 0.37), so the second opinion is not better. Over 16 seeds x
-# 3000 ticks, on against off changed no game measure (tags, sight ticks,
-# draws, decisions, margins); on only added ~2 s of second opinions a round
-# and 86 escalation_late refusals, because a clef-flash answer costs ~2 s
-# against the d1-2B's 0.35 s. The mechanism stays: a harness that wants a
-# second opinion lists its gates here (e.g. gates = ["move"], D75).
-gates = []
 
 # When the talk pack is asked (D70).
 #

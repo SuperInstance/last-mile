@@ -1,6 +1,6 @@
 //! The `lm` CLI.
 //!
-//! The subcommands:
+//! Seven subcommands:
 //!
 //! * `lm run` plays a headless round and writes its log;
 //! * `lm replay` replays a log and checks every hash it recorded;
@@ -8,12 +8,8 @@
 //! * `lm golden` checks (or writes) the pinned golden hashes;
 //! * `lm branch` rewinds a round to a tick, changes one thing and re-runs
 //!   it;
-//! * `lm learn` runs one learning round: play, review, seal, test, adopt;
-//! * `lm vibe` proposes a typed change out of the Vibe Dictionary with a
-//!   prediction sealed before the test, and reads the ledger back;
 //! * `lm voice` plays a seeded round and reports the voice lane's numbers
 //!   through the skald bank;
-//! * `lm vox` reads a performance out, or plays one back;
 //! * `lm gen-trig` writes the Q14 sine table that `lm-core` commits.
 //!
 //! The table is generated on the host (where floating point is allowed) and
@@ -76,19 +72,13 @@ struct Cli {
 enum Command {
     /// Play a headless round and write its log.
     Run {
-        /// The seed of the round. Ignored when `--header` is given; one of
-        /// the two is required.
+        /// The seed of the round.
         #[arg(long)]
-        seed: Option<u64>,
+        seed: u64,
         /// How many ticks the round may run. 0 plays an empty round: a valid
         /// log with a header and no ticks, which replays as `OK 0 hashes`.
         #[arg(long)]
         ticks: u64,
-        /// A JSON round header to play instead of the shipped round — the
-        /// next-round header the Vibe pipeline writes (`lm vibe propose
-        /// --harness`). `--seed` is ignored when it is given.
-        #[arg(long)]
-        header: Option<PathBuf>,
         /// A JSON Lines file of decisions to inject.
         #[arg(long)]
         inject: Option<PathBuf>,
@@ -199,13 +189,6 @@ enum Command {
         #[command(subcommand)]
         command: VoxCommand,
     },
-    /// The Vibe Dictionary tools (the sandbox, M2b): propose a typed change
-    /// with a prediction sealed before the test, and read the ledger back.
-    Vibe {
-        /// The subcommand to run.
-        #[command(subcommand)]
-        command: VibeCommand,
-    },
 }
 
 /// The `lm vox` subcommands.
@@ -223,146 +206,6 @@ enum VoxCommand {
         /// Where the rendered mono PCM16 WAV is written.
         output: PathBuf,
     },
-    /// Conform a WAV toward delivery marks: analyze it, diff against the
-    /// marks' intent, and correct the real audio — or, when a diff is
-    /// beyond the measured artifact thresholds, answer re-ask and write
-    /// nothing.
-    Conform {
-        /// The mono PCM16 WAV to read.
-        input: PathBuf,
-        /// Comma-separated delivery marks, e.g. "urgent,clipped,falling".
-        /// Vocabulary: urgent calm clipped falling rising flat bright dark
-        /// loud soft fast slow tense lax rough.
-        #[arg(long)]
-        marks: String,
-        /// Where the conformed mono PCM16 WAV is written.
-        output: PathBuf,
-    },
-}
-
-/// The `lm vibe` subcommands.
-#[derive(Subcommand, Debug)]
-enum VibeCommand {
-    /// Propose a typed change out of the Vibe Dictionary: bounds-check it,
-    /// seal the prediction before the test, run the held-out sweep, print
-    /// the verdict, and write the record to the ledger. With --harness, an
-    /// adopted change also lands: the harness carries it, and the next
-    /// round's header is written naming the records in force.
-    Propose {
-        /// The dictionary entry (`unit.vision`).
-        entry: String,
-        /// The value proposed.
-        value: i64,
-        /// The prediction, sealed before the test: `MEASURE:up|down` with
-        /// an optional `:min_delta`, comma-separated — e.g.
-        /// "sight_ticks:up,tags:up". Omitted: the entry's own default.
-        #[arg(long)]
-        predict: Option<String>,
-        /// The kid's words as a short label, bounded at 48 characters.
-        /// Never stored as a transcript.
-        #[arg(long)]
-        say: Option<String>,
-        /// How many held-out seeds to judge on (the D78 count by default).
-        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_SEEDS)]
-        seeds: usize,
-        /// How many ticks each seed plays.
-        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_TICKS)]
-        ticks: u64,
-        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
-        #[arg(long, default_value = "runs")]
-        runs: PathBuf,
-        /// A vibe.toml that overrides the shipped one.
-        #[arg(long)]
-        file: Option<PathBuf>,
-        /// The harness root an adopted change lands in — the same root
-        /// `lm learn` commits into. Without it the verdict is recorded and
-        /// nothing lands.
-        #[arg(long)]
-        harness: Option<PathBuf>,
-        /// The seed of the next round, whose header a landing writes.
-        #[arg(long, default_value_t = 1)]
-        next_seed: u64,
-    },
-    /// List the Vibe records in the ledger, with the prediction-trust
-    /// running tally: how often the predictions held.
-    Ledger {
-        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
-        #[arg(long, default_value = "runs")]
-        runs: PathBuf,
-    },
-    /// Say what is in force now, from which ledger lines: every adopted
-    /// change the next round is played with, and everything else resting at
-    /// its shipped default.
-    State {
-        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
-        #[arg(long, default_value = "runs")]
-        runs: PathBuf,
-        /// A vibe.toml that overrides the shipped one.
-        #[arg(long)]
-        file: Option<PathBuf>,
-    },
-    /// Put one adopted record back: a new ledger line that reverts it —
-    /// the ledger is append-only — and the harness re-landed on what is in
-    /// force now.
-    Undo {
-        /// The record to put back: its seal, the ledger line `lm vibe
-        /// ledger` prints.
-        seal: u64,
-        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
-        #[arg(long, default_value = "runs")]
-        runs: PathBuf,
-        /// A vibe.toml that overrides the shipped one.
-        #[arg(long)]
-        file: Option<PathBuf>,
-        /// The harness root the undo re-lands, when the change landed.
-        #[arg(long)]
-        harness: Option<PathBuf>,
-        /// The seed of the next round, whose header a re-landing writes.
-        #[arg(long, default_value_t = 1)]
-        next_seed: u64,
-    },
-    /// The vibe gate: hear a kid's words as two closed questions against
-    /// the decision server — which change, and how much — and print the
-    /// typed proposal Bench would make, with the confidence of each
-    /// answer. The words go to the decision server and nowhere else; a
-    /// --propose record carries only the bounded 48-char label.
-    Hear {
-        /// The kid's words ("let them see farther").
-        words: String,
-        /// Hand the heard proposal to the propose path: the prediction is
-        /// sealed before the test, as today.
-        #[arg(long)]
-        propose: bool,
-        /// The prediction, sealed before the test: `MEASURE:up|down` with
-        /// an optional `:min_delta`, comma-separated. Omitted: the entry's
-        /// own default.
-        #[arg(long)]
-        predict: Option<String>,
-        /// How many held-out seeds to judge on (the D78 count by default).
-        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_SEEDS)]
-        seeds: usize,
-        /// How many ticks each seed plays.
-        #[arg(long, default_value_t = lm_learn::vibe::DEFAULT_TICKS)]
-        ticks: u64,
-        /// Where the round's files go; the ledger is `<runs>/vibe.jsonl`.
-        #[arg(long, default_value = "runs")]
-        runs: PathBuf,
-        /// A vibe.toml that overrides the shipped one.
-        #[arg(long)]
-        file: Option<PathBuf>,
-        /// A vibe-gate.toml that overrides the shipped one.
-        #[arg(long)]
-        gate_file: Option<PathBuf>,
-        /// The harness root an adopted change lands in.
-        #[arg(long)]
-        harness: Option<PathBuf>,
-        /// The seed of the next round, whose header a landing writes.
-        #[arg(long, default_value_t = 1)]
-        next_seed: u64,
-        /// The decision server's base URL (default: the agents' config).
-        #[arg(long)]
-        base: Option<String>,
-    },
 }
 
 fn main() -> ExitCode {
@@ -371,10 +214,9 @@ fn main() -> ExitCode {
         Command::Run {
             seed,
             ticks,
-            header,
             inject,
             out,
-        } => cmd_run(seed, ticks, header, inject, out),
+        } => cmd_run(seed, ticks, inject, out),
         Command::Replay { file } => cmd_replay(file),
         Command::Diff { a, b } => cmd_diff(a, b),
         Command::Golden { write, file } => cmd_golden(write, file),
@@ -422,81 +264,6 @@ fn main() -> ExitCode {
             sample,
         }),
         Command::Vox { command } => cmd_vox(command),
-        Command::Vibe { command } => cmd_vibe(command),
-    }
-}
-
-/// The `lm vibe` commands: a proposal through the whole pipeline, the
-/// ledger read back, what is in force now, and the undo.
-fn cmd_vibe(command: VibeCommand) -> ExitCode {
-    match command {
-        VibeCommand::Propose {
-            entry,
-            value,
-            predict,
-            say,
-            seeds,
-            ticks,
-            runs,
-            file,
-            harness,
-            next_seed,
-        } => lm_tools::vibe::cmd_vibe_propose(&lm_tools::vibe::ProposeArgs {
-            entry,
-            value,
-            predict,
-            say,
-            seeds,
-            ticks,
-            runs,
-            file,
-            harness,
-            next_seed,
-        }),
-        VibeCommand::Ledger { runs } => {
-            lm_tools::vibe::cmd_vibe_ledger(&lm_tools::vibe::LedgerArgs { runs })
-        }
-        VibeCommand::State { runs, file } => {
-            lm_tools::vibe::cmd_vibe_state(&lm_tools::vibe::StateArgs { runs, file })
-        }
-        VibeCommand::Undo {
-            seal,
-            runs,
-            file,
-            harness,
-            next_seed,
-        } => lm_tools::vibe::cmd_vibe_undo(&lm_tools::vibe::UndoArgs {
-            seal,
-            runs,
-            file,
-            harness,
-            next_seed,
-        }),
-        VibeCommand::Hear {
-            words,
-            propose,
-            predict,
-            seeds,
-            ticks,
-            runs,
-            file,
-            gate_file,
-            harness,
-            next_seed,
-            base,
-        } => lm_tools::vibe::cmd_vibe_hear(&lm_tools::vibe::HearArgs {
-            words,
-            propose,
-            predict,
-            seeds,
-            ticks,
-            runs,
-            file,
-            gate_file,
-            harness,
-            next_seed,
-            base,
-        }),
     }
 }
 
@@ -554,90 +321,6 @@ fn cmd_vox(command: VoxCommand) -> ExitCode {
                 rendered.samples.len()
             );
             ExitCode::SUCCESS
-        }
-        VoxCommand::Conform {
-            input,
-            marks,
-            output,
-        } => {
-            let started = std::time::Instant::now();
-            let pcm = match lm_vox::wav::Pcm::from_wav_file(&input) {
-                Ok(pcm) => pcm,
-                Err(err) => {
-                    eprintln!("lm: {}: {err}", input.display());
-                    return ExitCode::FAILURE;
-                }
-            };
-            // One WAV and no corpus: the clip is its own baseline, which
-            // is what profile-relative dials mean for a single file.
-            let profile = lm_vox::conform::self_profile(&lm_vox::analyze(&pcm));
-            let before = {
-                let a = lm_vox::analyzer::analyze_with_profile(&pcm, &profile);
-                let gestures = lm_vox::segment_gestures(&a.frames, &profile);
-                let phrase = lm_vox::phrase_summary(&a.frames, &gestures, &profile);
-                lm_vox::l2_line(&phrase)
-            };
-            match lm_vox::conform_str(&pcm, &marks, &profile) {
-                Ok(lm_vox::ConformOutcome::Conformed { plan, audio }) => {
-                    let after = {
-                        // The same profile as the "before" reading: the
-                        // relative dials only compare against the same
-                        // baseline.
-                        let a = lm_vox::analyzer::analyze_with_profile(&audio, &profile);
-                        let gestures = lm_vox::segment_gestures(&a.frames, &profile);
-                        let phrase = lm_vox::phrase_summary(&a.frames, &gestures, &profile);
-                        lm_vox::l2_line(&phrase)
-                    };
-                    if let Err(err) = audio.to_wav_file(&output) {
-                        eprintln!("lm: {}: {err}", output.display());
-                        return ExitCode::FAILURE;
-                    }
-                    let thresholds = lm_vox::Thresholds::default();
-                    for c in &plan.diff.channels {
-                        // The ratio channels (tempo, pause, attack, release)
-                        // ask for a factor, not a delta: their "measured"
-                        // is 1.0 by definition and their limit is one edge
-                        // of a window, so they print as what they are.
-                        let window = match c.name {
-                            "tempo" => Some((thresholds.tempo_min, thresholds.tempo_max)),
-                            "pause" => Some((thresholds.pause_min, thresholds.pause_max)),
-                            "attack" => Some((thresholds.attack_min, thresholds.attack_max)),
-                            "release" => Some((thresholds.release_min, thresholds.release_max)),
-                            _ => None,
-                        };
-                        match window {
-                            Some((lo, hi)) => println!(
-                                "{:12} ratio {:+8.2}  window {:+8.2}..{:+8.2}",
-                                c.name, c.correction, lo, hi
-                            ),
-                            None => println!(
-                                "{:12} wanted {:+8.2}  measured {:+8.2}  correction {:+8.2}  limit {:+8.2}",
-                                c.name, c.wanted, c.measured, c.correction, c.limit
-                            ),
-                        }
-                    }
-                    println!("before  {before}");
-                    println!("after   {after}");
-                    println!(
-                        "{}: conformed in {:.0} ms",
-                        output.display(),
-                        started.elapsed().as_secs_f64() * 1000.0
-                    );
-                    ExitCode::SUCCESS
-                }
-                Ok(lm_vox::ConformOutcome::ReAsk(diff)) => {
-                    eprintln!("lm: {}: {}", input.display(), diff.reask_line());
-                    eprintln!(
-                        "lm: {}: not written; re-ask the generator",
-                        output.display()
-                    );
-                    ExitCode::FAILURE
-                }
-                Err(err) => {
-                    eprintln!("lm: {err}");
-                    ExitCode::FAILURE
-                }
-            }
         }
     }
 }
@@ -786,13 +469,7 @@ fn cmd_learn(
     }
 }
 
-fn cmd_run(
-    seed: Option<u64>,
-    ticks: u64,
-    header_file: Option<PathBuf>,
-    inject: Option<PathBuf>,
-    out: PathBuf,
-) -> ExitCode {
+fn cmd_run(seed: u64, ticks: u64, inject: Option<PathBuf>, out: PathBuf) -> ExitCode {
     let mut injections = Vec::new();
     if let Some(path) = &inject {
         let text = match std::fs::read_to_string(path) {
@@ -811,40 +488,7 @@ fn cmd_run(
         }
     }
 
-    if header_file.is_none() && seed.is_none() {
-        eprintln!("lm: one of --seed or --header is required");
-        return ExitCode::FAILURE;
-    }
-    let header = match &header_file {
-        Some(path) => {
-            let text = match std::fs::read_to_string(path) {
-                Ok(text) => text,
-                Err(err) => {
-                    eprintln!("lm: cannot read {}: {err}", path.display());
-                    return ExitCode::FAILURE;
-                }
-            };
-            match serde_json::from_str::<Header>(&text) {
-                Ok(header) => {
-                    if header.proto_version != lm_core::PROTO_VERSION {
-                        eprintln!(
-                            "lm: {}: header speaks protocol version {}, this build speaks {}",
-                            path.display(),
-                            header.proto_version,
-                            lm_core::PROTO_VERSION
-                        );
-                        return ExitCode::FAILURE;
-                    }
-                    header
-                }
-                Err(err) => {
-                    eprintln!("lm: {}: not a round header: {err}", path.display());
-                    return ExitCode::FAILURE;
-                }
-            }
-        }
-        None => Header::default_round(seed.unwrap_or(0), DEFAULT_REFLEX),
-    };
+    let header = Header::default_round(seed, DEFAULT_REFLEX);
     let (log, stats) = runner::run(header, ticks, &injections);
 
     let mut file = match File::create(&out) {
@@ -860,8 +504,7 @@ fn cmd_run(
     }
 
     println!(
-        "seed {}: {} ticks, {} hashes, {} decisions ({})",
-        log.header.seed,
+        "seed {seed}: {} ticks, {} hashes, {} decisions ({})",
         stats.ticks,
         stats.hashes,
         stats.on_time + stats.late,

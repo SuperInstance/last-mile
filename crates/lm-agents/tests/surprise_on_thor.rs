@@ -108,29 +108,12 @@ impl SysOne for Split {
         questions: &Value,
         deadline: std::time::Instant,
     ) -> Result<lm_agents::sysone::Answers, lm_agents::sysone::Refusal> {
-        self.ask_with_escalation(state, questions, deadline, deadline)
-    }
-
-    /// The split forwards the escalation's deadline (N3).
-    ///
-    /// The talk pack's backend escalates, so the fence has to survive the
-    /// split: a router that dropped it would let a second opinion outlive
-    /// the decision it serves.
-    fn ask_with_escalation(
-        &self,
-        state: &str,
-        questions: &Value,
-        deadline: std::time::Instant,
-        escalation_deadline: std::time::Instant,
-    ) -> Result<lm_agents::sysone::Answers, lm_agents::sysone::Refusal> {
         // The pack is told by the questions it carried (D70): the move pack
         // holds the move gate, the talk pack the gates a line is chosen by.
         if questions.get("move").is_some() {
-            self.move_pack
-                .ask_with_escalation(state, questions, deadline, escalation_deadline)
+            self.move_pack.ask(state, questions, deadline)
         } else {
-            self.talk_pack
-                .ask_with_escalation(state, questions, deadline, escalation_deadline)
+            self.talk_pack.ask(state, questions, deadline)
         }
     }
 
@@ -146,7 +129,6 @@ fn default_harness() -> lm_agents::harness::Harness {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     }
@@ -396,7 +378,6 @@ fn the_table_entry_round_trips() {
     let answers = lm_agents::sysone::Answers {
         per_gate: BTreeMap::new(),
         escalated: BTreeMap::new(),
-        decomposed: BTreeMap::new(),
         unsure: BTreeMap::from([("attention".to_owned(), 0.2)]),
         model: "d1-2b".to_owned(),
         input_tokens: 0,

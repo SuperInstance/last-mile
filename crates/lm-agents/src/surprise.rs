@@ -325,9 +325,6 @@ pub fn refusal_kind(refusal: &Refusal) -> String {
         Refusal::OffPlan(_) => "off plan".to_owned(),
         Refusal::Superseded => "superseded".to_owned(),
         Refusal::Panicked(_) => "panicked".to_owned(),
-        // The name N2 reserved for this rule, and the one the log and the
-        // telemetry write: `escalation_late` (N3).
-        Refusal::EscalationLate => "escalation_late".to_owned(),
     }
 }
 
@@ -548,7 +545,6 @@ mod tests {
     /// A view with the given scores and squad.
     fn view(scores: &[i64], squad: u8) -> ScoreView {
         ScoreView {
-            paint: Vec::new(),
             tick: 0,
             me: AgentSnap {
                 id: u16::from(squad),
@@ -556,7 +552,6 @@ mod tests {
                 role: lm_core::header::Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
-                paint_slow_q8: 0,
             },
             squad: vec![],
             enemies: vec![],
@@ -711,11 +706,7 @@ mod tests {
                         Escalation {
                             gate: (*gate).to_owned(),
                             primary_confidence: 0.1,
-                            primary_choice: None,
-                            primary_probs: BTreeMap::new(),
                             second_confidence: Some(0.9),
-                            second_choice: None,
-                            second_probs: BTreeMap::new(),
                             latency_ms: 1,
                             outcome: EscalationOutcome::Taken,
                             refusal: None,
@@ -724,7 +715,6 @@ mod tests {
                 })
                 .collect(),
             unsure: unsure.iter().map(|g| ((*g).to_owned(), 0.2)).collect(),
-            decomposed: BTreeMap::new(),
             model: "test".to_owned(),
             input_tokens: 0,
             latency_ms: 1,
