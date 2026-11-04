@@ -140,9 +140,6 @@ enum Branch {
     HoldOnBeacon,
     /// (3) go to the nearest beacon your squad does not hold.
     GoNearestUnheld,
-    /// (3) go to the **shared** target: the one beacon both squads are sent
-    /// to, which the facts builder states when the harness asks for it.
-    GoSharedTarget,
     /// (3) there is no such beacon: hold.
     HoldNoBeacon,
 }
@@ -153,7 +150,6 @@ impl Branch {
             Branch::Retreat => "retreat",
             Branch::HoldOnBeacon => "hold (on the beacon)",
             Branch::GoNearestUnheld => "go to the nearest unheld beacon",
-            Branch::GoSharedTarget => "go to the shared target",
             Branch::HoldNoBeacon => "hold (nothing to go to)",
         }
     }
@@ -163,7 +159,7 @@ impl Branch {
         match self {
             Branch::Retreat => "retreat".to_owned(),
             Branch::HoldOnBeacon | Branch::HoldNoBeacon => "hold".to_owned(),
-            Branch::GoNearestUnheld | Branch::GoSharedTarget => {
+            Branch::GoNearestUnheld => {
                 format!("go to beacon {}", beacon.unwrap_or_default())
             }
         }
@@ -183,12 +179,6 @@ struct Facts {
     on_held_beacon: bool,
     /// The beacon the facts name as the nearest one the squad does not hold.
     nearest_unheld: Option<u8>,
-    /// The beacon the facts name as the **shared** target: the one beacon
-    /// both squads are sent to.
-    ///
-    /// It is `Some` only when the harness's facts file turns the shared
-    /// target on, and it takes the doctrine's own target's place.
-    shared_target: Option<u8>,
 }
 
 impl Facts {
@@ -248,24 +238,7 @@ impl Facts {
             }
         }
 
-        // The shared target: the beacon the facts mark as the one both
-        // squads are sent to. The marker is said of that beacon and of no
-        // other, so the beacon named just before it is the target.
-        let shared = "it is the shared target";
-        if let Some(index) = state.find(shared) {
-            let head = &state[..index];
-            if let Some(start) = head.rfind("Beacon ") {
-                facts.shared_target = number_after(&head[start..], "Beacon ").map(|n| n as u8);
-            }
-        }
-
         facts
-    }
-
-    /// The beacon the doctrine's target branch names: the shared target
-    /// when the facts state one, the doctrine's own target otherwise.
-    fn target(&self) -> Option<u8> {
-        self.shared_target.or(self.nearest_unheld)
     }
 
     /// The branch of the doctrine these facts select.
@@ -274,8 +247,6 @@ impl Facts {
             Branch::Retreat
         } else if self.on_held_beacon && self.near == 0 {
             Branch::HoldOnBeacon
-        } else if self.shared_target.is_some() {
-            Branch::GoSharedTarget
         } else if self.nearest_unheld.is_some() {
             Branch::GoNearestUnheld
         } else {
@@ -421,24 +392,7 @@ impl Watcher {
 
 impl SysOne for Watcher {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
-        self.ask_with_escalation(state, questions, deadline, deadline)
-    }
-
-    /// The watcher forwards the escalation's deadline (N3).
-    ///
-    /// It wraps the escalating backend, so the fence behind it has to
-    /// survive the wrap: a wrapper that dropped it would let a second
-    /// opinion outlive the decision it serves.
-    fn ask_with_escalation(
-        &self,
-        state: &str,
-        questions: &Value,
-        deadline: Instant,
-        escalation_deadline: Instant,
-    ) -> Result<Answers, Refusal> {
-        let answers =
-            self.inner
-                .ask_with_escalation(state, questions, deadline, escalation_deadline)?;
+        let answers = self.inner.ask(state, questions, deadline)?;
 
         let pack = if questions.get("move").is_some() {
             Pack::Move
@@ -505,27 +459,10 @@ struct Split {
 
 impl SysOne for Split {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
-        self.ask_with_escalation(state, questions, deadline, deadline)
-    }
-
-    /// The split forwards the escalation's deadline (N3).
-    ///
-    /// The talk pack's backend escalates, so the fence has to survive the
-    /// split: a router that dropped it would let a second opinion outlive
-    /// the decision it serves.
-    fn ask_with_escalation(
-        &self,
-        state: &str,
-        questions: &Value,
-        deadline: Instant,
-        escalation_deadline: Instant,
-    ) -> Result<Answers, Refusal> {
         if questions.get("move").is_some() {
-            self.move_pack
-                .ask_with_escalation(state, questions, deadline, escalation_deadline)
+            self.move_pack.ask(state, questions, deadline)
         } else {
-            self.talk_pack
-                .ask_with_escalation(state, questions, deadline, escalation_deadline)
+            self.talk_pack.ask(state, questions, deadline)
         }
     }
 
@@ -595,11 +532,6 @@ struct Round {
     lines: u64,
     /// The lines that were delivered urgent.
     urgent_lines: u64,
-    /// The refusals the round saw, of every kind together.
-    refusals: u64,
-    /// The refusals the round saw, by kind: the kinds that happened, and
-    /// how many of each.
-    refusal_kinds: Vec<(String, u64)>,
     /// Where every agent stood at the end of the round.
     positions: Vec<(u16, i64, i64)>,
 }
@@ -699,18 +631,6 @@ fn play(seed: u64, harness: &Harness, reflex: &str) -> (Round, Vec<Ask>, Vec<Tal
         asks: stats.map_or(0, |stats| stats.thinks),
         lines: records.len() as u64,
         urgent_lines,
-        refusals: stats.map_or(0, |stats| stats.refusals),
-        // The kinds that happened, so a reader can see which rule failed
-        // without adding four different problems up first.
-        refusal_kinds: stats.map_or_else(Vec::new, |stats| {
-            lm_core::refusal::RefusalKind::ALL
-                .iter()
-                .filter_map(|kind| {
-                    let count = stats.refusal_counts.get(*kind);
-                    (count > 0).then(|| (kind.to_string(), count))
-                })
-                .collect()
-        }),
         positions,
     };
 
@@ -760,7 +680,7 @@ fn engagement_on_thor() {
     for seed in seeds() {
         let (round, seed_asks, _records) = play(seed, &harness, &reflex);
         println!(
-            "round {seed}: {} ticks, {} tags, {} sight ticks, scores {:?} (margin {}), {} decisions, {} asks, {} lines ({} urgent), {} refusals {:?}",
+            "round {seed}: {} ticks, {} tags, {} sight ticks, scores {:?} (margin {}), {} decisions, {} asks, {} lines ({} urgent)",
             round.ticks,
             round.tags,
             round.sight_ticks,
@@ -770,8 +690,6 @@ fn engagement_on_thor() {
             round.asks,
             round.lines,
             round.urgent_lines,
-            round.refusals,
-            round.refusal_kinds,
         );
         println!("  positions: {:?}", round.positions);
         rounds.push(round);
@@ -785,12 +703,12 @@ fn engagement_on_thor() {
             let facts = Facts::of(&ask.state);
             let branch = facts.branch();
             let choice = ask.choice();
-            let agrees = choice.as_deref() == Some(branch.option(facts.target()).as_str());
+            let agrees = choice.as_deref() == Some(branch.option(facts.nearest_unheld).as_str());
             let line = json!({
                 "agent": ask.agent,
                 "pack": if ask.pack == Pack::Move { "move" } else { "talk" },
                 "branch": branch.as_str(),
-                "doctrine_option": branch.option(facts.target()),
+                "doctrine_option": branch.option(facts.nearest_unheld),
                 "model_option": choice,
                 "agrees": agrees,
                 "confidence": ask.confidence(),
@@ -822,11 +740,11 @@ fn engagement_on_thor() {
     // ---------------------------------------------------------------- rounds
     println!("## the rounds");
     println!();
-    println!("| seed | ticks | end tick | tags | sight ticks | agent sight ticks | scores | margin | draw | decisions | asks | lines | urgent | refusals |");
-    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+    println!("| seed | ticks | end tick | tags | sight ticks | agent sight ticks | scores | margin | draw | decisions | asks | lines | urgent |");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
     for round in &rounds {
         println!(
-            "| {} | {} | {} | {} | {} | {} | {:?} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {:?} | {} | {} | {} | {} | {} | {} |",
             round.seed,
             round.ticks,
             round.end_tick,
@@ -840,7 +758,6 @@ fn engagement_on_thor() {
             round.asks,
             round.lines,
             round.urgent_lines,
-            round.refusals,
         );
     }
     println!();
@@ -860,7 +777,7 @@ fn engagement_on_thor() {
         let facts = Facts::of(&ask.state);
         let branch = facts.branch();
         let choice = ask.choice();
-        let agrees = choice.as_deref() == Some(branch.option(facts.target()).as_str());
+        let agrees = choice.as_deref() == Some(branch.option(facts.nearest_unheld).as_str());
         let entry = by_branch.entry(branch).or_default();
         entry.0 += 1;
         if agrees {
@@ -1034,97 +951,4 @@ You have 1 allies within 4 cells of you. You are not stunned.";
     assert_eq!(facts.allies, 1);
     assert_eq!(facts.branch(), Branch::Retreat);
     assert_eq!(facts.branch().option(facts.nearest_unheld), "retreat");
-}
-
-/// The facts parser reads the **shared** target the builder states when the
-/// harness asks for one.
-///
-/// The text is built by the facts builder itself, not copied into the test,
-/// so a change in the builder's wording shows up here the way the shipped
-/// texts do.
-#[test]
-fn the_facts_parser_reads_the_shared_target() {
-    use lm_agents::config::AgentsConfig;
-    use lm_agents::facts::Facts as BuilderFacts;
-    use lm_agents::shared::{SharedConfig, SharedRule};
-    use lm_core::header::Role;
-    use lm_core::view::{AgentSnap, BeaconSnap};
-    use lm_core::world::{CellKind, CellXY, Grid, World};
-
-    // The round's four beacons, none of them held.
-    let cells = [
-        CellXY { x: 64, y: 63 },
-        CellXY { x: 63, y: 64 },
-        CellXY { x: 32, y: 63 },
-        CellXY { x: 95, y: 64 },
-    ];
-    let view = ScoreView {
-        paint: Vec::new(),
-        heard: Vec::new(),
-        tick: 100,
-        me: AgentSnap {
-            id: 0,
-            cell: CellXY { x: 2, y: 2 },
-            role: Role::Leader,
-            stunned: false,
-            airtime_ticks: 0,
-            paint_slow_q8: 0,
-        },
-        squad: Vec::new(),
-        enemies: Vec::new(),
-        beacons: cells
-            .iter()
-            .map(|cell| BeaconSnap {
-                cell: *cell,
-                holder: None,
-            })
-            .collect(),
-        score: vec![0, 0],
-        squad_id: 0,
-    };
-    let world = World {
-        paint: lm_core::world::Paint::new(),
-        grid: Grid {
-            w: 128,
-            h: 128,
-            cells: vec![CellKind::Floor; 128 * 128],
-        },
-        beacons: cells.to_vec(),
-        spawns: vec![CellXY { x: 2, y: 2 }, CellXY { x: 125, y: 125 }],
-        cell_units: 1024,
-    };
-
-    let built = BuilderFacts::from_view(
-        &view,
-        &world,
-        0,
-        &AgentsConfig::default(),
-        &SharedConfig {
-            rule: SharedRule::Free,
-            ..SharedConfig::default()
-        },
-    );
-
-    // The builder states the shared target and drops the doctrine's own.
-    assert!(
-        built
-            .text
-            .contains("it is the shared target: the beacon no squad holds"),
-        "{}",
-        built.text
-    );
-    assert!(
-        !built
-            .text
-            .contains("nearest beacon your squad does not hold"),
-        "{}",
-        built.text
-    );
-
-    let facts = Facts::of(&built.text);
-    assert_eq!(facts.shared_target, Some(0));
-    // The doctrine's own target is not stated, so it is not read.
-    assert_eq!(facts.nearest_unheld, None);
-    assert_eq!(facts.branch(), Branch::GoSharedTarget);
-    assert_eq!(facts.branch().option(facts.target()), "go to beacon 0");
 }
