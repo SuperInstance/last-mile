@@ -44,13 +44,8 @@ pub mod score;
 pub mod scrub;
 // The human's talk: the voice backend, the bark cache and the human's ear.
 pub mod talk;
-// The agents' voices: skald rendered ahead of time, played from the bank,
-// never waited for (D73, wired into the host loop).
-pub mod voices;
 // The human's voice: the commands, the tutor ladder and the score.
 pub mod voice;
-// The wave file: a capture that comes from a file instead of a device.
-pub mod wav;
 // Which view of the round the host draws, and the runtime switch between
 // them (phase 6 Task 8); and the bottom panel's own switch between the
 // piano roll and the conductor's score (Vox Score §12, E7).
@@ -65,8 +60,4 @@ pub use turn::{TurnDetector, TurnRules, MAX_TALK_MS, TURN_END_MS, VOICE_STOP_MS}
 pub use view::{BottomMode, BottomSwitch};
 pub use voice::{
     CommandOutcome, CommandParser, CommandRefusal, HumanVoice, TutorLadder, TutorMode, VoiceRefusal,
-};
-pub use voices::{
-    prewarm, resolve_bank_root, speech_of, squad_voices, user_bank_root, Spoken, SpokenOrigin,
-    VoiceCounters, Voices, VoicesSettings,
 };

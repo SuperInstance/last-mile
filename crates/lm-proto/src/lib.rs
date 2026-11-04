@@ -19,7 +19,7 @@
 )]
 #![forbid(unsafe_code)]
 
-use lm_core::{Decision, Header, Refused, Stamped};
+use lm_core::{Decision, Header, Stamped};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -39,13 +39,7 @@ pub enum NodeKind {
 }
 
 /// One message on the wire.
-///
-/// The header variant is the round's whole identity and it is bigger than
-/// the rest on purpose: it travels once per connection, not in bulk, and
-/// boxing it would change every sender for no change on the wire (postcard
-/// serializes a `Box` exactly as its contents).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[allow(clippy::large_enum_variant)]
 pub enum Msg {
     /// The first message of a connection: version, node kind, capabilities.
     Hello {
@@ -74,13 +68,6 @@ pub enum Msg {
         /// Why the connection is closing.
         reason: String,
     },
-    /// A refusal: the model path's own record of why there was no answer.
-    ///
-    /// The refusals are part of the round's record (N2): a round that is
-    /// pushed without them loses the reason for every silence, and a peer
-    /// that cannot say *why* a mind said nothing cannot teach anything about
-    /// it (D64).
-    Refused(Refused),
 }
 
 /// Encode a message into its canonical wire bytes.

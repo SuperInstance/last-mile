@@ -84,7 +84,6 @@ fn default_harness() -> Harness {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     }
@@ -99,7 +98,7 @@ fn default_harness() -> Harness {
 fn throttled_backends(
     harness: &Harness,
     server: &ThrottledStub,
-) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
+) -> BTreeMap<String, Box<dyn SysOne + Send>> {
     let policy = Policy::for_harness(&harness.policy_toml);
     policy
         .tiers
@@ -109,7 +108,7 @@ fn throttled_backends(
         .map(|tier| {
             (
                 tier.backend().to_owned(),
-                Box::new(server.clone()) as Box<dyn SysOne + Send + Sync>,
+                Box::new(server.clone()) as Box<dyn SysOne + Send>,
             )
         })
         .collect()
