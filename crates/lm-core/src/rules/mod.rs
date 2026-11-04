@@ -13,7 +13,6 @@
 //! against the native one, tick for tick.
 
 pub mod beacons;
-pub mod paint;
 pub mod rhai;
 
 use crate::agent::Agent;
@@ -165,13 +164,9 @@ pub trait Ruleset: StateHash + Send + Sync {
     ///
     /// `order` holds the indices of `agents` in the order they act this tick
     /// (the rotation of the tick, which is what keeps the first move fair).
-    ///
-    /// The world is borrowed mutably because a rule may write to it: a tag
-    /// leaves a splat of paint on the ground, and the paint is world state
-    /// (it is hashed with the world, so a painted round replays bit-exact).
     fn step(
         &mut self,
-        world: &mut World,
+        world: &World,
         agents: &mut [Agent],
         now: Tick,
         order: &[usize],
@@ -366,7 +361,6 @@ mod tests {
             beacons: vec![CellXY { x: 4, y: 4 }],
             spawns: vec![CellXY { x: 0, y: 0 }, CellXY { x: 7, y: 7 }],
             cell_units: 1024,
-            paint: crate::world::Paint::new(),
         }
     }
 
