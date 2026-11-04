@@ -51,14 +51,13 @@ fn default_harness() -> Harness {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     }
 }
 
 /// A stub behind every tier the policy names.
-fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
+fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send>> {
     let policy = Policy::for_harness(&harness.policy_toml);
     policy
         .tiers
@@ -68,7 +67,7 @@ fn stub_backends(harness: &Harness) -> BTreeMap<String, Box<dyn SysOne + Send + 
         .map(|tier| {
             (
                 tier.backend().to_owned(),
-                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>,
+                Box::new(StubBackend::menu()) as Box<dyn SysOne + Send>,
             )
         })
         .collect()
