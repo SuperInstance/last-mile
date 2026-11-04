@@ -18,18 +18,15 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::time::Instant;
 
 use lm_core::decision::{Decision, Tick};
 use lm_core::header::Header;
-use lm_core::refusal::{RefusalCounts, RefusalKind, Refused};
 use lm_core::sim::Sim;
 use lm_core::view::menu;
 
 use crate::config::AgentsConfig;
-use crate::gates::Pack;
 use crate::harness::Harness;
-use crate::mind::{AskOutcome, Mind, Thinker, ThoughtRecord};
+use crate::mind::{Mind, Thinker, ThoughtRecord};
 use crate::queue::{Budgets, LeastUseQueue};
 use crate::sink::DecisionSink;
 use crate::surprise::RoundSurprise;
@@ -45,10 +42,6 @@ pub struct Agents {
     thinker: Thinker,
     sink: Option<Box<dyn DecisionSink>>,
     stats: AgentStats,
-    /// How many of each mind's refusals the round has counted already.
-    counted: BTreeMap<u16, usize>,
-    /// The life of every ask of the round, on the monotonic clock (N1).
-    timings: Vec<AskTiming>,
 }
 
 impl Agents {
@@ -87,8 +80,6 @@ impl Agents {
             thinker: Thinker::new(backends),
             sink: None,
             stats: AgentStats::default(),
-            counted: BTreeMap::new(),
-            timings: Vec::new(),
         }
     }
 
@@ -140,15 +131,7 @@ impl Agents {
     ///
     /// The loop never blocks: a model that is slow costs the round nothing
     /// but a late answer.
-    ///
-    /// The tick's refusals come back to the caller, named: they are what the
-    /// round log records (N2) and what the score view draws (E7). A question
-    /// that was asked and never became an answer ends here, with a name —
-    /// nothing is allowed to vanish on the way. A caller that keeps no log
-    /// says so with `let _`, so the drop is a decision and not an oversight.
-    #[must_use = "the refusals are the round's record; dropping them silently loses the why of every silence"]
-    pub fn on_tick(&mut self, now: Tick, sim: &Sim) -> Vec<Refused> {
-        let mut refused: Vec<Refused> = Vec::new();
+    pub fn on_tick(&mut self, now: Tick, sim: &Sim) {
         // 1. Every mind looks. A mind that is busy with an answer, or that
         //    does not want to think this tick, asks for nothing. The move
         //    pack and the talk pack are asked apart (D70): the talk pack
@@ -159,11 +142,9 @@ impl Agents {
             let menu = menu(&view);
             if let Some(req) = mind.on_tick(now, &view, sim.world(), &menu) {
                 requests.push(req);
-                self.stats.asked += 1;
             }
             if let Some(req) = mind.on_tick_talk(now, &view, sim.world(), &menu) {
                 requests.push(req);
-                self.stats.asked += 1;
             }
         }
         for req in requests {
@@ -176,41 +157,19 @@ impl Agents {
         let popped = self
             .queue
             .pop_batch(now, self.minds.len() * 2, &mut self.budgets);
-        // A request the budget refused and a request that expired in the
-        // queue are two different problems, and both are questions that were
-        // asked and never became an answer.
-        for req in &popped.refused_budget {
-            self.stats.refused += 1;
-            self.stats.refusal_counts.count(RefusalKind::Budget);
-            refused.push(Refused::new(now, req.agent, RefusalKind::Budget));
-        }
-        for req in &popped.expired {
-            self.stats.expired += 1;
-            self.stats.refused += 1;
-            self.stats.refusal_counts.count(RefusalKind::Expired);
-            refused.push(Refused::new(now, req.agent, RefusalKind::Expired));
-        }
+        self.stats.refusals += popped.refused_budget.len() as u64;
+        self.stats.expired += popped.expired.len() as u64;
         for req in popped.send {
-            let ask = self
+            let Some(ask) = self
                 .minds
                 .get_mut(&req.agent)
-                .and_then(|mind| mind.take_flight(&req));
-            let Some(ask) = ask else {
+                .and_then(|mind| mind.take_flight(&req))
+            else {
                 // The mind replaced the request with a newer one; this one is
-                // never sent. It ends here, and it ends with a name.
-                self.stats.refused += 1;
-                self.stats.refusal_counts.count(RefusalKind::Superseded);
-                refused.push(Refused::new(now, req.agent, RefusalKind::Superseded));
+                // simply never sent.
                 continue;
             };
-            if !self.thinker.send(ask) {
-                // The worker is gone: the call never reached a model. The
-                // question ends here, and it ends with a name.
-                self.stats.refused += 1;
-                self.stats.refusal_counts.count(RefusalKind::Unreachable);
-                refused.push(Refused::new(now, req.agent, RefusalKind::Unreachable));
-                continue;
-            }
+            self.thinker.send(ask);
             // The call is made: the model is used, whether it answers or not.
             self.queue.record(req.agent, 1);
             *self.stats.usage.entry(req.agent).or_insert(0) += 1;
@@ -218,61 +177,20 @@ impl Agents {
         }
 
         // 3. The answers that came home become decisions.
-        let landed_at = Instant::now();
         let thoughts = self.thinker.drain();
         self.stats.answered += thoughts.len() as u64;
         let mut decisions: Vec<Decision> = Vec::new();
         for thought in thoughts {
+            if thought.result.is_err() {
+                self.stats.refusals += 1;
+            }
             // The escalations (D71): every gate that was asked of a second
             // model, counted next to the refusals.
-            let latency_ms = match &thought.result {
-                Ok(answers) => {
-                    self.stats.escalations += answers.escalated.len() as u64;
-                    answers.latency_ms
-                }
-                Err(_) => 0,
-            };
-            // The life of the ask (N1): asked, sent, taken by the worker,
-            // answered, and the tick the decision was applied on.
-            let pack = thought.ask.pack;
-            let agent = thought.ask.req.agent;
-            let backend = thought.ask.backend.clone();
-            let asked = thought.ask.asked_at;
-            let sent = thought.ask.sent_at.unwrap_or(thought.ask.asked_at);
-            let picked_up = thought.picked_up;
-            let answered = thought.answered_at;
-            // How the question ended: taken, late, or refused. Every
-            // question ends in exactly one of the three, and the round's
-            // ledger adds up (N4).
-            let (made, outcome) = match self.minds.get_mut(&agent) {
-                Some(mind) => mind.on_answer(thought.ask, thought.result),
-                None => {
-                    // The answer belongs to an agent that is not in the
-                    // round: there is no mind to take it home. The question
-                    // ends here, and it ends with a name.
-                    self.stats.refusal_counts.count(RefusalKind::Malformed);
-                    refused.push(Refused::new(now, agent, RefusalKind::Malformed));
-                    (Vec::new(), AskOutcome::Refused)
-                }
-            };
-            self.timings.push(AskTiming {
-                pack,
-                agent,
-                backend,
-                asked,
-                sent,
-                picked_up,
-                answered,
-                landed: now,
-                landed_at,
-                applied: made.iter().map(|decision| decision.apply_tick).min(),
-                latency_ms,
-            });
-            decisions.extend(made);
-            match outcome {
-                AskOutcome::Accepted => self.stats.accepted += 1,
-                AskOutcome::Late => self.stats.late += 1,
-                AskOutcome::Refused => self.stats.refused += 1,
+            if let Ok(answers) = &thought.result {
+                self.stats.escalations += answers.escalated.len() as u64;
+            }
+            if let Some(mind) = self.minds.get_mut(&thought.ask.req.agent) {
+                decisions.extend(mind.on_answer(thought.ask, thought.result));
             }
         }
         // 4. And so do the decisions that needed no model (the verdict cache).
@@ -280,20 +198,14 @@ impl Agents {
             decisions.extend(mind.take_decisions());
         }
 
-        // 5. The refusals the minds recorded, by name. Every refusal the
-        //    round saw is counted where it happened, so the record and the
-        //    counters cannot disagree.
-        self.take_mind_refusals(&mut refused);
-        self.stats.refusals = self.stats.refusal_counts.total();
-
-        // 6. The wording is counted where it happened: every mind knows
+        // 5. The wording is counted where it happened: every mind knows
         //    which realizer wrote its lines.
         self.stats.words = self
             .minds
             .values()
             .fold(WordCounts::default(), |sum, mind| sum.plus(mind.words()));
 
-        // 7. The decisions go to the host, stamped with the tick they landed
+        // 6. The decisions go to the host, stamped with the tick they landed
         //    on. The host puts them in the sequencer.
         if let Some(sink) = self.sink.as_mut() {
             for decision in decisions {
@@ -302,35 +214,6 @@ impl Agents {
             }
         }
         self.stats.queue_len = self.queue.len();
-        refused
-    }
-
-    /// The refusals the minds have recorded that the round has not counted
-    /// yet.
-    ///
-    /// The minds keep their refusals in the order they happened; the round
-    /// counts them once, here, and never counts the same one twice.
-    fn take_mind_refusals(&mut self, refused: &mut Vec<Refused>) {
-        let agents: Vec<u16> = self.minds.keys().copied().collect();
-        for agent in agents {
-            let Some(mind) = self.minds.get_mut(&agent) else {
-                continue;
-            };
-            let all = mind.refusals();
-            let taken = self.counted.entry(agent).or_insert(0);
-            let fresh = all[*taken..].to_vec();
-            *taken = all.len();
-            for (tick, refusal) in fresh {
-                let kind = RefusalKind::from(&refusal);
-                self.stats.refusal_counts.count(kind);
-                refused.push(Refused {
-                    tick,
-                    agent,
-                    kind,
-                    detail: refusal.detail(),
-                });
-            }
-        }
     }
 
     /// How many questions are with the models right now.
@@ -354,94 +237,6 @@ impl Agents {
             .map(|(agent, mind)| (*agent, mind.thoughts().to_vec()))
             .collect()
     }
-
-    /// The life of every ask of the round, on the monotonic clock (N1).
-    ///
-    /// The stamps are outside the sim: they are telemetry, and they never
-    /// enter the sim's state — the sim only ever sees the decisions. They
-    /// add up to the split of a think: the wait in our own queue, the
-    /// worker's own wait, the wire, the model, and the wait for the
-    /// decision to be applied.
-    pub fn timings(&self) -> &[AskTiming] {
-        &self.timings
-    }
-}
-
-/// The life of one ask, on the monotonic clock (N1).
-///
-/// The four stamps the split is made of: **asked** (the mind decided to
-/// ask), **sent** (the ask left the least-use-first queue), **picked up**
-/// (the worker took it off its channel) and **answered** (the answer came
-/// home), plus the tick the decision was applied on.
-#[derive(Clone, Debug)]
-pub struct AskTiming {
-    /// Which pack the ask carried (D70).
-    pub pack: Pack,
-    /// The agent that asked.
-    pub agent: u16,
-    /// The backend the ask went to (a tier's backend name).
-    ///
-    /// The name is what joins a timing to the log of the call that made it:
-    /// a round may ask several backends, and only one of them may be the one
-    /// the measurement watches.
-    pub backend: String,
-    /// When the mind asked.
-    pub asked: Instant,
-    /// When the ask left the least-use-first queue.
-    pub sent: Instant,
-    /// When the worker took the ask off its channel.
-    pub picked_up: Instant,
-    /// When the answer came home.
-    pub answered: Instant,
-    /// The tick the answer landed on.
-    pub landed: Tick,
-    /// The wall clock when the answer was picked up, at the tick it landed
-    /// on.
-    pub landed_at: Instant,
-    /// The tick the decision was applied on; `None` when it made none.
-    pub applied: Option<Tick>,
-    /// The round trip the backend measured, in milliseconds.
-    pub latency_ms: u32,
-}
-
-impl AskTiming {
-    /// The wait in our own least-use-first queue, in milliseconds.
-    pub fn queue_ms(&self) -> u64 {
-        ms_between(self.asked, self.sent)
-    }
-
-    /// The wait in the worker's own channel, in milliseconds.
-    ///
-    /// The worker takes one ask at a time, so an ask waits for the call
-    /// before it. This is our own queue too, and it is the one the model's
-    /// round trip does not see.
-    pub fn worker_ms(&self) -> u64 {
-        ms_between(self.sent, self.picked_up)
-    }
-
-    /// The flight: the moment the worker had the ask to the moment the
-    /// answer came home, in milliseconds.
-    pub fn flight_ms(&self) -> u64 {
-        ms_between(self.picked_up, self.answered)
-    }
-
-    /// The wait from the answer landing to the decision being applied, in
-    /// milliseconds.
-    ///
-    /// The decision's lead is the scheduling slack; the rest is what was
-    /// left of the tick the answer landed in.
-    pub fn apply_ms(&self, tick_hz: u16) -> u64 {
-        let Some(applied) = self.applied else {
-            return 0;
-        };
-        let lead_ms = applied.saturating_sub(self.landed) * 1000 / u64::from(tick_hz);
-        lead_ms.saturating_add(ms_between(self.answered, self.landed_at))
-    }
-}
-
-/// The milliseconds between two instants on the monotonic clock.
-fn ms_between(from: Instant, to: Instant) -> u64 {
-    u64::try_from(to.saturating_duration_since(from).as_millis()).unwrap_or(u64::MAX)
 }
 
 impl fmt::Debug for Agents {
@@ -462,33 +257,8 @@ pub struct AgentStats {
     pub thinks: u64,
     /// Answers that came home (accepted or refused).
     pub answered: u64,
-    /// The questions the minds asked.
-    ///
-    /// A question is asked when the mind asks it, before the queue decides
-    /// whether it is sent: a question that the budget refuses or that the
-    /// queue lets expire was still asked.
-    pub asked: u64,
-    /// Answers that came home and were taken.
-    pub accepted: u64,
-    /// Answers that came home after the tick the tier said they would land
-    /// on.
-    pub late: u64,
-    /// Questions that never became an answer.
-    ///
-    /// The budget refused it, the queue let it expire, a newer question
-    /// replaced it, the worker was gone, or the model did not answer.
-    pub refused: u64,
     /// Refusals: a failed call, a low-confidence answer, a spent budget.
-    ///
-    /// This is the number of refusals, of every kind together. The kinds
-    /// themselves are in `refusal_counts`: one column that adds four
-    /// different problems up cannot tell them apart.
     pub refusals: u64,
-    /// The refusals, by name.
-    ///
-    /// Every refusal the round saw is counted here, where it happened, so
-    /// the numbers and the log's record cannot disagree.
-    pub refusal_counts: RefusalCounts,
     /// Gates that were asked of a second model (D71).
     ///
     /// An escalation is not a refusal: it is a second opinion that was paid
@@ -504,17 +274,6 @@ pub struct AgentStats {
     pub usage: BTreeMap<u16, u64>,
     /// The wording: which realizer wrote the lines.
     pub words: WordCounts,
-}
-
-impl AgentStats {
-    /// Whether every question that was asked ended in exactly one place.
-    ///
-    /// A question is taken, late or refused, and it is exactly one of the
-    /// three: this is the assertion that keeps a lost question from
-    /// disappearing without a word (N4).
-    pub fn asks_add_up(&self) -> bool {
-        self.asked == self.accepted + self.late + self.refused
-    }
 }
 
 /// What the wording did, in numbers.

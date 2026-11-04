@@ -63,9 +63,6 @@ pub struct AgentsConfig {
     /// It is asked that gate **alone**, one question in one call, so its
     /// pack always fits.
     pub escalate_backend: String,
-    /// How a gate may be asked (see [`ShapeConfig`]).
-    #[serde(default)]
-    pub shape: ShapeConfig,
     /// Member think rate in Hz. 1 by default (D68): the Thor serves ~9
     /// requests/s for the whole match, so 8 agents asking at 4 Hz only queue
     /// up and go stale; at 1 Hz they get ~93% of the decisions with headroom
@@ -95,12 +92,11 @@ pub struct AgentsConfig {
     /// to clear the slow case and not only the median
     /// (crates/lm-agents/tests/talk_on_thor.md).
     ///
-    /// D70 split the pack and D71's second opinion now rides the move gate
-    /// alone (`escalate_gates`), so the deadline clears the talk pack's own
-    /// slow case: the ten talk gates cost the d1-2B 1.1-1.6 s at the
-    /// median, 2.3-2.4 s at p95, and 3.5-3.7 s on a busy box. The move
-    /// lane's worst case — the pack plus its rare escalation — is 2.2 s
-    /// (445 ms of d1-2B and up to 1423 ms of clef-flash on top).
+    /// D70 split the pack, and D71 added a second opinion: the talk pack
+    /// costs 1350 ms on the d1-2B and the escalated gate is another 550 ms
+    /// of clef-flash on top of it, so the deadline has to clear both. At
+    /// 2400 ms half of the escalations died on the way (measured: 43 taken,
+    /// 40 timed out), and the escalated gate stayed unsure.
     pub request_timeout_ms: u32,
     /// How strongly a squad's shared usage counts in queue priority (D16).
     pub squad_weight: f32,
@@ -207,17 +203,7 @@ impl Default for AgentsConfig {
                 // the model's weakest gate and not only its best one
                 // (crates/lm-agents/tests/talk_on_thor.md).
                 ("thor-d1-2b".to_owned(), 0.30),
-                // The d1-3B's own calibration, measured the same way
-                // (crates/lm-agents/tests/talk_on_thor.md): its gates
-                // bottom out at 0.15-0.23 (the intent gate's minimum is
-                // 0.149), so the floor sits just above that; the one gate
-                // that answers below it is the intention score, which the
-                // d1-3B answers near-flat (0.00-0.37 over three levels) —
-                // those 34 of 82 situations are honestly unsure and the
-                // line is silent, but no move is ever refused (the move
-                // gate answers 0.28-0.96). The 0.55 this replaces silenced
-                // every line of every talk round: 82 of 82 situations.
-                ("thor-d1-3b".to_owned(), 0.15),
+                ("thor-d1-3b".to_owned(), 0.55),
                 // The second opinion (D71). Its confidence scale runs about
                 // half of the d1-2B's on the same gates — the attention gate
                 // reads 0.13 against the d1-2B's 0.33 — so the d1-2B's 0.30
@@ -229,7 +215,6 @@ impl Default for AgentsConfig {
             ]),
             escalate_below: 0.5,
             escalate_backend: "thor-clef-flash".to_owned(),
-            shape: ShapeConfig::default(),
             think_hz_member: 1,
             think_hz_leader: 1,
             mode: "auto".to_owned(),
@@ -244,39 +229,6 @@ impl Default for AgentsConfig {
             utter: UterConfig::default(),
         }
     }
-}
-
-/// How a gate may be asked.
-///
-/// A gate is asked as it is written, unless a parameter says otherwise.
-/// Both shapes are **off** by default: a harness that writes a tree in
-/// `gates.toml` and does not name it here keeps asking the gate as it is
-/// written.
-///
-/// The shape is the harness's own: the tree is written next to the gate
-/// it decomposes, and the parameters here only say which gate is asked in
-/// which shape, and how many options a ghosted gate is asked with.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ShapeConfig {
-    /// The gate asked as a **two-step tree**: the coarse partition first,
-    /// then the choice inside the partition it picked.
-    ///
-    /// The tree itself is the harness's, in `gates.toml`.
-    pub tree_gate: Option<String>,
-    /// Whether the tree's **last** step is escalated to the second model
-    /// when it is unsure.
-    ///
-    /// The step that decides the answer is the one worth a second
-    /// opinion; the partition before it is not.
-    pub escalate_tree_step: bool,
-    /// The gate asked with its **rarely-chosen options ghosted**: only the
-    /// options that have been winning are asked at all.
-    pub prune_gate: Option<String>,
-    /// How many options a ghosted gate is asked with.
-    ///
-    /// Zero means the gate is not ghosted at all.
-    pub prune_k: u16,
 }
 
 impl AgentsConfig {
@@ -321,11 +273,9 @@ mod tests {
             c.min_confidence,
             BTreeMap::from([
                 ("thor-d1-2b".to_owned(), 0.30),
-                // The d1-3B's own calibration: its gates bottom out near
-                // 0.15 (talk_on_thor.md); the old 0.55 silenced every line.
-                ("thor-d1-3b".to_owned(), 0.15),
+                ("thor-d1-3b".to_owned(), 0.55),
                 // The second opinion (D71): its confidence scale runs about
-                // half of d1-2B's, so its floor is lower.
+                // half of the d1-2B's, so its floor is lower.
                 ("thor-clef-flash".to_owned(), 0.05),
                 ("jev".to_owned(), 0.5),
             ])
@@ -444,29 +394,6 @@ jev = 0.7
     fn missing_file_loads_defaults() {
         let c = AgentsConfig::load(Path::new("no-such-agents.toml")).expect("missing file is ok");
         assert_eq!(c, AgentsConfig::default());
-    }
-
-    #[test]
-    fn the_shape_is_off_by_default() {
-        // Nothing is asked in another shape until a parameter says so: a
-        // harness that writes a tree and does not ask for it keeps asking
-        // the gate as it is written.
-        let c = AgentsConfig::default();
-        assert_eq!(c.shape, ShapeConfig::default());
-        assert!(c.shape.tree_gate.is_none());
-        assert!(c.shape.prune_gate.is_none());
-        assert_eq!(c.shape.prune_k, 0);
-    }
-
-    #[test]
-    fn a_shape_can_be_written() {
-        let c = AgentsConfig::from_toml(
-            "[shape]\ntree_gate = \"attention\"\nprune_gate = \"gesture\"\nprune_k = 4\n",
-        )
-        .expect("the shape table loads");
-        assert_eq!(c.shape.tree_gate.as_deref(), Some("attention"));
-        assert_eq!(c.shape.prune_gate.as_deref(), Some("gesture"));
-        assert_eq!(c.shape.prune_k, 4);
     }
 
     #[test]

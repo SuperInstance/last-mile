@@ -6,12 +6,11 @@
 //! answer would touch. Nothing here reaches the network: the reviewer is a
 //! stub and every file lives in a temporary directory.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use lm_host_model::between::{Action, BetweenModel, PredictionView, Section};
+use lm_host_model::between::{Action, BetweenModel, Section};
 use lm_learn::deposits;
 use lm_learn::flow::{run_learning_round, Decision, FlowConfig, FlowRecord, StubReviewer};
 use lm_learn::ledger::{Direction, Entry, Ledger};
@@ -144,47 +143,6 @@ fn flow(dir: &Path, harness: &Path, seed: u64, ticks: u64, eval_seeds: usize) ->
 /// The screen the host would show for this record.
 fn screen(record: &FlowRecord) -> BetweenModel {
     BetweenModel::measured(record, None)
-}
-
-/// The held-out seeds fit on the screen.
-///
-/// The flow judges a proposal on sixteen held-out seeds now, and sixteen
-/// numbers do not fit on a line as a list: a run of consecutive seeds is
-/// written as a range, and the count is always there, because a reader has
-/// to know how many seeds the verdict was read from.
-#[test]
-fn the_held_out_seeds_are_one_line() {
-    let prediction = PredictionView {
-        seal: 1,
-        metric: "hold_ticks_squad0".into(),
-        direction: Direction::Up,
-        min_delta: 1,
-        eval_seeds: (1_001_000..1_001_016).collect(),
-        author: "test".into(),
-        text: String::new(),
-    };
-    assert_eq!(
-        prediction.seeds_text(),
-        "16 seeds (1001000..1001015)",
-        "sixteen seeds do not fit on the screen as a list"
-    );
-
-    // Seeds that are not a run are written as the list they are.
-    let scattered = PredictionView {
-        eval_seeds: vec![1_001_000, 1_001_002, 1_001_007],
-        ..prediction.clone()
-    };
-    assert_eq!(
-        scattered.seeds_text(),
-        "3 seeds (1001000, 1001002, 1001007)"
-    );
-
-    // And a round judged on no seeds says so.
-    let none = PredictionView {
-        eval_seeds: Vec::new(),
-        ..prediction
-    };
-    assert_eq!(none.seeds_text(), "none");
 }
 
 /// The promise comes before the measurement that judges it: the prediction was
@@ -333,11 +291,7 @@ fn reject_override_repins_the_next_round_to_a_revert() {
     let dir = scratch("pin");
     let harness = harness_root(&dir);
     let mut reviewer = StubReviewer::new(hold_review(0));
-    // Sixteen held-out seeds: the count the flow ships with. At four the
-    // sign test refuses everything — the fairest possible sample at four
-    // seeds is p = 0.0625 — so the round this test needs (a proposal the
-    // evaluation backs) cannot happen there.
-    let record = run_learning_round(&flow(&dir, &harness, 7, 1_500, 16), &mut reviewer)
+    let record = run_learning_round(&flow(&dir, &harness, 7, 1_500, 4), &mut reviewer)
         .expect("the round runs");
     assert_eq!(
         record.decision,
@@ -397,7 +351,6 @@ fn the_screen_shows_where_the_minds_struggled() {
     let answered = Answers {
         per_gate: Default::default(),
         escalated: Default::default(),
-        decomposed: BTreeMap::new(),
         unsure: [("attention".to_owned(), 0.2)].into_iter().collect(),
         model: "d1-2b".to_owned(),
         input_tokens: 0,

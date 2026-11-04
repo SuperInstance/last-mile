@@ -366,7 +366,6 @@ fn play_round(header: &Header, ticks: u64) -> Vec<Collected> {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:lm-voice".to_owned(),
     };
@@ -409,10 +408,7 @@ fn play_round(header: &Header, ticks: u64) -> Vec<Collected> {
                 quiet_ticks += 1;
             }
         }
-        // This harness keeps no round log, so the tick's refusals are
-        // counted and let go of on purpose: there is no record to put them
-        // in, and the voice only wants the lines.
-        let _ = agents.on_tick(tick, &sim);
+        agents.on_tick(tick, &sim);
         for (decision, arrived) in inbox.drain() {
             let _ = sequencer.submit(decision, arrived);
         }
