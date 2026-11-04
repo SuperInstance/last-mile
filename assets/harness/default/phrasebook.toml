@@ -38,7 +38,7 @@
 channel = "radio"
 templates = [
   "move up now",
-  "hold your spot",
+  "hold the line",
   "take it",
 ]
 
@@ -52,7 +52,7 @@ templates = [
 [phrasebook."Command.Order.Enemy"]
 templates = [
   "watch {subject}",
-  "don't let {subject} past",
+  "do not let {subject} pass",
 ]
 
 [phrasebook."Command.Order.Direction"]
@@ -65,7 +65,7 @@ templates = [
 templates = [
   "yes",
   "on it",
-  "got it",
+  "understood",
 ]
 
 [phrasebook."Command.Warn"]
@@ -78,7 +78,7 @@ templates = [
 [phrasebook."Command.Warn.Beacon"]
 templates = [
   "leave {subject}",
-  "don't take {subject}",
+  "do not take {subject}",
 ]
 
 [phrasebook."Command.Warn.Enemy"]
@@ -90,24 +90,24 @@ templates = [
 [phrasebook."Command.Query"]
 templates = [
   "where",
-  "say that again",
+  "say again",
 ]
 
 [phrasebook."Command.Query.Beacon"]
 templates = [
   "where is {subject}",
-  "is {subject} safe",
+  "is {subject} clear",
 ]
 
 [phrasebook."Command.Report"]
 templates = [
-  "quick update",
-  "just so you know",
+  "reporting",
+  "that is the situation",
 ]
 
 [phrasebook."Command.Report.Beacon"]
 templates = [
-  "we have {subject}",
+  "we hold {subject}",
   "{subject} is ours",
 ]
 
@@ -116,13 +116,13 @@ templates = [
 [phrasebook."Question.Order"]
 templates = [
   "should we move",
-  "should we go for it",
+  "shall we push",
 ]
 
 [phrasebook."Question.Order.Beacon"]
 templates = [
   "should we take {subject}",
-  "do we have {subject}",
+  "do we hold {subject}",
 ]
 
 [phrasebook."Question.Ack"]
@@ -152,50 +152,50 @@ templates = [
 [phrasebook."Question.Query.Beacon"]
 templates = [
   "where is {subject}",
-  "who has {subject}",
+  "who holds {subject}",
 ]
 
 [phrasebook."Question.Report"]
 templates = [
   "what happened",
-  "what's going on",
+  "give me the situation",
 ]
 
 [phrasebook."Question.Report.Beacon"]
 templates = [
   "what happened at {subject}",
-  "who has {subject}",
+  "who holds {subject}",
 ]
 
 # ------------------------------------------------------------- statements
 
 [phrasebook."Statement.Order"]
 templates = [
-  "time to move",
+  "the order is to move",
   "we are moving",
 ]
 
 [phrasebook."Statement.Order.Beacon"]
 templates = [
   "we are taking {subject}",
-  "the plan is {subject}",
+  "the order is {subject}",
 ]
 
 [phrasebook."Statement.Ack"]
 templates = [
-  "got it",
-  "will do",
+  "heard",
+  "copy",
 ]
 
 [phrasebook."Statement.Warn"]
 templates = [
-  "careful",
+  "danger",
   "they are coming",
 ]
 
 [phrasebook."Statement.Warn.Enemy"]
 templates = [
-  "careful near {subject}",
+  "danger at {subject}",
   "they are at {subject}",
 ]
 
@@ -213,14 +213,14 @@ templates = [
 
 [phrasebook."Statement.Report"]
 templates = [
-  "here's what's happening",
-  "this is what's going on",
+  "here is the situation",
+  "the situation is this",
 ]
 
 [phrasebook."Statement.Report.Beacon"]
 templates = [
-  "we have {subject}",
-  "we got {subject}",
+  "we hold {subject}",
+  "{subject} is taken",
 ]
 
 # -------------------------------------------------------------- callouts
@@ -228,7 +228,7 @@ templates = [
 [phrasebook."Callout.Order"]
 channel = "shout"
 templates = [
-  "squad, follow me",
+  "squad, on me",
   "everyone, listen",
 ]
 
@@ -254,7 +254,7 @@ templates = [
 [phrasebook."Callout.Warn.Enemy"]
 templates = [
   "they are at {subject}",
-  "{subject} is close",
+  "enemy at {subject}",
 ]
 
 [phrasebook."Callout.Query"]
@@ -271,12 +271,12 @@ templates = [
 
 [phrasebook."Callout.Report"]
 templates = [
-  "here's what's up",
+  "the situation is this",
   "here is where we are",
 ]
 
 [phrasebook."Callout.Report.Beacon"]
 templates = [
   "{subject} is ours",
-  "we have {subject}",
+  "we hold {subject}",
 ]

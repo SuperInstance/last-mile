@@ -14,32 +14,22 @@
 //! only as logged decisions. See docs/superpowers/plans/2026-10-28-m1-phase3-agents.md.
 
 pub mod agents;
-pub use agents::{AgentStats, Agents, AskTiming, WordCounts};
+pub use agents::{AgentStats, Agents, WordCounts};
 pub mod config;
 pub use config::AgentsConfig;
-pub mod decompose;
-pub use decompose::{DecomposingBackend, PrunedAsk, PruningBackend};
 pub mod facts;
 pub mod gates;
 pub use gates::Pack;
-pub mod hodge;
-pub use hodge::{decompose as decompose_preferences, Hodge, Part, View};
 pub mod harness;
 pub use harness::Harness;
 pub mod mind;
-pub use mind::{
-    Ask, AskOutcome, Mind, Mode, Policy, RttEstimator, Thinker, Thought, Tier, TierTable,
-};
+pub use mind::{Ask, Mind, Mode, Policy, RttEstimator, Thinker, Thought, Tier, TierTable};
 pub mod phrasebook;
 pub use phrasebook::{Phrasebook, PhrasebookError};
 pub mod queue;
 pub use queue::{Budgets, LeastUseQueue, Popped, ThinkReq};
-pub mod shared;
-pub use shared::{GhostConfig, GhostPhase, SharedConfig, SharedRule, SharedTarget};
 pub mod sink;
 pub use sink::{ChannelSink, DecisionInbox, DecisionSink};
-pub mod surprise;
-pub use surprise::{RoundSurprise, SituationCounts, SituationKey};
 pub mod sysone;
 pub use sysone::{
     Answer, Answers, EscalatingBackend, Escalation, EscalationOutcome, Refusal, SysOne,
