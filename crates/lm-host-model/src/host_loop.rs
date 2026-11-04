@@ -38,7 +38,6 @@ use std::collections::BTreeMap;
 
 use lm_agents::mind::ThoughtRecord;
 use lm_agents::sink::{ChannelSink, DecisionInbox};
-use lm_agents::surprise::RoundSurprise;
 use lm_agents::{AgentStats, Agents};
 use lm_core::decision::{Decision, Kind, Provenance, Source, Tick};
 use lm_core::fixed::Pos;
@@ -195,8 +194,7 @@ impl HostLoop {
     ///
     /// The round's own numbers (the utterances, the airtime, the orders and
     /// the uptake) come from the round's records, and the voice's numbers
-    /// (the clips, the barks, the hits and the tones) come from the bark
-    /// cache and the prefetch queue.
+    /// (the clips, the barks) come from the bark cache.
     pub fn talk_counters(&self) -> TalkCounters {
         let metrics = talk_metrics(self.sim.talk_records());
         let mut counters = TalkCounters::of(&metrics);
@@ -205,14 +203,6 @@ impl HostLoop {
             counters.bark_hits = talk.bark.hits();
             counters.bark_misses = talk.bark.misses();
             counters.voice = talk.status.clone();
-            if let Some(voices) = talk.voices.as_ref() {
-                let heard = voices.counters();
-                counters.voice_hits = heard.hits;
-                counters.voice_tones = heard.tones;
-                counters.voice_pending = heard.pending;
-                counters.squad_voices =
-                    crate::voices::squad_voices(voices.map(), &self.header.roster);
-            }
         }
         counters
     }
@@ -247,12 +237,6 @@ impl HostLoop {
     /// The clip comes from the bark cache, so the same line is never
     /// synthesized twice. A voice service that refuses says so, and the
     /// refusal is kept as the talk's status: the round does not care.
-    ///
-    /// When the skald voices are attached, the clip comes from the bank
-    /// instead: [`crate::voices::Voices::speak`] looks the line up — a hit
-    /// plays the rendered WAV, anything less plays the tone — and the ask,
-    /// the origin and the render's own latency ride along with the clip
-    /// for the player's log.
     fn request_clip(&mut self, line: &Utterance, tick: Tick) {
         // The ear and the speaker, read before the talk is borrowed.
         let Some((ear_pos, ear_squad)) = self.ear() else {
@@ -266,6 +250,9 @@ impl HostLoop {
         let Some(talk) = self.talk.as_mut() else {
             return;
         };
+        if talk.tts.is_none() {
+            return;
+        }
         // Only a line the ear can hear is spoken for the person.
         if !hearing::audible_to_in_world(
             line,
@@ -278,22 +265,6 @@ impl HostLoop {
         ) {
             return;
         }
-        // The skald path: the bank's clip or the tone, and never a wait.
-        if let Some(voices) = talk.voices.clone() {
-            self.clips_asked = self.clips_asked.saturating_add(1);
-            let (clip, spoken) = voices.speak(line);
-            self.clips.push(TalkClip {
-                line: line.state_hash(),
-                speaker: line.speaker,
-                tick,
-                clip,
-                spoken: Some(spoken),
-            });
-            return;
-        }
-        if talk.tts.is_none() {
-            return;
-        }
         match talk.speak(line) {
             Ok(clip) => {
                 talk.status = None;
@@ -303,7 +274,6 @@ impl HostLoop {
                     speaker: line.speaker,
                     tick,
                     clip,
-                    spoken: None,
                 });
             }
             Err(err) => talk.status = Some(err.to_string()),
@@ -372,15 +342,6 @@ impl HostLoop {
         self.agents.as_ref().map(Agents::stats)
     }
 
-    /// The round's surprise table: where the minds were unsure, refused or
-    /// escalated, by situation bucket. The between-round flow carries its
-    /// top entries into the round's record, where the reviewer reads them.
-    ///
-    /// `None` when the round has no agents.
-    pub fn agent_surprise(&self) -> Option<RoundSurprise> {
-        self.agents.as_ref().map(Agents::surprise)
-    }
-
     /// The round's agents, when the host has them.
     pub fn agents(&self) -> Option<&Agents> {
         self.agents.as_ref()
@@ -413,13 +374,7 @@ impl HostLoop {
         let Some(agents) = self.agents.as_mut() else {
             return;
         };
-        let refused = agents.on_tick(now, &self.sim);
-        // The refusals go into the log, on the tick they happened on: the
-        // reason a mind said nothing is part of the round's record (N2), and
-        // a replay reads it from there.
-        for refusal in refused {
-            self.recorder.record_refusal(refusal);
-        }
+        agents.on_tick(now, &self.sim);
 
         // The decisions that came home since the last tick. They are picked
         // up before the sequencer is drained, so one that is due now is
@@ -429,25 +384,9 @@ impl HostLoop {
             None => Vec::new(),
         };
         for (decision, arrived) in arrived {
-            // A planned line starts its render now, at the arrival — the
-            // earliest moment the host knows the words — and never at the
-            // airtime it is due in the ear (D73). The submit is a glance
-            // at the bank and a hand-off to the worker; the round does not
-            // feel it, and the log does not mention it.
-            if let Kind::Utterance(line) = &decision.kind {
-                self.prefetch_line(line);
-            }
             // The sequencer refuses by name; a refused decision is lost, and
             // that is the sequencer's last word.
             let _ = self.submit_agent(decision, arrived);
-        }
-    }
-
-    /// Hand a planned line to the voice queue, when the round has the
-    /// skald voices attached.
-    fn prefetch_line(&self, line: &Utterance) {
-        if let Some(voices) = self.talk.as_ref().and_then(|talk| talk.voices.as_ref()) {
-            voices.prefetch(line);
         }
     }
 

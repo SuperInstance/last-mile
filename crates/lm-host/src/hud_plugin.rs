@@ -118,14 +118,8 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
             if let Some(stats) = host.agent_stats() {
                 ui.separator();
                 ui.label(format!(
-                    "agents think {} refused {} escalated {} queue {}",
-                    stats.thinks, stats.refusals, stats.escalations, stats.queue_len
-                ));
-                // The wording: which realizer wrote the lines, and how many
-                // of those the model missed its deadline on.
-                ui.label(format!(
-                    "words llm {} / phrasebook {} / late {}",
-                    stats.words.llm, stats.words.phrasebook, stats.words.late
+                    "agents think {} refused {} queue {}",
+                    stats.thinks, stats.refusals, stats.queue_len
                 ));
                 let usage: Vec<String> = stats
                     .usage
@@ -209,25 +203,6 @@ fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Pl
                 talk.clips, talk.bark_hits, talk.bark_misses
             ));
         }
-        // The skald voices (D73): of the lines that were due in the ear,
-        // how many played the rendered clip, how many fell back to the
-        // tone, and of those how many were still in flight. The round
-        // never waited for any of them.
-        if talk.voice_hits + talk.voice_tones > 0 {
-            ui.label(format!(
-                "voice hit {} / tone {} / pending {}",
-                talk.voice_hits, talk.voice_tones, talk.voice_pending
-            ));
-            // The squad colour maps to the voice through voice.toml: the
-            // legend names each squad's speakers in the squad's own
-            // colour, so a reader knows whose line they are hearing.
-            for (squad, voices) in &talk.squad_voices {
-                ui.colored_label(
-                    egui_color(squad_color(*squad)),
-                    format!("s{squad} {voices}"),
-                );
-            }
-        }
         // The microphone: dead or not. That is the health check, and a dead
         // microphone submits nothing. Before anything has been captured the
         // microphone is simply idle — it has not been heard from yet, which
@@ -255,30 +230,6 @@ fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Pl
                 "not measured"
             }
         ));
-        // The ASR: which backend hears the human. "stub" is the app's own
-        // line, "http" is the ears on the Thor.
-        ui.label(format!("asr {}", voice.backend.as_str()));
-        // The ears: what they did, turn by turn. The three counters add up
-        // to the number of turns: every turn was heard, late or down.
-        let ears = voice.path.ears();
-        ui.label(format!(
-            "ears heard {} / late {} / down {}",
-            ears.heard, ears.late, ears.down
-        ));
-        // And the line they heard last, in their own words — and whose
-        // words they are: a late or missing answer is the stub's line,
-        // and the HUD says so rather than passing it off as the ears'.
-        if let Some(report) = voice.path.last_turn() {
-            let whose = match report.outcome {
-                lm_host_model::voice::EarsOutcome::Heard => "ears",
-                lm_host_model::voice::EarsOutcome::Late => "ears late, the stub",
-                lm_host_model::voice::EarsOutcome::Down => "ears down, the stub",
-            };
-            ui.colored_label(
-                egui::Color32::from_rgb(170, 215, 255),
-                format!("{whose}: \"{}\"", report.text),
-            );
-        }
         // The gate: how much was played, and how much the human took by
         // talking. A dropped clip is dropped for good.
         ui.label(format!(

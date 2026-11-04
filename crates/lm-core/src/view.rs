@@ -235,13 +235,6 @@ pub struct AgentSnap {
     /// used of it. It is in the view because it is the agent's own state:
     /// the mind checks it before it speaks, and the sim is the authority.
     pub airtime_ticks: u32,
-    /// The slowdown the paint under this agent's feet applies, in Q8 (0 = the
-    /// paint does not slow it).
-    ///
-    /// It is the agent's own state, like the airtime: the rules write it and
-    /// the motor of the next tick obeys it. The mind is told, so it knows
-    /// why it is walking slowly and can step out of the paint.
-    pub paint_slow_q8: u16,
 }
 
 /// An enemy as the squad last saw it: where, and how many ticks ago.
@@ -257,20 +250,6 @@ pub struct EnemySeen {
 pub struct BeaconSnap {
     pub cell: CellXY,
     pub holder: Option<u8>,
-}
-
-/// A painted cell as the view shows it: whose paint it is, how wet, and how
-/// many splats have landed on it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PaintSnap {
-    /// The cell the paint is on.
-    pub cell: CellXY,
-    /// The squad whose paint it is.
-    pub owner: u8,
-    /// How wet the paint is, in Q8: 255 is fresh, 0 is dry.
-    pub wet_q8: u8,
-    /// How many splats have landed on the cell.
-    pub splats: u8,
 }
 
 /// The world as one agent's squad knows it on one tick (spec §5): the
@@ -290,14 +269,6 @@ pub struct ScoreView {
     pub enemies: Vec<EnemySeen>,
     /// The round's beacons in world order, with their holder if any.
     pub beacons: Vec<BeaconSnap>,
-    /// The paint on the cells this agent's squad has seen, in cell order.
-    ///
-    /// The paint is world state, and the view is what an agent may know of
-    /// it: a painted cell the squad has never seen is not in the list, the
-    /// same way an unseen enemy is not. Showing it does not widen the answer
-    /// contract — the answer is still a decision applied at a tick — it only
-    /// lets a rule read what is under the agent's feet.
-    pub paint: Vec<PaintSnap>,
     /// One score per squad.
     pub score: Vec<i64>,
     /// The viewing agent's squad index. [`option_cmd`] needs it to find the
@@ -339,7 +310,6 @@ impl ScoreView {
             role: a.role,
             stunned: a.stunned_until.is_some_and(|t| now < t),
             airtime_ticks: a.airtime_ticks,
-            paint_slow_q8: a.paint_slow_q8,
         };
         ScoreView {
             tick: now,
@@ -365,17 +335,6 @@ impl ScoreView {
                 .map(|(i, &cell)| BeaconSnap {
                     cell,
                     holder: beacon_holders.get(i).copied().flatten(),
-                })
-                .collect(),
-            paint: world
-                .paint
-                .cells()
-                .filter(|(cell, _)| knowledge.is_explored(*cell))
-                .map(|(cell, paint)| PaintSnap {
-                    cell,
-                    owner: paint.owner,
-                    wet_q8: paint.wet_q8,
-                    splats: paint.splats,
                 })
                 .collect(),
             score: scores.to_vec(),
@@ -475,7 +434,6 @@ mod tests {
             role,
             stunned: false,
             airtime_ticks: 0,
-            paint_slow_q8: 0,
         }
     }
 
@@ -496,7 +454,6 @@ mod tests {
             beacons: vec![CellXY { x: 2, y: 2 }],
             spawns: vec![CellXY { x: 2, y: 5 }, CellXY { x: 8, y: 5 }],
             cell_units: 1024,
-            paint: crate::world::Paint::new(),
         }
     }
 
@@ -532,38 +489,6 @@ mod tests {
                 cell: CellXY { x: 4, y: 5 },
                 age_ticks: 0,
             }]
-        );
-    }
-
-    #[test]
-    fn the_view_shows_the_paint_the_squad_has_seen() {
-        let p = Params::default();
-        let mut world = wall_world();
-        let agents = [
-            Agent::new(0, 0, Role::Member, center(&world, CellXY { x: 2, y: 5 })),
-            Agent::new(4, 1, Role::Member, center(&world, CellXY { x: 8, y: 5 })),
-        ];
-        let mut k = SquadKnowledge::new(&world.grid);
-        k.update(&world, &agents, 0, 0, &p);
-        // Two painted cells: one the squad has walked past, one it has not.
-        let seen = CellXY { x: 2, y: 5 };
-        let unseen = CellXY { x: 8, y: 5 };
-        world.paint.splat(seen, 1);
-        world.paint.splat(unseen, 1);
-        assert!(k.is_explored(seen));
-        assert!(!k.is_explored(unseen));
-
-        let view =
-            ScoreView::for_agent(&agents[0], &agents, &world, &k, &[0, 0], &[], Vec::new(), 0);
-        assert_eq!(
-            view.paint,
-            vec![PaintSnap {
-                cell: seen,
-                owner: 1,
-                wet_q8: crate::world::paint::WET_Q8_MAX,
-                splats: 1,
-            }],
-            "the paint the squad has not seen is not in the view"
         );
     }
 
@@ -661,7 +586,6 @@ mod tests {
     fn menu_id_stable_and_content_addressed() {
         fn view_with(n_beacons: usize, tick: Tick) -> ScoreView {
             ScoreView {
-                paint: Vec::new(),
                 tick,
                 me: snap(0, 1, 1, Role::Leader),
                 squad: vec![snap(0, 1, 1, Role::Leader)],
@@ -720,7 +644,6 @@ mod tests {
     #[test]
     fn menu_options_are_in_fixed_order() {
         let view = ScoreView {
-            paint: Vec::new(),
             tick: 0,
             me: snap(2, 1, 1, Role::Member),
             squad: vec![snap(0, 1, 1, Role::Leader), snap(2, 1, 1, Role::Member)],
@@ -754,7 +677,6 @@ mod tests {
     #[test]
     fn option_cmd_maps_every_option() {
         let view = ScoreView {
-            paint: Vec::new(),
             tick: 0,
             me: snap(2, 5, 5, Role::Member),
             squad: vec![snap(0, 1, 2, Role::Leader), snap(2, 5, 5, Role::Member)],
@@ -805,7 +727,6 @@ mod tests {
             beacons: vec![],
             spawns: vec![CellXY { x: 3, y: 3 }],
             cell_units: 1024,
-            paint: crate::world::Paint::new(),
         };
         let agents = [Agent::new(
             0,
