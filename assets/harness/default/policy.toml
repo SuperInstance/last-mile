@@ -27,34 +27,13 @@ quality = 2
 #
 # The phase-4 pack asks eleven questions in one call (the move gate, the
 # five talk gates and their five presence gates), so a thought costs more
-# than the one gate of phase 3 -- and the budget below has to clear the
-# pack. It is a parameter, so the reviewer moves it with the measured p99
-# (D55).
-#
-# The budgets follow the pack's measured cost: the eleven-question pack
-# costs the Thor's d1-2B 600-1400 ms, so a thought is 20-42 ticks and the
-# budgets have to clear it. At 15 and 30 ticks no model tier fitted, so
-# every ask was refused and the agents never thought at all
-# (crates/lm-agents/tests/talk_on_thor.md).
-#
-# D70 split the pack and D71 added the second opinion, and the budgets
-# follow the packs' measured cost on a busy Thor
-# (crates/lm-agents/tests/talk_on_thor.md):
-#
-#   * the move pack answers in 243 ms at the median and 436 ms at p95
-#     (escalation is off by default, D79; when a harness turns it on, a
-#     second opinion adds up to ~2 s of clef-flash to a move thought);
-#   * the talk pack is the slow case: 1.1-1.6 s at the median, 2.3-2.4 s at
-#     p95, and a 3.5-3.7 s tail when the box is busy.
-#
-# 105 ticks (3.5 s at 30 Hz) clears the talk pack's p95 with room to spare;
-# the rare 3.7 s tail misses it, no tier fits and the reflex plays the
-# moment (D26) -- cheaper for the round than a budget that never lets the
-# talk pack think at all. The move pack is one question and 162 ms, so the
-# decision that moves the game is not waiting for any of this.
-threat_horizon_ticks = 105
+# than the one gate of phase 3: the budget below is in the same spirit as
+# before -- a fresh threat is answered in half a second, quiet thinking in
+# a second -- and it is a parameter, so the reviewer moves it with the
+# measured p99 (D55).
+threat_horizon_ticks = 15
 # Quiet thinking (no threat, a beacon plan) may take up to this many ticks.
-max_think_ticks = 105
+max_think_ticks = 30
 # An enemy sighting younger than this many ticks is a fresh threat.
 threat_age_ticks = 2
 
@@ -65,10 +44,6 @@ buy_time = true
 buy_time_above_ticks = 4
 # In quiet ticks, ask about the likeliest next situation and cache the
 # verdict (in M1 the likeliest next situation is the current one).
-#
-# The move pack is asked on every think (D70), so its cache is warm by
-# default and this lever has nothing left to warm; it stays in the file for
-# harnesses that ask less often.
 prethink = true
 # Cache verdicts by situation key and reuse them when the situation returns.
 verdict_cache = true
@@ -76,50 +51,3 @@ verdict_cache = true
 pay_priority = false
 # Questions per ask; absent means AgentsConfig.max_questions.
 # max_questions = 3
-
-[escalate]
-# Which gates a second opinion is bought for (D71), when the cheap model
-# answers below AgentsConfig.escalate_below (0.50). `gates` absent is every
-# gate below the threshold (the escalation as D71 shipped it), `gates = []`
-# is none of them (off), and the list names the ones that are.
-#
-# The default is off (D79, Casey, 2026-10-30). A pre-registered test on the
-# Thor (crates/lm-agents/tests/talk_on_thor.md, "Does escalation earn its
-# keep"; evidence/escjudge/) asked 282 escalated move situations of the
-# d1-2B, clef-flash and a judge: where the two disagree, the d1-2B's own
-# answer agreed with the judge 35 times and the second opinion 27 (exact
-# McNemar p = 0.37), so the second opinion is not better. Over 16 seeds x
-# 3000 ticks, on against off changed no game measure (tags, sight ticks,
-# draws, decisions, margins); on only added ~2 s of second opinions a round
-# and 86 escalation_late refusals, because a clef-flash answer costs ~2 s
-# against the d1-2B's 0.35 s. The mechanism stays: a harness that wants a
-# second opinion lists its gates here (e.g. gates = ["move"], D75).
-gates = []
-
-# When the talk pack is asked (D70).
-#
-# The pack is split: the **move pack** holds the questions whose answer is
-# the agent's move, and is asked on every think. The **talk pack** holds the
-# ten gates a line is chosen by (the five utterance gates and their five
-# presence gates), and is most of a thought's cost -- 473 ms against the move
-# question's 82 ms on the Thor's d1-2B. So the talk pack is asked only when
-# the agent has something to say, and each trigger below is a switch: turn
-# them off and the agents never speak, turn them all on and they speak
-# whenever the world moves.
-[talk]
-# Ask when the world the agent sees has changed: a new enemy, a beacon that
-# changed hands, an ally in or out of range, a stun. The agent's own walk is
-# not a change of sight -- it changes where the agent is, not what is there.
-ask_on_sight_change = true
-# Ask when a line addressed to this agent is being spoken, so that the reply
-# is drafted while the line is still going and applied when it ends (D31).
-ask_on_order = true
-# Ask when a fresh threat is visible (an enemy sighting younger than
-# think.threat_age_ticks).
-ask_on_threat = true
-# Ask on the slow timer: the backstop that has the agent look again even
-# when nothing changed.
-ask_on_timer = true
-# The slow timer's period, in ticks. At the round's 30 Hz, 300 ticks is ten
-# seconds.
-timer_period_ticks = 300

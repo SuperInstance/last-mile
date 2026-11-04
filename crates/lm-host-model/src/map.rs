@@ -43,11 +43,9 @@
 //! and draws every agent lerped between the two. An agent with no previous
 //! position (the first frame) draws where it stands.
 
-use lm_core::decision::Tick;
 use lm_core::fixed::{Angle, Pos, ANGLE_TURN, UNITS_PER_M};
 use lm_core::header::Role;
 use lm_core::sim::Sim;
-use lm_core::utterance::{Channel, Heard};
 use lm_core::world::{CellKind, CellXY};
 // The viewer is Task 3's `input::Viewer` (the mirror used while the tasks ran
 // in parallel was removed at merge, so the crate has exactly one Viewer).
@@ -63,19 +61,6 @@ pub enum FogState {
     Explored,
     /// Never seen.
     Unknown,
-}
-
-impl From<lm_render::fog::CellFog> for FogState {
-    /// The shared rule spells its states in the render crate's words; the
-    /// map keeps its own spelling so its renderers do not change, and the
-    /// two say the same three things.
-    fn from(fog: lm_render::fog::CellFog) -> FogState {
-        match fog {
-            lm_render::fog::CellFog::Visible => FogState::Visible,
-            lm_render::fog::CellFog::Explored => FogState::Explored,
-            lm_render::fog::CellFog::Unknown => FogState::Unknown,
-        }
-    }
 }
 
 /// One agent as the map draws it.
@@ -112,43 +97,6 @@ pub struct BeaconDraw {
     pub pos_m: (f32, f32),
 }
 
-/// One spoken word, as the map draws it: a tick at the speaker.
-///
-/// The map shows the talk as it is spoken: one tick per word, so the length
-/// of a line is the length of its ticks and a squad that is talking is a
-/// squad whose agents are ticking.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SpeechTick {
-    /// The agent who said the word.
-    pub speaker: u16,
-    /// The word's number in the line.
-    pub index: u16,
-    /// The tick of the round the word starts on.
-    pub at: Tick,
-    /// Where the speaker stands, in metres.
-    pub pos_m: (f32, f32),
-    /// The channel the line was spoken on.
-    pub channel: Channel,
-}
-
-/// One painted cell as the map draws it.
-///
-/// The paint is what the tags of a round leave on the ground. It is drawn in
-/// the colour of the squad that splatted it, and it fades as it dries, so a
-/// fresh splat is bright and an old one is barely there.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PaintDraw {
-    /// The cell the paint is on.
-    pub cell: CellXY,
-    /// The squad whose paint it is.
-    pub owner: u8,
-    /// How wet the paint is, in Q8: 255 is fresh, 0 is dry.
-    pub wet_q8: u8,
-    /// The centre of that cell, in metres. Paint does not move, so it does
-    /// not interpolate.
-    pub pos_m: (f32, f32),
-}
-
 /// Everything one frame of the map draws.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapModel {
@@ -158,18 +106,6 @@ pub struct MapModel {
     pub agents: Vec<AgentDraw>,
     /// The round's beacons, in world order.
     pub beacons: Vec<BeaconDraw>,
-    /// The paint on the ground the viewer may see, in cell order.
-    ///
-    /// A spectator sees all of it; a possessing player sees it only on the
-    /// cells the view vouches for, the same rule the fog uses.
-    pub paint: Vec<PaintDraw>,
-    /// The words being spoken right now, one tick per word.
-    pub speech: Vec<SpeechTick>,
-    /// The tick of the round the map is drawn at.
-    ///
-    /// It is what says whether a word has been said yet: a tick that is
-    /// still in the future is a word the speaker has not reached.
-    pub now_tick: u64,
     /// The world's extents in metres: (width, height).
     pub world_m: (f32, f32),
 }
@@ -232,19 +168,29 @@ impl MapModel {
         drawn.sort_unstable();
         drawn.dedup();
 
-        // The fog itself is the one rule the 2D map and the 3D view share
-        // (spec §6: the 3D view reuses it verbatim), so it lives on the
-        // render side of the seam and both views call it: a spectator's
-        // every cell reads Visible, and a possessing player's cells read
-        // Explored where the view vouches for them and Unknown elsewhere.
-        let fog = lm_render::fog::Fog::of_view(view.as_ref());
-
         let mut cells: Vec<(CellXY, CellKind, FogState)> =
             Vec::with_capacity(usize::from(grid.w) * usize::from(grid.h));
         for y in 0..grid.h {
             for x in 0..grid.w {
                 let c = CellXY { x, y };
-                cells.push((c, grid.get(c), fog.cell(c).into()));
+                // Under possession a cell is Explored when the view vouches
+                // for it: a teammate stands in it, it holds a beacon (the
+                // beacons are common knowledge), or an enemy was sighted
+                // in it. Everything else is Unknown; nothing is Visible.
+                let fog = match &view {
+                    None => FogState::Visible,
+                    Some(v) => {
+                        let vouched = v.squad.iter().any(|s| s.cell == c)
+                            || v.beacons.iter().any(|b| b.cell == c)
+                            || v.enemies.iter().any(|e| e.cell == c);
+                        if vouched {
+                            FogState::Explored
+                        } else {
+                            FogState::Unknown
+                        }
+                    }
+                };
+                cells.push((c, grid.get(c), fog));
             }
         }
 
@@ -297,169 +243,11 @@ impl MapModel {
 
         let metres =
             |cells_wide: u16| f32::from(cells_wide) * world.cell_units as f32 / UNITS_PER_M as f32;
-        let speech = speech_ticks(sim, &view, &agents, alpha);
-
-        // The paint on the ground: the cells the viewer may see. A
-        // spectator sees the lot; a possessing player sees the paint only
-        // where the view vouches for the cell, the same rule the fog uses,
-        // so the map never shows paint the player has not seen.
-        let paint: Vec<PaintDraw> = world
-            .paint
-            .cells()
-            .filter(|(cell, _)| fog.cell(*cell) != lm_render::fog::CellFog::Unknown)
-            .map(|(cell, cell_paint)| {
-                let centre = grid.center(cell, world.cell_units);
-                PaintDraw {
-                    cell,
-                    owner: cell_paint.owner,
-                    wet_q8: cell_paint.wet_q8,
-                    pos_m: pos_m(centre, centre, alpha),
-                }
-            })
-            .collect();
-
         MapModel {
             cells,
             agents,
             beacons,
-            paint,
-            speech,
-            now_tick: now,
             world_m: (metres(grid.w), metres(grid.h)),
-        }
-    }
-}
-
-/// The words being spoken right now, one tick per word.
-///
-/// A possessing player hears what their agent heard, so the map shows the
-/// words that reached that agent. A spectator hears the round as the
-/// authority does, so the map shows every line that is being spoken — once
-/// per line, with the words that arrived.
-fn speech_ticks(
-    sim: &Sim,
-    view: &Option<lm_core::view::ScoreView>,
-    agents: &[AgentDraw],
-    alpha: f32,
-) -> Vec<SpeechTick> {
-    let lines: Vec<Heard> = match view {
-        Some(v) => v
-            .heard
-            .iter()
-            .filter(|line| line.ongoing)
-            .cloned()
-            .collect(),
-        None => sim.audible_lines(),
-    };
-
-    let mut ticks = Vec::new();
-    for line in lines {
-        // The speaker's place on the map: where it is drawn, so the ticks
-        // are on the body that is talking.
-        let pos_m = agents
-            .iter()
-            .find(|draw| draw.id == line.speaker)
-            .map_or_else(
-                || {
-                    let pos = sim.agent(line.speaker).map_or_else(Pos::zero, |a| a.pos);
-                    pos_m(pos, pos, alpha)
-                },
-                |draw| draw.pos_m,
-            );
-        for (index, word) in line.words.iter().enumerate() {
-            ticks.push(SpeechTick {
-                speaker: line.speaker,
-                index: u16::try_from(index).unwrap_or(u16::MAX),
-                // A heard word sits on the round's timeline: the degradation
-                // has already moved it off the line's own, so the tick of
-                // the round is the word's own `t_on`.
-                at: word.t_on,
-                pos_m,
-                channel: line.channel,
-            });
-        }
-    }
-    ticks
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use lm_core::header::Header;
-
-    /// The round of seed 1, unplayed, and a render configuration that sees
-    /// the whole world from its centre.
-    fn round() -> (Sim, lm_render::palette::RenderConfig) {
-        let sim = Sim::new(&Header::default_round(1, lm_tools::runner::DEFAULT_REFLEX))
-            .expect("the round starts");
-        let cfg = lm_render::palette::RenderConfig {
-            view_distance_chunks: 7,
-            max_chunks: 64,
-            ..lm_render::palette::RenderConfig::default()
-        };
-        (sim, cfg)
-    }
-
-    /// The fog viewer the render side takes, from the host model's own.
-    fn fog_viewer(viewer: &Viewer) -> lm_render::fog::FogViewer {
-        match viewer {
-            Viewer::Spectator { .. } => lm_render::fog::FogViewer::Spectator,
-            Viewer::Possessing(agent) => lm_render::fog::FogViewer::Possessing(*agent),
-        }
-    }
-
-    #[test]
-    fn fog_matches_the_2d_map() {
-        let (sim, cfg) = round();
-        let world = sim.world();
-        assert_eq!(
-            (world.grid.w, world.grid.h),
-            (128, 128),
-            "the default world: 8x8 chunks of 16x16 cells"
-        );
-        let me = sim
-            .agent_ids()
-            .first()
-            .copied()
-            .expect("a round has agents");
-
-        // The same viewer state, both ways: the 2D map model's unfogged
-        // cells, rolled up by the shared `chunk_of_cell`; and the 3D view
-        // model's fogged chunk set, drawn through the same shared rule.
-        // The two views cannot disagree about what the viewer may see,
-        // because they do not decide it separately.
-        for viewer in [
-            Viewer::Spectator { follow: None },
-            Viewer::Spectator { follow: Some(me) },
-            Viewer::Possessing(me),
-        ] {
-            let model = MapModel::build(&sim, &[], &viewer, 0.0);
-            let map_chunks: std::collections::BTreeSet<lm_render::mesh::ChunkCoord> = model
-                .cells
-                .iter()
-                .filter(|(_, _, fog)| *fog != FogState::Unknown)
-                .map(|(cell, _, _)| lm_render::fog::chunk_of_cell(world, *cell))
-                .collect();
-            let view_chunks: std::collections::BTreeSet<lm_render::mesh::ChunkCoord> =
-                lm_render::fog::visible_chunks_fogged(
-                    &sim,
-                    (128.0, 128.0),
-                    &cfg,
-                    fog_viewer(&viewer),
-                )
-                .into_iter()
-                .collect();
-            assert_eq!(
-                map_chunks, view_chunks,
-                "the 2D map and the 3D view draw the same chunks for {viewer:?}"
-            );
-
-            // And the map's own per-cell states are exactly the shared
-            // rule's, cell for cell.
-            let fog = lm_render::fog::Fog::of(&sim, fog_viewer(&viewer));
-            for (cell, _, state) in &model.cells {
-                assert_eq!(*state, fog.cell(*cell).into(), "cell {cell:?}");
-            }
         }
     }
 }

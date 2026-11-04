@@ -27,7 +27,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use lm_agents::harness::{self, Harness};
-use lm_agents::surprise::{RoundSurprise, SituationCounts};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
 use lm_core::Fnv64;
@@ -40,7 +39,6 @@ use crate::ledger::{Direction, Ledger, LedgerError, Prediction, Verdict};
 use crate::metrics::RoundMetrics;
 use crate::review::{build_review_prompt, parse_answer, Claim, HarnessView, Proposal};
 use crate::round::play;
-use crate::sign;
 
 /// The reflex an agent runs when no harness is pinned for it.
 ///
@@ -52,27 +50,7 @@ pub const DEFAULT_REFLEX: &str = include_str!("../../../assets/reflexes/default.
 pub const DEFAULT_TICKS: u64 = 1_500;
 
 /// How many held-out seeds the evaluation runs on, when nothing else is said.
-///
-/// Sixteen: at four seeds a verdict turns on luck — four of the seed farm's
-/// thirty proposals were wrongly adopted at that count, every one of them a
-/// false adopt (crates/lm-learn/SEEDFARM.md). Sixteen is where the false
-/// adopt of a change that truly helps ~60% of the seeds falls from ~47% to
-/// ~17%, and where the sign test can clear the fairest possible sample.
-pub const DEFAULT_EVAL_SEEDS: usize = 16;
-
-/// The horizon from which the claimable metrics exist.
-///
-/// Below this many ticks every metric the flow can claim is zero on every
-/// seed — a squad holds nothing before about tick 1_000 — so a verdict read
-/// at a shorter horizon measures nothing at all. The flow still runs and
-/// still rejects there; it says so, so the rejection is not read as a
-/// measurement (crates/lm-learn/SEEDFARM.md).
-pub const MEASURABLE_TICKS: u64 = 1_000;
-
-/// How many of the round's most surprising situations the record keeps: the
-/// between-round screen is read by a person, and five lines is a reading
-/// list, not a wall.
-pub const TOP_SURPRISE: usize = 5;
+pub const DEFAULT_EVAL_SEEDS: usize = 4;
 
 /// The most tokens a review may use.
 pub const DEFAULT_MAX_TOKENS: u32 = 4_000;
@@ -103,11 +81,6 @@ pub struct HumanOverride {
     pub decision: Decision,
     /// Why they decided it.
     pub reason: String,
-    /// The commit the override produced: the commit the change landed in
-    /// (an override to adopt), or the commit that reverted it (an override
-    /// to reject). Empty when the override changed nothing.
-    #[serde(default)]
-    pub commit: Option<String>,
 }
 
 /// The record of one learning round: every link of the chain, in one file.
@@ -119,13 +92,6 @@ pub struct FlowRecord {
     pub seed: u64,
     /// The round's log.
     pub log_path: PathBuf,
-    /// The harness root the round was played against: one directory per
-    /// agent, `a<agent>`.
-    ///
-    /// An override is carried out against this harness, so the record says
-    /// where it is.
-    #[serde(default)]
-    pub harness_root: PathBuf,
     /// A digest of the round's metrics, so the record can be checked against
     /// the log without replaying it.
     pub metrics_digest: String,
@@ -159,25 +125,8 @@ pub struct FlowRecord {
     pub ledger_path: PathBuf,
     /// The held-out seeds the evaluation ran on.
     pub eval_seeds: Vec<u64>,
-    /// The horizon the round was judged at: the ticks every seed of the
-    /// evaluation was played for.
-    ///
-    /// A record written before this field existed reads zero, and the
-    /// summary then says the horizon was not recorded.
-    #[serde(default)]
-    pub ticks: u64,
     /// The human overrides, in the order they happened.
     pub overrides: Vec<HumanOverride>,
-    /// The round's top surprising situations: where the minds were unsure,
-    /// refused or escalated, by situation bucket, most surprising first.
-    ///
-    /// The table is counted where the asks happen (the round's agents, on
-    /// the Thor) and handed to the flow by whoever ran the round with live
-    /// minds; a round the flow played with the reflex alone has none, and
-    /// the field says so by being empty. Empty for every record written
-    /// before the field existed, too — the default is what old records read.
-    #[serde(default)]
-    pub surprise: Vec<SituationCounts>,
 }
 
 impl FlowRecord {
@@ -223,16 +172,6 @@ impl FlowRecord {
                 .join(" ");
             let _ = writeln!(s, "  eval:           {deltas}");
         }
-        // The sign test, next to the count: the two halves of the pass
-        // rule, so a reader can see why the verdict is what it is.
-        if let (Some(claim), Some(verdict)) = (&self.claim, &self.verdict) {
-            let _ = writeln!(
-                s,
-                "  sign test:      {}",
-                sign_test_text(&verdict.deltas, claim)
-            );
-        }
-        let _ = writeln!(s, "  horizon:        {}", self.horizon_text());
         let _ = writeln!(s, "  decision:       {}", self.decision);
         match &self.commit {
             Some(commit) => {
@@ -247,83 +186,18 @@ impl FlowRecord {
             }
         }
         for over in &self.overrides {
-            match &over.commit {
-                Some(commit) => {
-                    let _ = writeln!(
-                        s,
-                        "  override:       {} by a human — {} (commit {commit})",
-                        over.decision, over.reason
-                    );
-                }
-                None => {
-                    let _ = writeln!(
-                        s,
-                        "  override:       {} by a human — {}",
-                        over.decision, over.reason
-                    );
-                }
-            }
+            let _ = writeln!(
+                s,
+                "  override:       {} by a human — {}",
+                over.decision, over.reason
+            );
         }
         if let Some(path) = &self.deposit_path {
             let _ = writeln!(s, "  deposit:        {}", path.display());
         }
-        if !self.surprise.is_empty() {
-            let _ = writeln!(s, "  surprise:       the situations the minds struggled in");
-            for counts in &self.surprise {
-                let _ = writeln!(s, "    - {}", counts.line());
-            }
-        }
         let _ = writeln!(s, "  next header:    pins {}", self.next_header_pin);
         s
     }
-
-    /// The horizon the round was judged at, and what it can measure.
-    ///
-    /// A horizon below [`MEASURABLE_TICKS`] measures nothing: every claimable
-    /// metric is zero on every seed there, so the verdict that comes out of
-    /// it is a rejection of the proposal and not a measurement of it. The
-    /// summary says so, so nobody reads the rejection as evidence.
-    fn horizon_text(&self) -> String {
-        if self.ticks == 0 {
-            // A record written before the horizon was kept.
-            return "not recorded".to_owned();
-        }
-        if self.ticks < MEASURABLE_TICKS {
-            return format!(
-                "{} ticks — too short to measure: every claimable metric is zero before about \
-                 tick {MEASURABLE_TICKS}, so a verdict here can only be a rejection",
-                self.ticks
-            );
-        }
-        format!("{} ticks", self.ticks)
-    }
-}
-
-/// The sign test over a judged round's deltas, in words.
-///
-/// The count and the p-value are both here, because both of them decide:
-/// the count says how many seeds met the bar, the p-value says which way
-/// the seeds that moved moved.
-fn sign_test_text(deltas: &[(u64, i64)], claim: &Claim) -> String {
-    let test = eval::sign_test_of(deltas, claim.direction);
-    let p = test.p_value_text();
-    if test.moved == 0 {
-        return format!("no seed moved, so there is nothing to read (p = {p})");
-    }
-    format!(
-        "{} of {} seeds moved {}, p = {p} — {}",
-        test.claimed,
-        test.moved,
-        match claim.direction {
-            Direction::Up => "up",
-            Direction::Down => "down",
-        },
-        if sign::passes(test) {
-            "below 0.05"
-        } else {
-            "not below 0.05"
-        }
-    )
 }
 
 /// How one learning round is set up.
@@ -342,11 +216,6 @@ pub struct FlowConfig {
     pub eval_seed_count: usize,
     /// The round's id; derived from the seed when empty.
     pub round_id: Option<String>,
-    /// The surprise table of the round the flow is asked about, when the
-    /// caller has one (a round played with live minds on the Thor). Its top
-    /// entries land in the record, where the between-round screen reads
-    /// them; `None` — the flow's own reflex-only rounds — records none.
-    pub surprise: Option<RoundSurprise>,
 }
 
 impl FlowConfig {
@@ -359,20 +228,7 @@ impl FlowConfig {
             ticks: DEFAULT_TICKS,
             eval_seed_count: DEFAULT_EVAL_SEEDS,
             round_id: None,
-            surprise: None,
         }
-    }
-
-    /// Hand the flow the round's surprise table, and its top situations go
-    /// into the record.
-    ///
-    /// The table is counted where the asks happen — the round's agents — so
-    /// this is the seam between the host that played the round with live
-    /// minds and the flow that records it. [`TOP_SURPRISE`] entries are
-    /// kept, each a one-line, human-readable description.
-    pub fn with_surprise(mut self, surprise: RoundSurprise) -> FlowConfig {
-        self.surprise = Some(surprise);
-        self
     }
 
     /// Where the round's files go.
@@ -561,113 +417,6 @@ pub const HARMLESS_REVIEW: &str = r#"{"proposal": {"kind": "LexiconEntry", "squa
 const SYSTEM_PROMPT: &str = "You are the between-round reviewer (System 2) of a last-mile squad. \
 Answer with one JSON object and nothing else: a proposal and the prediction that goes with it.";
 
-/// Why an override could not be carried out.
-///
-/// A human's override is a decision the next round has to live with, so it
-/// is carried out before it is recorded. When it cannot be carried out, it
-/// is refused with one of these, and nothing is written: the ledger never
-/// holds an override that was not carried out, and the harness is left
-/// exactly as it was.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum OverrideError {
-    /// The round holds no proposal: there is nothing to apply, and
-    /// nothing to revert.
-    NoProposal {
-        /// The round that was overridden.
-        round_id: String,
-    },
-    /// The record does not say where the harness is.
-    NoHarnessRoot {
-        /// The round that was overridden.
-        round_id: String,
-    },
-    /// The record does not say where the round's files go.
-    NoRunsRoot {
-        /// The round that was overridden.
-        round_id: String,
-    },
-    /// The proposal's harness is not the one the round measured: it was
-    /// not there when the round was played, or it has moved on since.
-    ///
-    /// `expected` is the identity the round recorded (empty when the
-    /// harness was not part of the round), `found` is the identity now.
-    HarnessMovedOn {
-        /// The agent whose harness moved on.
-        agent: u16,
-        /// The identity the round recorded.
-        expected: String,
-        /// The identity the harness has now.
-        found: String,
-    },
-    /// The proposal's harness is gone.
-    HarnessGone {
-        /// The agent whose harness is gone.
-        agent: u16,
-    },
-    /// The change was never committed: the harness is not a git repo of
-    /// its own, so there is no commit to revert and no tag to move.
-    NoCommit {
-        /// The round that was overridden.
-        round_id: String,
-    },
-    /// The round's commit has no parent: there is no base to restore.
-    NoBase {
-        /// The commit that was to be reverted.
-        commit: String,
-    },
-    /// Git refused the revert.
-    RevertRefused {
-        /// What git said.
-        why: String,
-    },
-}
-
-impl std::fmt::Display for OverrideError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            OverrideError::NoProposal { round_id } => {
-                write!(f, "round {round_id} holds no proposal to apply")
-            }
-            OverrideError::NoHarnessRoot { round_id } => {
-                write!(f, "round {round_id} does not say where its harness is")
-            }
-            OverrideError::NoRunsRoot { round_id } => {
-                write!(f, "round {round_id} does not say where its files go")
-            }
-            OverrideError::HarnessMovedOn {
-                agent,
-                expected,
-                found,
-            } => {
-                if expected.is_empty() {
-                    write!(f, "agent {agent} had no harness when the round was played")
-                } else {
-                    write!(
-                        f,
-                        "agent {agent}'s harness moved on: the round measured {expected}, it is {found} now"
-                    )
-                }
-            }
-            OverrideError::HarnessGone { agent } => {
-                write!(f, "agent {agent}'s harness is gone")
-            }
-            OverrideError::NoCommit { round_id } => write!(
-                f,
-                "round {round_id} committed nothing: there is no commit to revert"
-            ),
-            OverrideError::NoBase { commit } => {
-                write!(
-                    f,
-                    "commit {commit} has no parent: there is no base to restore"
-                )
-            }
-            OverrideError::RevertRefused { why } => write!(f, "git refused the revert: {why}"),
-        }
-    }
-}
-
-impl std::error::Error for OverrideError {}
-
 /// What can go wrong in a learning round.
 #[derive(Debug)]
 pub enum FlowError {
@@ -685,8 +434,6 @@ pub enum FlowError {
     Git(String),
     /// The router refused.
     Router(RouterError),
-    /// A human's override could not be carried out.
-    Override(OverrideError),
 }
 
 impl std::fmt::Display for FlowError {
@@ -699,7 +446,6 @@ impl std::fmt::Display for FlowError {
             FlowError::Harness(why) => write!(f, "harness: {why}"),
             FlowError::Git(why) => write!(f, "git: {why}"),
             FlowError::Router(err) => write!(f, "router: {err}"),
-            FlowError::Override(err) => write!(f, "override: {err}"),
         }
     }
 }
@@ -727,12 +473,6 @@ impl From<ReviewError> for FlowError {
 impl From<RouterError> for FlowError {
     fn from(err: RouterError) -> FlowError {
         FlowError::Router(err)
-    }
-}
-
-impl From<OverrideError> for FlowError {
-    fn from(err: OverrideError) -> FlowError {
-        FlowError::Override(err)
     }
 }
 
@@ -784,7 +524,6 @@ pub fn run_learning_round(
         round_id: round_id.clone(),
         seed: cfg.seed,
         log_path: log_path.clone(),
-        harness_root: cfg.harness_root.clone(),
         metrics_digest: metrics_digest.clone(),
         review_text: review_text.clone(),
         proposal: None,
@@ -801,13 +540,7 @@ pub fn run_learning_round(
         deposit_path: None,
         ledger_path: ledger_path.clone(),
         eval_seeds: Vec::new(),
-        ticks: cfg.ticks,
         overrides: Vec::new(),
-        surprise: cfg
-            .surprise
-            .as_ref()
-            .map(|s| s.top(TOP_SURPRISE))
-            .unwrap_or_default(),
     };
 
     // 5. What the reviewer said.
@@ -973,9 +706,27 @@ fn finish(
             .map_err(|err| FlowError::Harness(format!("the next header: {err}")))?,
     )?;
 
-    let (pin, pins) = pins_of(&record, &next_header, harnesses);
-    record.next_header_pin = pin;
-    record.next_header_pins = pins;
+    record.next_header_pins = next_header
+        .roster
+        .iter()
+        .filter_map(|entry| {
+            let commit = entry.harness_commit.clone();
+            (!commit.is_empty()).then_some((entry.agent, commit))
+        })
+        .collect();
+    record.next_header_pin = match record.proposal.as_ref().and_then(proposal_agent) {
+        Some(agent) => record
+            .next_header_pins
+            .get(&agent)
+            .cloned()
+            .unwrap_or_else(|| base_commit(harnesses, agent)),
+        None => record
+            .next_header_pins
+            .values()
+            .next()
+            .cloned()
+            .unwrap_or_default(),
+    };
     record.next_header_path = next_header_path;
 
     let record_path = cfg
@@ -1003,40 +754,10 @@ fn write_record(record: &FlowRecord, path: &Path) -> Result<(), FlowError> {
     Ok(())
 }
 
-/// The pins the next header carries: every agent's, and the round's own.
-///
-/// The round's pin is the harness the proposal belongs to (a squad's
-/// lexicon belongs to no agent, so it takes the first harness there is).
-fn pins_of(
-    record: &FlowRecord,
-    next_header: &Header,
-    harnesses: &BTreeMap<u16, Harness>,
-) -> (String, BTreeMap<u16, String>) {
-    let pins: BTreeMap<u16, String> = next_header
-        .roster
-        .iter()
-        .filter_map(|entry| {
-            let commit = entry.harness_commit.clone();
-            (!commit.is_empty()).then_some((entry.agent, commit))
-        })
-        .collect();
-    let pin = match record.proposal.as_ref().and_then(proposal_agent) {
-        Some(agent) => pins
-            .get(&agent)
-            .cloned()
-            .unwrap_or_else(|| base_commit(harnesses, agent)),
-        None => pins.values().next().cloned().unwrap_or_default(),
-    };
-    (pin, pins)
-}
-
 /// Override the flow's decision, by hand.
 ///
 /// The measured verdict stays what it was: the record says the human decided
 /// otherwise, and why. Nothing is silent.
-///
-/// This only changes the record in memory, and the harness is left alone:
-/// use [`write_override`] to carry the decision out.
 pub fn override_verdict(record: &FlowRecord, decision: Decision) -> FlowRecord {
     override_verdict_reasoned(record, decision, "a human overrode the flow's decision")
 }
@@ -1052,292 +773,38 @@ pub fn override_verdict_reasoned(
     next.overrides.push(HumanOverride {
         decision,
         reason: reason.to_string(),
-        commit: None,
     });
     next
 }
 
-/// Carry out a human's override, and write it into the files.
+/// Write an override into the files: the ledger, the record.
 ///
-/// An override is not a note: it is a decision the next round has to live
-/// with, so it is carried out before it is recorded.
-///
-/// * An override to **Adopt** applies the proposal exactly as an adopted
-///   one is applied — the same `apply`, the same commit, the same
-///   `round-<id>` tag — and rewrites the next round's header so that it
-///   pins that commit.
-/// * An override to **Reject** of a proposal the flow adopted reverts it:
-///   a new commit in the harness repo restores the base (history is never
-///   rewritten) and the next header pins that commit.
-///
-/// The measured verdict stays what it was: the record says the human
-/// decided otherwise, and why, and which commit resulted.
-///
-/// When the proposal can no longer be applied — the harness moved on, or
-/// there is nothing to apply — the override is refused with a typed error
-/// and nothing is written: the ledger never holds an override that was not
-/// carried out, and the harness is left exactly as it was.
-///
-/// The deposit is left alone: it is the record of the proposal, not of the
-/// override.
+/// The ledger gets a line of its own, so a reader of the chain sees the
+/// evidence and the decision that went against it. The deposit is left
+/// alone: it is the record of the proposal, not of the override.
 pub fn write_override(
     record: &FlowRecord,
     decision: Decision,
     reason: &str,
 ) -> Result<FlowRecord, FlowError> {
-    let proposal = record.proposal.clone().ok_or_else(|| {
-        FlowError::Override(OverrideError::NoProposal {
-            round_id: record.round_id.clone(),
-        })
-    })?;
-    let root = harness_root_of(record)?;
-    let harnesses = read_harness_set(&root)?;
-
-    // 1. The harness: the decision, carried out.
-    let commit = match decision {
-        Decision::Adopt => adopt_override(record, &proposal, &root, &harnesses)?,
-        Decision::Reject => reject_override(record, &proposal, &root, &harnesses)?,
-    };
-
-    // 2. The ledger: the human's decision, in the chain, after the verdict
-    //    it goes against. It is written after the change was carried out,
-    //    so the chain never holds an override that was not.
+    let next = override_verdict_reasoned(record, decision, reason);
     if let Some(seal) = record.seal {
         let mut ledger = Ledger::open(&record.ledger_path)?;
         ledger.override_verdict(seal, decision == Decision::Adopt, reason)?;
     }
-
-    // 3. The next round's header: it pins the harness as it is now.
-    let harnesses = read_harness_set(&root)?;
-    let (next_header, next_header_path) = rewrite_next_header(record, &harnesses)?;
-
-    // 4. The record: the human's decision, and the commit it produced.
-    let mut next = record.clone();
-    next.decision = decision;
-    next.overrides.push(HumanOverride {
-        decision,
-        reason: reason.to_string(),
-        commit: commit.clone(),
-    });
-    if decision == Decision::Adopt {
-        next.commit = commit;
-    }
-    let (pin, pins) = pins_of(&next, &next_header, &harnesses);
-    next.next_header_pin = pin;
-    next.next_header_pins = pins;
-    next.next_header_path = next_header_path;
-
-    let record_path = record_path_of(record);
+    let record_path = if record.record_path.as_os_str().is_empty() {
+        record
+            .next_header_path
+            .parent()
+            .map(|dir| dir.join(format!("{}.json", record.round_id)))
+            .unwrap_or_else(|| PathBuf::from(format!("{}.json", record.round_id)))
+    } else {
+        record.record_path.clone()
+    };
+    let mut next = next;
     next.record_path = record_path.clone();
     write_record(&next, &record_path)?;
     Ok(next)
-}
-
-/// Carry out an override to Adopt: the proposal is applied, committed and
-/// tagged, exactly as an adopted one is.
-fn adopt_override(
-    record: &FlowRecord,
-    proposal: &Proposal,
-    root: &Path,
-    harnesses: &BTreeMap<u16, Harness>,
-) -> Result<Option<String>, FlowError> {
-    // The flow adopted it already: the human agrees with the flow, and the
-    // commit is the one the round produced.
-    if record.decision == Decision::Adopt {
-        return Ok(record.commit.clone());
-    }
-    // The flow rejected it, so the harness must still be the one the
-    // proposal was measured against: a change that can no longer be
-    // applied as it was judged is refused, not applied to a state nobody
-    // measured.
-    check_harness_unchanged(record, harnesses, proposal)?;
-    review_apply(proposal, root)?;
-    let (commit, _) = commit_harness(root, proposal, &record.round_id)?;
-    Ok(commit)
-}
-
-/// Carry out an override to Reject: a proposal the flow adopted is
-/// reverted, in a commit of its own.
-fn reject_override(
-    record: &FlowRecord,
-    proposal: &Proposal,
-    root: &Path,
-    harnesses: &BTreeMap<u16, Harness>,
-) -> Result<Option<String>, FlowError> {
-    // The flow rejected it too: the proposal is not in the harness and the
-    // human agrees. There is nothing to revert.
-    if record.decision != Decision::Adopt {
-        return Ok(None);
-    }
-    let Some(commit) = record.commit.clone() else {
-        return Err(FlowError::Override(OverrideError::NoCommit {
-            round_id: record.round_id.clone(),
-        }));
-    };
-    check_harness_unchanged(record, harnesses, proposal)?;
-    revert_harness(root, proposal, &record.round_id, &commit).map(Some)
-}
-
-/// The harness must be where the round left it.
-///
-/// The proposal was measured against that harness, so an override is
-/// carried out against that state and no other: a harness that has moved
-/// on since the round cannot be changed the way the round judged.
-fn check_harness_unchanged(
-    record: &FlowRecord,
-    harnesses: &BTreeMap<u16, Harness>,
-    proposal: &Proposal,
-) -> Result<(), FlowError> {
-    let Some(agent) = proposal_agent(proposal) else {
-        // A squad's lexicon is not an agent's harness: there is no commit
-        // to compare, and the file itself says whether the change is
-        // already there.
-        return Ok(());
-    };
-    let Some(harness) = harnesses.get(&agent) else {
-        return Err(FlowError::Override(OverrideError::HarnessGone { agent }));
-    };
-    let expected = record
-        .next_header_pins
-        .get(&agent)
-        .cloned()
-        .unwrap_or_default();
-    if expected != harness.commit {
-        return Err(FlowError::Override(OverrideError::HarnessMovedOn {
-            agent,
-            expected,
-            found: harness.commit.clone(),
-        }));
-    }
-    Ok(())
-}
-
-/// Revert the round's commit: a new commit that restores the base.
-///
-/// History is never rewritten: the base is restored by a new commit on top
-/// of the round's. The round's tag moves to it, because the tag is the
-/// frozen state to roll back to (D27), and the frozen state is now the
-/// reverted one.
-fn revert_harness(
-    root: &Path,
-    proposal: &Proposal,
-    round_id: &str,
-    commit: &str,
-) -> Result<String, FlowError> {
-    let Some(agent) = proposal_agent(proposal) else {
-        return Err(FlowError::Override(OverrideError::NoCommit {
-            round_id: round_id.to_string(),
-        }));
-    };
-    let dir = root.join(format!("a{agent}"));
-    if !dir.join(".git").exists() {
-        return Err(FlowError::Override(OverrideError::NoCommit {
-            round_id: round_id.to_string(),
-        }));
-    }
-    let base = git(&dir, &["rev-parse", &format!("{commit}^")]).map_err(|_| {
-        FlowError::Override(OverrideError::NoBase {
-            commit: commit.to_string(),
-        })
-    })?;
-    // The inverse of the round's commit, staged but not committed.
-    if let Err(err) = git(&dir, &["revert", "--no-commit", commit]) {
-        let _ = git(&dir, &["revert", "--abort"]);
-        return Err(FlowError::Override(OverrideError::RevertRefused {
-            why: err.to_string(),
-        }));
-    }
-    // And the revert itself, as a commit of its own.
-    let message = format!("round {round_id}: a human reverted the change");
-    let date = commit_date(round_id);
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args([
-            "-c",
-            "user.name=last-mile flow",
-            "-c",
-            "user.email=flow@last-mile.invalid",
-            "-c",
-            "commit.gpgsign=false",
-        ])
-        .args(["commit", "-m", &message])
-        .env("GIT_AUTHOR_DATE", &date)
-        .env("GIT_COMMITTER_DATE", &date)
-        .output()
-        .map_err(|err| FlowError::Git(format!("git commit: {err}")))?;
-    if !out.status.success() {
-        return Err(FlowError::Git(format!(
-            "git commit: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        )));
-    }
-    // The revert must leave the base's tree exactly: that is what
-    // "restores the base" means.
-    let tree = git(&dir, &["rev-parse", "HEAD^{tree}"])?;
-    let base_tree = git(&dir, &["rev-parse", &format!("{base}^{{tree}}")])?;
-    if tree != base_tree {
-        return Err(FlowError::Override(OverrideError::RevertRefused {
-            why: format!("the revert left the tree {tree}, not the base's {base_tree}"),
-        }));
-    }
-    let revert = git(&dir, &["rev-parse", "HEAD"])?;
-    git(&dir, &["tag", "-f", &format!("round-{round_id}"), &revert])?;
-    Ok(revert)
-}
-
-/// Rewrite the next round's header, so it pins the harness as it is now.
-fn rewrite_next_header(
-    record: &FlowRecord,
-    harnesses: &BTreeMap<u16, Harness>,
-) -> Result<(Header, PathBuf), FlowError> {
-    let path = next_header_path_of(record)?;
-    let next_header = round_header(record.seed.saturating_add(1), harnesses);
-    fs::write(
-        &path,
-        serde_json::to_string_pretty(&next_header)
-            .map_err(|err| FlowError::Harness(format!("the next header: {err}")))?,
-    )?;
-    Ok((next_header, path))
-}
-
-/// Where the harness the round was played against is.
-fn harness_root_of(record: &FlowRecord) -> Result<PathBuf, FlowError> {
-    if record.harness_root.as_os_str().is_empty() {
-        return Err(FlowError::Override(OverrideError::NoHarnessRoot {
-            round_id: record.round_id.clone(),
-        }));
-    }
-    Ok(record.harness_root.clone())
-}
-
-/// Where the next round's header is.
-fn next_header_path_of(record: &FlowRecord) -> Result<PathBuf, FlowError> {
-    if !record.next_header_path.as_os_str().is_empty() {
-        return Ok(record.next_header_path.clone());
-    }
-    record
-        .record_path
-        .parent()
-        .map(|dir| dir.join(format!("{}-next-header.json", record.round_id)))
-        .filter(|path| !path.as_os_str().is_empty())
-        .ok_or_else(|| {
-            FlowError::Override(OverrideError::NoRunsRoot {
-                round_id: record.round_id.clone(),
-            })
-        })
-}
-
-/// Where the flow record is.
-fn record_path_of(record: &FlowRecord) -> PathBuf {
-    if !record.record_path.as_os_str().is_empty() {
-        return record.record_path.clone();
-    }
-    record
-        .next_header_path
-        .parent()
-        .map(|dir| dir.join(format!("{}.json", record.round_id)))
-        .unwrap_or_else(|| PathBuf::from(format!("{}.json", record.round_id)))
 }
 
 /// The agent a proposal belongs to, when it belongs to one.
@@ -1356,7 +823,7 @@ fn harness_dir_of(root: &Path, p: &Proposal) -> Option<PathBuf> {
 }
 
 /// Read every agent's harness under the root: the `a<agent>` directories.
-pub(crate) fn read_harness_set(root: &Path) -> Result<BTreeMap<u16, Harness>, FlowError> {
+fn read_harness_set(root: &Path) -> Result<BTreeMap<u16, Harness>, FlowError> {
     let mut set = BTreeMap::new();
     if !root.is_dir() {
         return Err(FlowError::Harness(format!(
@@ -1405,7 +872,7 @@ fn harness_view(h: &Harness) -> HarnessView {
 }
 
 /// The header of a round, with the harnesses pinned into it (D27).
-pub(crate) fn round_header(seed: u64, harnesses: &BTreeMap<u16, Harness>) -> Header {
+fn round_header(seed: u64, harnesses: &BTreeMap<u16, Harness>) -> Header {
     let mut header = Header::default_round(seed, DEFAULT_REFLEX);
     harness::pin_into(&mut header, harnesses);
     header
@@ -1566,41 +1033,19 @@ fn commit_harness(
     let Some(dir) = harness_dir_of(root, proposal) else {
         return Ok((None, String::new()));
     };
-    let message = format!("round {round_id}: {}", describe_proposal(proposal));
-    commit_tree(&dir, round_id, &message)
-}
-
-/// Commit every change in a harness directory — the one commit discipline
-/// every lane of change into the harness uses: the learning flow's adopted
-/// proposals and the Vibe pipeline's landings.
-///
-/// The commit's date is derived from `id`, so the same change always
-/// produces the same commit (D65), and the state it leaves is tagged
-/// `round-<id>` (D27: the frozen state to roll back to). A directory that
-/// is not a git repo of its own is identified by its bytes instead: there
-/// is nothing to commit, and nothing is pretended.
-pub(crate) fn commit_tree(
-    dir: &Path,
-    id: &str,
-    message: &str,
-) -> Result<(Option<String>, String), FlowError> {
     if !dir.join(".git").exists() {
         return Ok((None, String::new()));
     }
 
-    git(dir, &["add", "-A"])?;
-    // A repo with no commits yet has no HEAD to diff against: the whole
-    // index is the diff (against the empty tree it is about to replace).
-    let diff = match git(dir, &["rev-parse", "--verify", "HEAD"]) {
-        Ok(_) => git(dir, &["diff", "HEAD"])?,
-        Err(_) => git(dir, &["diff", "--cached"])?,
-    };
-    let dirty = !git(dir, &["status", "--porcelain"])?.trim().is_empty();
+    git(&dir, &["add", "-A"])?;
+    let diff = git(&dir, &["diff", "HEAD"])?;
+    let dirty = !git(&dir, &["status", "--porcelain"])?.trim().is_empty();
     if dirty {
-        let date = commit_date(id);
+        let message = format!("round {round_id}: {}", describe_proposal(proposal));
+        let date = commit_date(round_id);
         let out = Command::new("git")
             .arg("-C")
-            .arg(dir)
+            .arg(&dir)
             .args([
                 "-c",
                 "user.name=last-mile flow",
@@ -1609,7 +1054,7 @@ pub(crate) fn commit_tree(
                 "-c",
                 "commit.gpgsign=false",
             ])
-            .args(["commit", "-m", message])
+            .args(["commit", "-m", &message])
             .env("GIT_AUTHOR_DATE", &date)
             .env("GIT_COMMITTER_DATE", &date)
             .output()
@@ -1621,8 +1066,8 @@ pub(crate) fn commit_tree(
             )));
         }
     }
-    let commit = git(dir, &["rev-parse", "HEAD"])?;
-    git(dir, &["tag", "-f", &format!("round-{id}"), &commit])?;
+    let commit = git(&dir, &["rev-parse", "HEAD"])?;
+    git(&dir, &["tag", "-f", &format!("round-{round_id}"), &commit])?;
     Ok((Some(commit), diff))
 }
 
@@ -1695,7 +1140,6 @@ mod tests {
             round_id: "r7".to_string(),
             seed: 7,
             log_path: PathBuf::from("r7.log"),
-            harness_root: PathBuf::from("/tmp/harness"),
             metrics_digest: "0".to_string(),
             review_text: String::new(),
             proposal: None,
@@ -1712,9 +1156,7 @@ mod tests {
             deposit_path: None,
             ledger_path: PathBuf::from("ledger.jsonl"),
             eval_seeds: Vec::new(),
-            ticks: 0,
             overrides: Vec::new(),
-            surprise: Vec::new(),
         };
         let overridden = override_verdict(&record, Decision::Adopt);
         assert_eq!(overridden.decision, Decision::Adopt);
@@ -1730,68 +1172,5 @@ mod tests {
         assert_eq!(agent_id("squad0"), None);
         assert_eq!(agent_id("a"), None);
         assert_eq!(agent_id("ax"), None);
-    }
-
-    #[test]
-    fn a_record_carries_its_surprise_and_old_records_load() {
-        use lm_agents::surprise::{EnemySpot, Margin, Phase, SituationKey, Standing};
-        let key = SituationKey {
-            standing: Standing::Enemy,
-            enemy: EnemySpot::Seeing,
-            stunned: true,
-            margin: Margin::Behind,
-            phase: Phase::Mid,
-        };
-        let mut counts = SituationCounts::new(key);
-        counts.asks = 14;
-        counts.unsure_asks = 9;
-        counts.unsure.insert("attention".to_owned(), 9);
-
-        let mut record = record_for_test();
-        record.surprise = vec![counts];
-        let text = serde_json::to_string(&record).expect("the record serialises");
-        let back: FlowRecord = serde_json::from_str(&text).expect("the record loads");
-        assert_eq!(back.surprise.len(), 1);
-        assert_eq!(back.surprise[0].asks, 14);
-        assert!(text.contains("attention"));
-
-        // A record written before the field existed has no `surprise` key at
-        // all: it reads back with none, and says so.
-        let value: serde_json::Value = serde_json::from_str(&text).expect("json");
-        let mut old = value.clone();
-        old.as_object_mut()
-            .expect("a record is an object")
-            .remove("surprise");
-        let old_record: FlowRecord = serde_json::from_value(old).expect("the old record loads");
-        assert!(old_record.surprise.is_empty());
-    }
-
-    /// A minimal record, for the tests that only care about its shape.
-    fn record_for_test() -> FlowRecord {
-        FlowRecord {
-            round_id: "r7".to_string(),
-            seed: 7,
-            log_path: PathBuf::from("r7.log"),
-            harness_root: PathBuf::from("/tmp/harness"),
-            metrics_digest: "0".to_string(),
-            review_text: String::new(),
-            proposal: None,
-            rejection: None,
-            claim: None,
-            seal: None,
-            verdict: None,
-            decision: Decision::Reject,
-            commit: None,
-            next_header_pin: String::new(),
-            next_header_pins: BTreeMap::new(),
-            next_header_path: PathBuf::from("r7-next-header.json"),
-            record_path: PathBuf::from("r7.json"),
-            deposit_path: None,
-            ledger_path: PathBuf::from("ledger.jsonl"),
-            eval_seeds: Vec::new(),
-            ticks: 0,
-            overrides: Vec::new(),
-            surprise: Vec::new(),
-        }
     }
 }

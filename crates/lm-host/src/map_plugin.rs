@@ -20,7 +20,6 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::PrimaryWindow;
 use bevy::{asset::RenderAssetUsages, image::ImageSampler};
 use lm_core::fixed::UNITS_PER_M;
-use lm_core::utterance::Channel;
 use lm_core::world::{CellKind, CellXY};
 use lm_host_model::input::Viewer;
 use lm_host_model::map::{FogState, MapModel};
@@ -44,22 +43,6 @@ const STUNNED_COLOR: Color = Color::srgb(0.62, 0.62, 0.65);
 const LEADER_RING: Color = Color::srgb(1.0, 0.98, 0.85);
 /// The nose that shows which way an agent faces.
 const FACING_COLOR: Color = Color::srgb(0.06, 0.06, 0.08);
-
-/// The colour of a word that is spoken on each channel.
-///
-/// The channel is the shape of the line, so it is the colour of the tick:
-/// a shout is loud and bright, a whisper is quiet and dim, and the radio is
-/// the squad's own colour.
-const CHANNEL_SHOUT: Color = Color::srgb(1.0, 0.78, 0.32);
-const CHANNEL_VOICE: Color = Color::srgb(0.95, 0.95, 0.98);
-const CHANNEL_WHISPER: Color = Color::srgb(0.76, 0.84, 1.0);
-const CHANNEL_RADIO: Color = Color::srgb(0.42, 0.92, 0.62);
-
-/// The colour of a word that has not been said yet.
-///
-/// It is dim, but not gone: a word the speaker has not reached yet is
-/// still a word of the line.
-const UNSPOKEN_ALPHA: f32 = 0.45;
 
 /// The squads of a round, in colour order. A squad keeps its colour for the
 /// whole round, so a glance says who is who.
@@ -93,30 +76,6 @@ pub fn fog_color(state: FogState) -> Color {
     }
 }
 
-/// How far the paint pulls a cell's colour towards the squad's.
-///
-/// The paint is a stain on the ground, not a floor: the terrain still shows
-/// through it, so a wall under fresh paint is still a wall.
-const PAINT_STRENGTH: f32 = 0.6;
-
-/// The colour of a cell with paint on it.
-///
-/// The paint is in the colour of the squad that splatted it, and it fades as
-/// it dries: a fresh splat is mostly the squad's colour and a dry one is the
-/// ground again. `wet_q8` is the paint's wetness in Q8 — 255 is fresh, 0 is
-/// dry.
-pub fn paint_over(ground: Color, paint: Color, wet_q8: u8) -> Color {
-    let g = ground.to_srgba();
-    let p = paint.to_srgba();
-    let t = (f32::from(wet_q8) / f32::from(lm_core::world::paint::WET_Q8_MAX)) * PAINT_STRENGTH;
-    Color::srgba(
-        g.red + (p.red - g.red) * t,
-        g.green + (p.green - g.green) * t,
-        g.blue + (p.blue - g.blue) * t,
-        g.alpha + (p.alpha - g.alpha) * t,
-    )
-}
-
 /// A colour of the map as an egui colour: the panels speak in the colours of
 /// the world.
 pub fn egui_color(color: Color) -> bevy_egui::egui::Color32 {
@@ -138,15 +97,6 @@ const BEACON_RADIUS_M: f32 = 1.7;
 const MIN_AGENT_PX: f32 = 7.0;
 /// The smallest a beacon is drawn, in pixels.
 const MIN_BEACON_PX: f32 = 9.0;
-/// How long a speech tick is, in metres.
-const TICK_LENGTH_M: f32 = 2.2;
-/// How far above the body the speech ticks start, in metres.
-const TICK_GAP_M: f32 = 0.6;
-/// How far apart two words of a line are drawn, in metres.
-const TICK_SPACING_M: f32 = 0.9;
-/// The smallest a speech tick is drawn, in pixels: a word has to stay
-/// readable when the whole world is on the screen.
-const MIN_TICK_PX: f32 = 12.0;
 /// How closely the camera follows an agent, in pixels per metre.
 const FOLLOW_PX_PER_M: f32 = 9.0;
 /// The closest the camera may come, in pixels per metre.
@@ -169,15 +119,6 @@ pub struct CurrentMap(pub Option<MapModel>);
 pub struct TileLayer {
     /// The fog of every cell as it was last drawn.
     pub drawn: Vec<FogState>,
-    /// The terrain of every cell as it was last drawn, paint and all.
-    pub drawn_terrain: Vec<Option<Color>>,
-    /// The paint of every cell, by cell index: the owner plus one in the
-    /// high byte (0 for no paint) and how wet it is in the low byte.
-    ///
-    /// It is rebuilt every frame, because the paint changes as it dries, and
-    /// it is here so that the drawing asks once per cell instead of looking
-    /// for the paint of a cell among all the paint.
-    pub paint: Vec<u16>,
     /// The width of the grid, in cells.
     pub grid_w: u16,
     /// The height of the grid, in cells.
@@ -195,10 +136,6 @@ pub struct TileLayer {
 /// same component.
 #[derive(Component)]
 enum Body {
-    /// The terrain of a cell of the grid, in row-major order. It carries the
-    /// paint of the round: a cell with paint in it is drawn in the colour of
-    /// the squad that splatted it.
-    Terrain(usize),
     /// The fog over a cell of the grid, in row-major order.
     Fog(usize),
     /// An agent, by its id.
@@ -214,14 +151,7 @@ pub struct Layout {
     /// The size of the window, in pixels.
     pub size: Vec2,
     /// The height of the top bar, in pixels.
-    ///
-    /// It is the whole of the top: the bar with the round's own numbers and
-    /// the row under it with the talk's.
     pub top: f32,
-    /// The height of the bar with the round's numbers, in pixels.
-    pub bar: f32,
-    /// The height of the row with the talk's numbers, in pixels.
-    pub talk: f32,
     /// The height of the bottom panel, in pixels.
     pub bottom: f32,
 }
@@ -230,9 +160,7 @@ impl Default for Layout {
     fn default() -> Self {
         Layout {
             size: Vec2::new(1280.0, 720.0),
-            bar: top_height(1280.0),
-            talk: talk_height(1280.0),
-            top: top_height(1280.0) + talk_height(1280.0),
+            top: top_height(1280.0),
             bottom: bottom_height(720.0),
         }
     }
@@ -254,29 +182,9 @@ fn top_height(width: f32) -> f32 {
     }
 }
 
-/// The height of the row with the talk's numbers.
-///
-/// The talk's counters are their own row: they are the numbers of the
-/// round's talk, and they are read together, not mixed in with the round's
-/// own.
-fn talk_height(width: f32) -> f32 {
-    if width < 900.0 {
-        40.0
-    } else {
-        22.0
-    }
-}
-
 /// The height of the piano roll: a quarter of the window, within reason.
 fn bottom_height(height: f32) -> f32 {
     (height * 0.25).clamp(70.0, 150.0)
-}
-
-/// The height of the conductor's score: more of the window, because it
-/// stacks four staves per agent where the roll draws one lane, and the
-/// words and marks on the voice staff have to stay readable.
-fn score_height(height: f32) -> f32 {
-    (height * 0.40).clamp(150.0, 300.0)
 }
 
 /// The camera: where it looks, and how closely.
@@ -312,29 +220,6 @@ pub enum MapSet {
     Map,
 }
 
-/// The map's own camera — the one this plugin moves.
-///
-/// The marker matters the moment a second view shares the app (`--view
-/// both`): the 3D view's world camera and its blit camera are cameras too,
-/// and this plugin's controller must never touch them. The first `both`
-/// layout dragged the 3D camera to the ground plane every frame — its
-/// queries said `With<Camera>` and every camera answered.
-#[derive(Component)]
-pub struct MapCamera;
-
-/// The bottom panel's mode, as a resource the model's own switch rides in
-/// (the model crate knows no Bevy, so the host wraps it — the same shape
-/// as the view switch's wrapper).
-#[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct Bottom(pub lm_host_model::view::BottomSwitch);
-
-impl Bottom {
-    /// The mode the panel is in.
-    pub fn mode(&self) -> lm_host_model::view::BottomMode {
-        self.0.mode
-    }
-}
-
 /// The map plugin: the world, the bodies on it, and the camera.
 pub struct MapPlugin;
 
@@ -344,10 +229,6 @@ impl Plugin for MapPlugin {
             .init_resource::<TileLayer>()
             .init_resource::<Layout>()
             .init_resource::<CameraRig>()
-            // The bottom panel's mode sizes it (the score is the taller of
-            // the two), so the map keeps its share of the window in step
-            // with whichever is drawing.
-            .init_resource::<Bottom>()
             .add_systems(Startup, spawn_world)
             .add_systems(
                 Update,
@@ -369,7 +250,7 @@ fn spawn_world(
     // The camera: bevy_egui hangs its context on the first camera, so it has
     // to exist before the panels are drawn -- even when the file that was
     // asked for could not be opened and there is no world to draw.
-    commands.spawn((Camera2d, MapCamera));
+    commands.spawn(Camera2d);
 
     let Some(sim) = round.sim() else {
         return;
@@ -391,7 +272,6 @@ fn spawn_world(
             commands.spawn((
                 Sprite::from_color(cell_color(grid.get(cell)), Vec2::splat(cell_m)),
                 Transform::from_translation(centre),
-                Body::Terrain(index),
             ));
             commands.spawn((
                 Sprite::from_color(FOG_VISIBLE, Vec2::splat(cell_m)),
@@ -428,7 +308,6 @@ fn spawn_world(
     }
 
     layer.drawn = vec![FogState::Visible; cells];
-    layer.drawn_terrain = vec![None; cells];
     layer.grid_w = grid.w;
     layer.grid_h = grid.h;
     layer.cell_m = cell_m;
@@ -486,27 +365,14 @@ fn bevy_point(pos_m: (f32, f32)) -> Vec2 {
 }
 
 /// The layout of the window, as it is now.
-fn update_layout(
-    mut layout: ResMut<Layout>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    bottom: Res<Bottom>,
-) {
+fn update_layout(mut layout: ResMut<Layout>, windows: Query<&Window, With<PrimaryWindow>>) {
     let Ok(window) = windows.single() else {
         return;
     };
     let size = Vec2::new(window.width(), window.height());
     layout.size = size;
-    layout.bar = top_height(size.x);
-    layout.talk = talk_height(size.x);
-    layout.top = layout.bar + layout.talk;
-    // The score stacks four staves per agent where the roll draws one lane,
-    // so it takes the larger share of the window while it is the one
-    // drawing. The map above shrinks by the same amount, and the click
-    // routing follows, because everything reads this one layout.
-    layout.bottom = match bottom.mode() {
-        lm_host_model::view::BottomMode::Roll => bottom_height(size.y),
-        lm_host_model::view::BottomMode::Score => score_height(size.y),
-    };
+    layout.top = top_height(size.x);
+    layout.bottom = bottom_height(size.y);
 }
 
 /// Build the map of this frame: the world as the viewer may see it, with
@@ -543,13 +409,9 @@ fn build_map(
 /// It looks at the agent being played, or at the one being watched; when
 /// nobody is being watched it stays where it was left, and the person drives
 /// it with WASD, the drag and the wheel.
-///
-/// Only the map's own camera ([`MapCamera`]) — never any other view's: in
-/// the `both` layout the 3D view's cameras live in the same app, and a
-/// controller that reached for every `Camera` would drag them along.
 fn update_camera(
-    mut cameras: Query<&mut Transform, With<MapCamera>>,
-    mut projections: Query<&mut Projection, With<MapCamera>>,
+    mut cameras: Query<&mut Transform, With<Camera>>,
+    mut projections: Query<&mut Projection, With<Camera>>,
     mut rig: ResMut<CameraRig>,
     map: Res<CurrentMap>,
     input: Res<Input>,
@@ -606,59 +468,9 @@ fn draw_map(
         return;
     };
     let px_per_m = rig.px_per_m;
-    // The words being spoken: one tick per word, above the body that is
-    // saying them. The ticks stand clear of the body — the agent's own
-    // disc, and the leader's ring around it, would swallow a tick drawn on
-    // top of them, and a word nobody can see is not said.
-    let tick_length = TICK_LENGTH_M.max(MIN_TICK_PX / px_per_m);
-    let tick_spacing = TICK_SPACING_M.max(MIN_TICK_PX / px_per_m);
-    let tick_gap = AGENT_RADIUS_M.max(MIN_AGENT_PX * 0.5 / px_per_m) * 1.6 + TICK_GAP_M;
-
-    // The paint, by cell: the terrain of a painted cell is drawn in the
-    // colour of the squad that splatted it. The paint of the round changes
-    // as it dries, so the lookup is rebuilt every frame.
-    let cells = model.cells.len();
-    if layer.paint.len() != cells {
-        layer.paint = vec![0; cells];
-    } else {
-        layer.paint.fill(0);
-    }
-    for paint in &model.paint {
-        let index =
-            usize::from(paint.cell.y) * usize::from(layer.grid_w) + usize::from(paint.cell.x);
-        if let Some(slot) = layer.paint.get_mut(index) {
-            *slot = (u16::from(paint.owner.saturating_add(1)) << 8) | u16::from(paint.wet_q8);
-        }
-    }
 
     for (mut sprite, mut transform, mut visibility, body) in &mut bodies {
         match body {
-            // The terrain, and the paint on it: a cell that carries paint is
-            // drawn in the colour of the squad that splatted it, fading as
-            // the paint dries. Only the cells whose colour changed are
-            // repainted.
-            Body::Terrain(index) => {
-                let Some(&(_, kind, _)) = model.cells.get(*index) else {
-                    continue;
-                };
-                let ground = cell_color(kind);
-                let color = match layer.paint.get(*index).copied().unwrap_or(0) {
-                    0 => ground,
-                    paint => {
-                        let owner = ((paint >> 8) as u8).saturating_sub(1);
-                        let wet = (paint & 0xff) as u8;
-                        paint_over(ground, squad_color(owner), wet)
-                    }
-                };
-                if layer.drawn_terrain.get(*index) == Some(&Some(color)) {
-                    continue;
-                }
-                sprite.color = color;
-                if let Some(slot) = layer.drawn_terrain.get_mut(*index) {
-                    *slot = Some(color);
-                }
-            }
-
             // The fog: only the cells whose fog changed are repainted.
             Body::Fog(index) => {
                 let Some(&(_, _, state)) = model.cells.get(*index) else {
@@ -698,21 +510,6 @@ fn draw_map(
                 }
                 let facing = Vec2::new(draw.facing_rad.cos(), -draw.facing_rad.sin());
                 gizmos.line_2d(point, point + facing * (radius * 1.9), FACING_COLOR);
-
-                // The words this agent is saying: a tick per word, above
-                // the body. A word that has been said is bright; a word the
-                // speaker has not reached yet is dim.
-                for tick in model.speech.iter().filter(|tick| tick.speaker == *id) {
-                    let base = Vec2::new(
-                        point.x + f32::from(tick.index) * tick_spacing,
-                        point.y + tick_gap,
-                    );
-                    let mut color = channel_color(tick.channel);
-                    if tick.at > model.now_tick {
-                        color.set_alpha(UNSPOKEN_ALPHA);
-                    }
-                    gizmos.line_2d(base, base + Vec2::new(0.0, tick_length), color);
-                }
             }
 
             // A beacon: a diamond in the colour of the squad holding it.
@@ -732,22 +529,6 @@ fn draw_map(
                 transform.translation = Vec3::new(point.x, point.y, BEACON_Z);
             }
         }
-    }
-
-    // The words being spoken, over the bodies that are saying them.
-}
-
-/// The colour of a word spoken on a channel.
-///
-/// The panels speak in the colours of the world, so the roll's speaking
-/// spans and the map's speech ticks are the same colour for the same
-/// channel.
-pub fn channel_color(channel: Channel) -> Color {
-    match channel {
-        Channel::Shout => CHANNEL_SHOUT,
-        Channel::Voice => CHANNEL_VOICE,
-        Channel::Whisper => CHANNEL_WHISPER,
-        Channel::Radio => CHANNEL_RADIO,
     }
 }
 
