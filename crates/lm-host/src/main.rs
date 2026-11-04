@@ -47,25 +47,12 @@
 //!
 //! ## The voice
 //!
-//! `--talk off|stub|on|riva` says who speaks. `off` is no audio: the round
-//! still talks, because the round's talk is decisions, and the person hears
+//! `--talk off|stub|riva` says who speaks. `off` is no audio: the round still
+//! talks, because the round's talk is decisions, and the person hears
 //! nothing. `stub` is the deterministic backend — no network, no clock, the
-//! same line always the same clip. `on` (skald, D73) is the agents' real
-//! voices: every planned line is rendered ahead of time through the
-//! prefetch queue into the bank, and a line not ready when due plays the
-//! tone — the host never waits for a voice. `riva` is the older
-//! direct-port adapter, and it is only used when the environment names it:
-//! `LM_RIVA_BASE` and `LM_RIVA_TTS_PORT`. A port is never guessed
-//! (spec §12).
-//!
-//! The skald voices are named by the harness's `voice.toml` (the speakers,
-//! the styles, the daemon and its engine); the machine the host runs on
-//! may say where the daemon really is through `LM_SKALD_BASE` and
-//! `LM_SKALD_PORT`, because the map names it as the Thor spells it. The
-//! bank lives in the per-user cache dir with a size cap
-//! (`--voice-bank`, `--voice-bank-cap-mb`), is pre-warmed from the
-//! phrasebook in the background, and `--voice-log FILE` writes one line a
-//! played clip with its samples — the outside proof of playback.
+//! same line always the same clip. `riva` is the real voice service, and it
+//! is only used when the environment names it: `LM_RIVA_BASE` and
+//! `LM_RIVA_TTS_PORT`. A port is never guessed (spec §12).
 //!
 //! Build and run it with Windows cargo via `scripts/win-build.sh`; this WSL
 //! toolchain has none of Bevy's Linux system libraries.
@@ -77,7 +64,6 @@ mod input_plugin;
 mod keys;
 mod map_plugin;
 mod roll_plugin;
-mod score_plugin;
 mod sim_plugin;
 mod view3d;
 
@@ -97,8 +83,6 @@ use bevy::{
 };
 use bevy_egui::{EguiContext, EguiGlobalSettings, EguiPlugin, PrimaryEguiContext};
 use lm_agents::config::AgentsConfig;
-use lm_agents::decompose::shape_backends;
-use lm_agents::gates::GateSet;
 use lm_agents::harness::Harness;
 use lm_agents::mind::Policy;
 use lm_agents::sysone::{JevBackend, StubBackend, SysOne, ThorBackend};
@@ -109,9 +93,8 @@ use lm_host_model::input::{InputEvent, InputState};
 use lm_host_model::record;
 use lm_host_model::scrub::Scrubber;
 use lm_host_model::talk::TalkConfig;
-use lm_host_model::view::{BottomMode, BottomSwitch, ViewMode, ViewSwitch};
-use lm_host_model::voices::{Voices, VoicesSettings};
-use lm_voice::{RivaTts, StubTts, Tts, VoiceMap};
+use lm_host_model::view::{ViewMode, ViewSwitch};
+use lm_voice::{RivaTts, StubTts, Tts};
 use std::{num::NonZeroU8, path::PathBuf};
 
 /// The window the app opens with.
@@ -170,25 +153,6 @@ struct Options {
     learn_ticks: u64,
     /// How long the round is, in ticks, when the command line says.
     ticks: Option<u32>,
-    /// Which mode the bottom panel opens in: the roll or the score.
-    bottom: BottomMode,
-    /// How many seconds of the round the score draws.
-    score_seconds: u32,
-    /// The tick a replay opens on, when the command line names one.
-    scrub: Option<u64>,
-    /// The voice map that says where the ears are: its `[asr]` section.
-    voice_toml: Option<PathBuf>,
-    /// The waves to play into the capture path: the test hook.
-    mic_wavs: Vec<PathBuf>,
-    /// Where the skald voice bank lives, when the command line names it
-    /// (else `voice.toml`'s `[bank]` root, else the per-user cache dir).
-    voice_bank: Option<PathBuf>,
-    /// How many megabytes the voice bank may hold, when the command line
-    /// says (else the map's own cap).
-    voice_bank_cap_mb: Option<u32>,
-    /// Where the played-clip log is written, when it is asked for: one
-    /// line a clip, with its samples — the outside proof of playback.
-    voice_log: Option<PathBuf>,
 }
 
 /// The host's view switch, as a resource: which view draws, and the `B`
@@ -253,37 +217,26 @@ impl AgentChoice {
 /// `off` is no audio at all — the round still talks, because the round's
 /// talk is decisions and not sound, and the person simply hears nothing.
 /// `stub` is the deterministic backend: no network, no clock, the same line
-/// always the same clip. `skald` is the agents' real voices (D73): the
-/// lines are rendered ahead of time through the prefetch queue into the
-/// bank, and a line that is not ready when due plays the tone. `riva` is
-/// the older direct-port adapter, and it is only used when the environment
-/// names it: a port is never guessed (spec §12).
+/// always the same clip. `riva` is the real service, and it is only used
+/// when the environment names it: a port is never guessed (spec §12).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TalkChoice {
     /// No audio: the round still talks, in silence.
     Off,
     /// The deterministic backend: no network, no clock.
     Stub,
-    /// The agents' skald voices, pre-rendered into the bank (D73).
-    Skald,
     /// The real voice service, when the environment names it.
     Riva,
 }
 
 impl TalkChoice {
     /// The choice a command line spells out.
-    ///
-    /// `on` is `skald`'s other name: the brief's own spelling of "the
-    /// voices are on".
     fn parse(text: &str) -> Result<TalkChoice, String> {
         match text {
             "off" => Ok(TalkChoice::Off),
             "stub" => Ok(TalkChoice::Stub),
-            "on" | "skald" => Ok(TalkChoice::Skald),
             "riva" => Ok(TalkChoice::Riva),
-            other => Err(format!(
-                "`--talk` wants off, stub, on (skald) or riva, not `{other}`"
-            )),
+            other => Err(format!("`--talk` wants off, stub or riva, not `{other}`")),
         }
     }
 
@@ -292,7 +245,6 @@ impl TalkChoice {
         match self {
             TalkChoice::Off => "off",
             TalkChoice::Stub => "stub",
-            TalkChoice::Skald => "skald",
             TalkChoice::Riva => "riva",
         }
     }
@@ -306,11 +258,9 @@ fn main() -> AppExit {
             eprintln!(
                 "usage: lm-host [--seed N] [--window WxH] [--view 2d|3d|both] \
                  [--possess AGENT] [--replay FILE] [--screenshot PATH [--frames N]] \
-                 [--agents off|stub|thor] [--talk off|stub|on|riva] [--harness DIR] \
+                 [--agents off|stub|thor] [--talk off|stub|riva] [--harness DIR] \
                  [--agents-config FILE] [--reviewer stub|router] [--harness-root DIR] \
-                 [--runs DIR] [--learn-ticks N] [--ticks N] [--voice-toml FILE] \
-                 [--mic-wav FILE] [--bottom roll|score] [--score-seconds N] [--scrub N] \
-                 [--voice-bank DIR] [--voice-bank-cap-mb N] [--voice-log FILE]"
+                 [--runs DIR] [--learn-ticks N] [--ticks N]"
             );
             return AppExit::Error(NonZeroU8::MIN);
         }
@@ -318,48 +268,6 @@ fn main() -> AppExit {
 
     // The viewer: watching, unless the command line says to play.
     let mut input = InputState::new();
-
-    // The ears: the voice map's `[asr]` section says which backend hears
-    // and where the ears are. It is the one config: the game and the
-    // intelligibility gate read the same section, so they cannot disagree
-    // about where the ears are. Without a file the shipped map applies.
-    let asr = match &options.voice_toml {
-        Some(path) => match VoiceMap::load(path) {
-            Ok(map) => map.asr,
-            Err(err) => {
-                eprintln!(
-                    "lm-host: the voice map {} cannot be read: {err}",
-                    path.display()
-                );
-                return AppExit::Error(NonZeroU8::MIN);
-            }
-        },
-        None => VoiceMap::shipped().asr,
-    };
-    println!(
-        "lm-host: the ears hear with the {} backend",
-        asr.backend.as_str()
-    );
-
-    // The waves for the test hook: the capture path is fed a file instead
-    // of a device, so the whole path runs with no microphone and no human.
-    let mut waves = Vec::new();
-    for path in &options.mic_wavs {
-        let bytes = match std::fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(err) => {
-                eprintln!("lm-host: the wave {} cannot be read: {err}", path.display());
-                return AppExit::Error(NonZeroU8::MIN);
-            }
-        };
-        match lm_host_model::wav::read(&bytes) {
-            Ok(wave) => waves.push(wave.at_capture_rate().samples),
-            Err(err) => {
-                eprintln!("lm-host: the wave {} cannot be read: {err}", path.display());
-                return AppExit::Error(NonZeroU8::MIN);
-            }
-        }
-    }
 
     // The round: either one being played, or one being replayed out of a
     // log. The two are different animals, so the app is told which one it
@@ -394,9 +302,6 @@ fn main() -> AppExit {
         None => {
             // The round: the standard one, with the shipped reflex. The host
             // plays the same round the headless tools do.
-            if options.scrub.is_some() {
-                eprintln!("lm-host: a live round cannot open on a tick: `--scrub` is ignored");
-            }
             let mut header = Header::default_round(options.seed, lm_tools::runner::DEFAULT_REFLEX);
             if let Some(ticks) = options.ticks {
                 header.params.time_limit_ticks = ticks;
@@ -458,7 +363,7 @@ fn main() -> AppExit {
 
             // The voice. A backend that is not there is not a crash: the
             // round still talks, in silence, and the fallback is logged.
-            if let Err(err) = attach_talk(&options, &header, &mut host) {
+            if let Err(err) = attach_talk(&options, &mut host) {
                 eprintln!("lm-host: {err}");
             }
 
@@ -522,47 +427,18 @@ fn main() -> AppExit {
     if options.view != ViewMode::View3d {
         app.add_plugins(EguiPlugin::default());
     }
-    // The played-clip log: the outside proof of playback, one line a clip
-    // with its samples (nobody in the harness can hear the ProArt's
-    // speakers, so the log is the ears). It is only written when asked
-    // for, and a file that cannot be made is named, not fatal.
-    if let Some(path) = &options.voice_log {
-        match std::fs::File::create(path) {
-            Ok(file) => {
-                app.insert_resource(audio_plugin::VoiceLog::open(file));
-                println!("lm-host: the played clips are logged to {}", path.display());
-            }
-            Err(err) => eprintln!(
-                "lm-host: the voice log {} cannot be written: {err}",
-                path.display()
-            ),
-        }
-    }
-
     app.insert_resource(round)
         .insert_resource(recording)
         .insert_resource(input_plugin::Input(input))
-        .insert_resource(audio_plugin::MicWavs::new(waves))
         .init_resource::<FrameCount>()
-        // The bottom panel opens in the mode the command line names (`E`
-        // walks between them at runtime), the score draws as many seconds
-        // as it asks for, and a replay can open on a named tick.
-        .insert_resource(map_plugin::Bottom(BottomSwitch::new(options.bottom)))
-        .insert_resource(sim_plugin::ScoreZoom(options.score_seconds))
         .add_plugins(sim_plugin::SimPlugin::new(tick_hz));
-    if let Some(tick) = options.scrub {
-        app.insert_resource(sim_plugin::Replay {
-            playing: false,
-            tick,
-        });
-    }
 
     match options.view {
         ViewMode::Map2d => {
             app.add_plugins((
                 map_plugin::MapPlugin,
                 input_plugin::InputPlugin,
-                audio_plugin::VoicePlugin { asr: asr.clone() },
+                audio_plugin::VoicePlugin,
                 hud_plugin::HudPlugin,
                 roll_plugin::RollPlugin,
                 // The between-round screen is egui, and it rides whatever
@@ -607,7 +483,7 @@ fn main() -> AppExit {
                     view3d::View3dPlugin { settings },
                     map_plugin::MapPlugin,
                     input_plugin::InputPlugin,
-                    audio_plugin::VoicePlugin { asr: asr.clone() },
+                    audio_plugin::VoicePlugin,
                     hud_plugin::HudPlugin,
                     roll_plugin::RollPlugin,
                     // The between-round screen rides the panel carrier's
@@ -699,7 +575,7 @@ fn attach_agents(
         )
     })?;
 
-    let backends = backends(choice, &cfg, &harness)?;
+    let backends = backends(choice, &cfg, &harness);
     if backends.is_empty() {
         return Err("no model is there to ask".to_owned());
     }
@@ -708,86 +584,20 @@ fn attach_agents(
     Ok(())
 }
 
-/// How many ticks of the round's seed the pre-warm plays: the `lm voice`
-/// report's own window, which found a round's unique lines within it —
-/// and no more, because the pre-warm runs beside the round, not before it.
-const PREWARM_TICKS: u64 = 3_000;
-
 /// The voice backend, attached to the host.
 ///
 /// `off` attaches nothing: the round still talks — the round's talk is
 /// decisions, not sound — and the person hears nothing. `stub` attaches the
 /// deterministic backend: no network, no clock, the same line always the
-/// same clip. `skald` attaches the agents' voices (D73): the map, the bank
-/// and the prefetch queue, with the bank pre-warmed from the phrasebook in
-/// the background. `riva` attaches the real service, but only when the
+/// same clip. `riva` attaches the real service, but only when the
 /// environment names it: a port is never guessed (spec §12).
 ///
 /// A backend that is not there is not a crash. The round keeps talking, in
 /// silence, and the fallback is logged.
-fn attach_talk(options: &Options, header: &Header, host: &mut HostLoop) -> Result<(), String> {
-    match options.talk {
+fn attach_talk(options: &Options, host: &mut HostLoop) -> Result<(), String> {
+    let tts: Arc<dyn Tts> = match options.talk {
         TalkChoice::Off => return Ok(()),
-        TalkChoice::Skald => {
-            // The map: the harness's own word (voice.toml beside the gates
-            // and the policy), else the shipped one. A file that cannot be
-            // read is named and fallen back from, not fatal — the shipped
-            // map names the same daemon and the same styles.
-            let map = match VoiceMap::load(&options.harness.join("voice.toml")) {
-                Ok(map) => map,
-                Err(err) => {
-                    eprintln!(
-                        "lm-host: the harness's voice.toml cannot be read ({err}); \
-                         the shipped map is used"
-                    );
-                    VoiceMap::shipped()
-                }
-            };
-            // The bank: the command line's root, else the map's, else the
-            // per-user cache dir; capped by the command line's word, else
-            // the map's.
-            let bank_root =
-                lm_host_model::voices::resolve_bank_root(&map, options.voice_bank.as_deref());
-            let cap_mb = options.voice_bank_cap_mb.unwrap_or(map.bank.cap_mb);
-            // The daemon: the map names it as the Thor spells it, and the
-            // machine's own word (the environment) wins — the ProArt reaches
-            // the same daemon over the LAN.
-            let base = std::env::var(lm_voice::ENV_SKALD_BASE)
-                .ok()
-                .filter(|base| !base.trim().is_empty());
-            let port = std::env::var(lm_voice::ENV_SKALD_PORT)
-                .ok()
-                .and_then(|port| port.trim().parse::<u16>().ok());
-            let voices = Voices::open(VoicesSettings {
-                map,
-                bank_root: bank_root.clone(),
-                cap_bytes: Some(u64::from(cap_mb) * 1024 * 1024),
-                base,
-                port,
-            })?;
-            println!(
-                "lm-host: the round speaks in the skald voices — daemon {}:{}, bank {} (cap {cap_mb} MB)",
-                voices.map().skald.base,
-                voices.map().skald.port,
-                bank_root.display()
-            );
-            // The warm bank is what makes the first round's lines hits:
-            // the pre-warm plays the seed once with the stub minds, in the
-            // background, and asks the bank for every line it speaks.
-            let ticks = PREWARM_TICKS.min(u64::from(header.params.time_limit_ticks));
-            lm_host_model::voices::prewarm(Arc::clone(&voices), header.clone(), ticks);
-            host.attach_talk(TalkConfig::default().with_voices(voices));
-            Ok(())
-        }
-        TalkChoice::Stub => {
-            let tts: Arc<dyn Tts> = Arc::new(StubTts::default());
-            println!(
-                "lm-host: the round speaks with the {} voice",
-                options.talk.as_str()
-            );
-            host.attach_talk(TalkConfig::default().with_tts(tts));
-            Ok(())
-        }
+        TalkChoice::Stub => Arc::new(StubTts::default()),
         TalkChoice::Riva => {
             let Some(cfg) = lm_voice::riva_config_from_env() else {
                 return Err(String::from(
@@ -799,15 +609,15 @@ fn attach_talk(options: &Options, header: &Header, host: &mut HostLoop) -> Resul
                     "the voice service has no TTS port; the round still talks, in silence",
                 ));
             };
-            let tts: Arc<dyn Tts> = Arc::new(tts);
-            println!(
-                "lm-host: the round speaks with the {} voice",
-                options.talk.as_str()
-            );
-            host.attach_talk(TalkConfig::default().with_tts(tts));
-            Ok(())
+            Arc::new(tts)
         }
-    }
+    };
+    println!(
+        "lm-host: the round speaks with the {} voice",
+        options.talk.as_str()
+    );
+    host.attach_talk(TalkConfig::default().with_tts(tts));
+    Ok(())
 }
 
 /// The models the round's agents think with.
@@ -818,46 +628,24 @@ fn backends(
     choice: AgentChoice,
     cfg: &AgentsConfig,
     harness: &Harness,
-) -> Result<BTreeMap<String, Box<dyn SysOne + Send + Sync>>, String> {
-    // The match is the whole answer: each arm hands the map it built, and
-    // `off` is simply the empty one. (An earlier cut of this function kept
-    // an outer `out` and let the arms write it — a match in statement
-    // position whose arms disagreed about their type, which the Windows
-    // build refused; this shape is the one that built.)
-    // A harness whose gates do not load is a refusal the round can see, not
-    // a game that will not start (D26): the mind refuses the malformed
-    // gates and the round plays on. The shape is off by default, so the
-    // gates are only read to look a tree up.
-    let gates = GateSet::parse(&harness.gates_toml).unwrap_or_default();
+) -> BTreeMap<String, Box<dyn SysOne + Send>> {
+    let mut out: BTreeMap<String, Box<dyn SysOne + Send>> = BTreeMap::new();
     match choice {
-        // No models at all: the round thinks with nothing.
-        AgentChoice::Off => Ok(BTreeMap::new()),
+        AgentChoice::Off => {}
         AgentChoice::Stub => {
             // The stub answers every tier the policy names: the gates, the
             // policy and the ladder are the real ones, only the model is not.
             let policy = Policy::for_harness(&harness.policy_toml);
-            let mut out: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = BTreeMap::new();
             for tier in policy.tiers.tiers() {
                 if tier.is_reflex() {
                     continue;
                 }
-                out.entry(tier.backend().to_owned()).or_insert_with(|| {
-                    Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>
-                });
+                out.entry(tier.backend().to_owned())
+                    .or_insert_with(|| Box::new(StubBackend::menu()) as Box<dyn SysOne + Send>);
             }
-            // The escalation (D71) is modelled by the stub too, so the gate
-            // tests cover it without the Thor, and so is the shape. The
-            // harness names the gates that may be escalated (policy.toml's
-            // `escalate_gates`, D75) — the one setting, read where it has
-            // always lived.
-            shape_backends(&gates, cfg, policy.escalate_gates.clone(), out, |_| {
-                Some(Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>)
-            })
-            .map_err(|err| format!("the shape is not applied: {err}"))
         }
         AgentChoice::Thor => {
             // The Thor's models: one port each.
-            let mut out: BTreeMap<String, Box<dyn SysOne + Send + Sync>> = BTreeMap::new();
             for (model, port) in &cfg.ports {
                 let mut backend = ThorBackend::new(&cfg.thor_base, *port, model)
                     .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
@@ -867,17 +655,6 @@ fn backends(
                 }
                 out.insert(name, Box::new(backend));
             }
-            // The escalation (D71): a gate the cheap model is unsure about
-            // is asked of the second model, that one question alone. And
-            // the shape: the gate named in the harness's parameters is
-            // asked as a tree or with its rare options ghosted. Which gates
-            // may be escalated is the harness's to say (policy.toml's
-            // `escalate_gates`, D75).
-            let policy = Policy::for_harness(&harness.policy_toml);
-            let mut out = shape_backends(&gates, cfg, policy.escalate_gates.clone(), out, |_| {
-                thor_backend(cfg, &cfg.escalate_backend)
-            })
-            .map_err(|err| format!("the shape is not applied: {err}"))?;
             // The cloud tier, when its key is there. That key only ever goes
             // to api.typesafe.ai -- never to the Thor.
             match JevBackend::from_secrets() {
@@ -887,23 +664,9 @@ fn backends(
                 }
                 Err(err) => eprintln!("lm-host: the cloud tier is not available: {err}"),
             }
-            Ok(out)
         }
     }
-}
-
-/// The Thor backend a backend name stands for: `"thor-clef-flash"` is the
-/// model `clef-flash` on its port.
-fn thor_backend(cfg: &AgentsConfig, name: &str) -> Option<Box<dyn SysOne + Send + Sync>> {
-    let model = name.strip_prefix("thor-")?;
-    let port = *cfg.ports.get(model)?;
-    let mut backend = ThorBackend::new(&cfg.thor_base, port, model)
-        .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
-    let backend_name = backend.name().to_owned();
-    if let Some(min) = cfg.min_confidence.get(&backend_name) {
-        backend = backend.with_min_confidence(*min);
-    }
-    Some(Box::new(backend))
+    out
 }
 
 /// Read the command line.
@@ -924,14 +687,6 @@ fn parse_args() -> Result<Options, String> {
     let mut runs = PathBuf::from(DEFAULT_RUNS);
     let mut learn_ticks = lm_learn::flow::DEFAULT_TICKS;
     let mut ticks = None;
-    let mut bottom = BottomMode::Roll;
-    let mut score_seconds = sim_plugin::SCORE_SECONDS;
-    let mut scrub = None;
-    let mut voice_toml = None;
-    let mut mic_wavs: Vec<PathBuf> = Vec::new();
-    let mut voice_bank = None;
-    let mut voice_bank_cap_mb = None;
-    let mut voice_log = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -990,7 +745,7 @@ fn parse_args() -> Result<Options, String> {
             "--talk" => {
                 let text = args
                     .next()
-                    .ok_or_else(|| String::from("`--talk` needs off, stub, on or riva"))?;
+                    .ok_or_else(|| String::from("`--talk` needs off, stub or riva"))?;
                 talk = TalkChoice::parse(&text)?;
             }
             "--harness" => {
@@ -1038,63 +793,6 @@ fn parse_args() -> Result<Options, String> {
                         .map_err(|_| String::from("`--ticks` needs a whole number"))?,
                 );
             }
-            "--bottom" => {
-                let text = args
-                    .next()
-                    .ok_or_else(|| String::from("`--bottom` needs roll or score"))?;
-                bottom = BottomMode::parse(&text)?;
-            }
-            "--score-seconds" => {
-                score_seconds = args
-                    .next()
-                    .ok_or_else(|| String::from("`--score-seconds` needs a number"))?
-                    .parse()
-                    .map_err(|_| String::from("`--score-seconds` needs a whole number"))?;
-                if score_seconds == 0 {
-                    return Err(String::from("`--score-seconds` must be at least 1"));
-                }
-            }
-            "--scrub" => {
-                scrub = Some(
-                    args.next()
-                        .ok_or_else(|| String::from("`--scrub` needs a tick"))?
-                        .parse()
-                        .map_err(|_| String::from("`--scrub` needs a whole number"))?,
-                );
-            }
-            "--voice-toml" => {
-                voice_toml =
-                    Some(PathBuf::from(args.next().ok_or_else(|| {
-                        String::from("`--voice-toml` needs a file")
-                    })?));
-            }
-            "--mic-wav" => {
-                mic_wavs
-                    .push(PathBuf::from(args.next().ok_or_else(|| {
-                        String::from("`--mic-wav` needs a wave file")
-                    })?));
-            }
-            "--voice-bank" => {
-                voice_bank =
-                    Some(PathBuf::from(args.next().ok_or_else(|| {
-                        String::from("`--voice-bank` needs a directory")
-                    })?));
-            }
-            "--voice-bank-cap-mb" => {
-                voice_bank_cap_mb = Some(
-                    args.next()
-                        .ok_or_else(|| {
-                            String::from("`--voice-bank-cap-mb` needs a number of megabytes")
-                        })?
-                        .parse()
-                        .map_err(|_| String::from("`--voice-bank-cap-mb` needs a whole number"))?,
-                );
-            }
-            "--voice-log" => {
-                voice_log = Some(PathBuf::from(args.next().ok_or_else(|| {
-                    String::from("`--voice-log` needs a PATH, e.g. runs\\voice-log.txt")
-                })?));
-            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -1121,14 +819,6 @@ fn parse_args() -> Result<Options, String> {
         runs,
         learn_ticks,
         ticks,
-        bottom,
-        score_seconds,
-        scrub,
-        voice_toml,
-        mic_wavs,
-        voice_bank,
-        voice_bank_cap_mb,
-        voice_log,
     })
 }
 
@@ -1234,13 +924,8 @@ fn quit_after_capture(_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit
 struct FrameCount(u32);
 
 /// Count the frames: the screenshot mode waits for them.
-///
-/// The waves are played first: the screenshot is of the round after the
-/// lines, not of the round before them.
-fn count_frames(mut frame: ResMut<FrameCount>, wavs: Res<audio_plugin::MicWavs>) {
-    if wavs.finished {
-        frame.0 += 1;
-    }
+fn count_frames(mut frame: ResMut<FrameCount>) {
+    frame.0 += 1;
 }
 
 #[cfg(test)]
