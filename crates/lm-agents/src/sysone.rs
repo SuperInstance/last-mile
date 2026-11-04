@@ -38,8 +38,6 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use lm_core::refusal::RefusalKind;
-
 /// The path every backend posts to.
 pub const SYSTEMONE_PATH: &str = "/v1/systemone";
 
@@ -91,32 +89,6 @@ pub trait SysOne {
     /// and an answer that arrives later is dropped by the sequencer.
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal>;
 
-    /// Ask the model about `state`, with the decision's apply tick as the
-    /// **escalation's** deadline (N3).
-    ///
-    /// A decision has two deadlines: the tick it is applied on, and the
-    /// request's own deadline. A second opinion that is bounded by the second
-    /// one can outlive the first — the decision is applied and the opinion
-    /// arrives afterwards, into a round that has moved on. So the second
-    /// opinion is bounded by the decision's own apply tick: an opinion that
-    /// would land after it is no opinion at all, the gate takes the safe
-    /// branch, and the round records `escalation_late`.
-    ///
-    /// The default ignores the second deadline: a backend that does not
-    /// escalate has no second opinion to fence. A backend that **wraps**
-    /// another one must forward it — otherwise the second opinion behind the
-    /// wrapper loses its fence.
-    fn ask_with_escalation(
-        &self,
-        state: &str,
-        questions: &Value,
-        deadline: Instant,
-        escalation_deadline: Instant,
-    ) -> Result<Answers, Refusal> {
-        let _ = escalation_deadline;
-        self.ask(state, questions, deadline)
-    }
-
     /// The backend's name: `thor-<model>` for the Thor, `jev` for the cloud.
     ///
     /// It is the key `AgentsConfig` uses for the backend's confidence
@@ -149,47 +121,11 @@ pub struct Answers {
     /// refuses the move and leaves the line alone.
     #[serde(default)]
     pub unsure: BTreeMap<String, f32>,
-    /// The gates that were asked as a **two-step tree**, by gate id.
-    ///
-    /// A tree is the harness's own way of asking a gate in two smaller
-    /// questions, and both answers are logged here: which partition the
-    /// first question chose, what was asked inside it, and what was
-    /// picked. The log is deterministic — the path is a function of the
-    /// model's answers — so a round can be replayed and the path
-    /// re-derived from it.
-    #[serde(default)]
-    pub decomposed: BTreeMap<String, DecompositionRecord>,
     /// The model that answered: the id this backend asked for.
     pub model: String,
     /// The tokens the pack cost.
     pub input_tokens: u32,
     /// The round trip, in milliseconds.
-    pub latency_ms: u32,
-}
-
-/// One gate asked as a two-step tree: what was asked and what it said.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DecompositionRecord {
-    /// The steps of the tree, in the order they were asked.
-    pub steps: Vec<DecompositionStep>,
-}
-
-/// One step of a tree.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DecompositionStep {
-    /// Which step this was: 1 is the partition, 2 the choice inside it.
-    pub step: u8,
-    /// The partition the first step chose (empty on the first step).
-    pub partition: String,
-    /// The options this step was asked between, with their probabilities.
-    pub probs: BTreeMap<String, f32>,
-    /// How sure the model was on this step.
-    pub confidence: f32,
-    /// The option this step chose.
-    pub chosen: String,
-    /// Whether this step was escalated to a second model.
-    pub escalated: bool,
-    /// The round trip of this step, in milliseconds.
     pub latency_ms: u32,
 }
 
@@ -236,38 +172,15 @@ pub struct Escalation {
     /// changes the answer buys latency and nothing else.
     #[serde(default)]
     pub primary_choice: Option<String>,
-    /// The cheap model's probability of every option of the gate.
-    ///
-    /// The choice on its own says which way the model went; the
-    /// distribution says how far it went and how the options stood
-    /// against each other, which is what the Hodge decomposition of the
-    /// gate's preferences is built from.
-    #[serde(default)]
-    pub primary_probs: BTreeMap<String, f32>,
     /// The second model's confidence, when it answered.
     pub second_confidence: Option<f32>,
     /// The option the second model's distribution favoured, when it answered.
     #[serde(default)]
     pub second_choice: Option<String>,
-    /// The second model's probability of every option of the gate.
-    ///
-    /// The second opinion's own distribution, so that the two models'
-    /// preferences can be compared on the same options and not only
-    /// through the single option each of them named.
-    #[serde(default)]
-    pub second_probs: BTreeMap<String, f32>,
     /// The second model's round trip, in milliseconds.
     pub latency_ms: u32,
     /// What the second opinion came to.
     pub outcome: EscalationOutcome,
-    /// The refusal behind the outcome, when the second opinion failed.
-    ///
-    /// The outcome says *that* the second opinion failed; this says how. An
-    /// endpoint that answered 503 and a call that never reached an endpoint
-    /// are two different problems with two different fixes, and the name of
-    /// the rule that failed is only worth having if it is the right one.
-    #[serde(default)]
-    pub refusal: Option<Refusal>,
 }
 
 /// What the second opinion came to (D71).
@@ -281,13 +194,6 @@ pub enum EscalationOutcome {
     Timeout,
     /// The second model could not be reached.
     Unavailable,
-    /// The second opinion would have landed after the decision's apply tick
-    /// (N3).
-    ///
-    /// The decision the second opinion serves is applied before the opinion
-    /// arrives, so the opinion is no opinion at all: the gate takes the safe
-    /// branch and the round says why.
-    Late,
 }
 
 impl fmt::Display for EscalationOutcome {
@@ -297,9 +203,6 @@ impl fmt::Display for EscalationOutcome {
             EscalationOutcome::Unsure => f.write_str("the second model was unsure too"),
             EscalationOutcome::Timeout => f.write_str("the second model did not answer in time"),
             EscalationOutcome::Unavailable => f.write_str("the second model could not be reached"),
-            EscalationOutcome::Late => {
-                f.write_str("the second opinion landed after the decision's apply tick")
-            }
         }
     }
 }
@@ -334,83 +237,6 @@ pub enum Refusal {
     MenuChanged,
     /// The agent's budget for this round is spent.
     Budget,
-    /// The wording did not follow the plan (D37).
-    ///
-    /// The gates chose a line and the model wrote a different one: the
-    /// notation did not compile, or the reply was not a line at all. The
-    /// choice stands and the line is dropped, so this is a refusal of the
-    /// *wording*, not of the choice.
-    OffPlan(String),
-    /// A newer question replaced this one before the answer came home.
-    ///
-    /// The answer belongs to an ask this mind no longer owns, so it is
-    /// dropped: the question ended before it could be answered.
-    Superseded,
-    /// The backend crashed answering the question.
-    ///
-    /// A panic is a bug in the backend, not a decision by the model, but the
-    /// question still has to end somewhere (N4): the worker catches the
-    /// panic, names it here and keeps serving, so one crashing answer does
-    /// not take the lane down with it.
-    Panicked(String),
-    /// The second opinion would have landed after the decision's apply tick
-    /// (N3).
-    ///
-    /// The decision the second opinion serves is applied on its own tick, and
-    /// the opinion missed it: the gate is unsure, so the safe branch plays
-    /// (the reflex moves, the line stays unsaid), and the round says why.
-    ///
-    /// The name this refusal is recorded under is the one N2 reserved,
-    /// `escalation_late`: the record's kind is `RefusalKind::EscalationLate`,
-    /// and there is no second kind for the same rule.
-    EscalationLate,
-}
-
-impl Refusal {
-    /// The number this refusal's rule cares about.
-    ///
-    /// The HTTP status, and the confidence in Q16 — the confidence is a
-    /// float here, but the record is whole numbers only (D69), so it is
-    /// scaled on the way in.
-    pub fn detail(&self) -> u32 {
-        match self {
-            Refusal::Http(code) => u32::from(*code),
-            Refusal::LowConfidence(confidence) => {
-                let scaled = confidence.clamp(0.0, 1.0) * 65_536.0;
-                scaled.round() as u32
-            }
-            _ => 0,
-        }
-    }
-}
-
-impl From<&Refusal> for RefusalKind {
-    /// The name of the rule that failed.
-    ///
-    /// This is the one place the runtime's refusal becomes the record's
-    /// refusal: every refusal that reaches the log goes through here, so
-    /// there is exactly one name for every rule that can fail.
-    fn from(refusal: &Refusal) -> RefusalKind {
-        match refusal {
-            Refusal::Timeout => RefusalKind::Timeout,
-            // The call that never reached an HTTP status never reached the
-            // model at all: that is a different failure from a model that
-            // answered 503.
-            Refusal::Http(0) => RefusalKind::Unreachable,
-            Refusal::Http(_) => RefusalKind::Http,
-            Refusal::Malformed(_) => RefusalKind::Malformed,
-            Refusal::InvalidPack(_) => RefusalKind::InvalidPack,
-            Refusal::LowConfidence(_) => RefusalKind::LowConfidence,
-            Refusal::MenuChanged => RefusalKind::MenuChanged,
-            Refusal::Budget => RefusalKind::Budget,
-            Refusal::OffPlan(_) => RefusalKind::OffPlan,
-            Refusal::Superseded => RefusalKind::Superseded,
-            Refusal::Panicked(_) => RefusalKind::Panicked,
-            // The name N2 reserved for this rule: the record writes
-            // `escalation_late`, and there is no second kind for it.
-            Refusal::EscalationLate => RefusalKind::EscalationLate,
-        }
-    }
 }
 
 impl fmt::Display for Refusal {
@@ -426,12 +252,6 @@ impl fmt::Display for Refusal {
             Refusal::LowConfidence(c) => write!(f, "the answer was only {c} confident"),
             Refusal::MenuChanged => f.write_str("the menu changed under the question"),
             Refusal::Budget => f.write_str("the budget is spent"),
-            Refusal::OffPlan(why) => write!(f, "the wording did not follow the plan: {why}"),
-            Refusal::Superseded => f.write_str("a newer question replaced this one"),
-            Refusal::Panicked(why) => write!(f, "the backend crashed: {why}"),
-            Refusal::EscalationLate => {
-                f.write_str("the second opinion would have landed after the decision's apply tick")
-            }
         }
     }
 }
@@ -652,13 +472,6 @@ impl SysOne for ThorBackend {
 /// second opinion that cannot arrive in time is no opinion at all. A gate
 /// whose second opinion fails stays unsure: the cheap model was not
 /// trusted on its own, and the second model did not take its place (D26).
-///
-/// The escalation is bounded by a **second** deadline as well (N3): the
-/// decision's own apply tick. The decision is applied on that tick whatever
-/// the second model says, so an opinion that lands after it is no opinion at
-/// all — the gate takes the safe branch (the reflex plays it) and the round
-/// records `escalation_late`, instead of the opinion arriving into a round
-/// that has already moved on.
 pub struct EscalatingBackend {
     /// The cheap model, which answers first.
     primary: Box<dyn SysOne + Send + Sync>,
@@ -675,14 +488,6 @@ pub struct EscalatingBackend {
     /// (`escalate_gates`); the threshold stays with the model's calibration
     /// (`AgentsConfig::escalate_below`).
     gates: Option<BTreeSet<String>>,
-    /// The gates a second opinion is **never** bought for.
-    ///
-    /// A gate a shape owns is excluded here: the tree asks its own last
-    /// step of the second model, so the escalation around the tree must
-    /// not buy a second opinion of the same gate as well. The exclusion
-    /// is a separate thing from the filter, because "every gate but this
-    /// one" cannot be written as a list of gates.
-    exclude_gates: BTreeSet<String>,
     /// The escalations so far, for the telemetry.
     escalations: Mutex<Vec<Escalation>>,
 }
@@ -703,7 +508,6 @@ impl EscalatingBackend {
             second,
             escalate_below,
             gates: None,
-            exclude_gates: BTreeSet::new(),
             escalations: Mutex::new(Vec::new()),
         }
     }
@@ -715,26 +519,6 @@ impl EscalatingBackend {
     pub fn with_gates(mut self, gates: Option<BTreeSet<String>>) -> Self {
         self.gates = gates;
         self
-    }
-
-    /// The gates that may be escalated, if the set names them.
-    pub fn gates(&self) -> Option<&BTreeSet<String>> {
-        self.gates.as_ref()
-    }
-
-    /// Never buy a second opinion for these gates.
-    ///
-    /// The exclusion holds whatever the filter says: a gate that is
-    /// excluded is not escalated even when the filter names it. This is
-    /// how a gate that asks its own second opinion is left alone.
-    pub fn with_exclude_gates(mut self, gates: BTreeSet<String>) -> Self {
-        self.exclude_gates = gates;
-        self
-    }
-
-    /// The gates a second opinion is never bought for.
-    pub fn exclude_gates(&self) -> &BTreeSet<String> {
-        &self.exclude_gates
     }
 
     /// The threshold below which a gate is escalated.
@@ -771,34 +555,10 @@ impl fmt::Debug for EscalatingBackend {
 
 impl SysOne for EscalatingBackend {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
-        // With no fence of its own, the second opinion is bounded by the
-        // call's own deadline — the behaviour before the fence (N3).
-        self.ask_with_escalation(state, questions, deadline, deadline)
-    }
-
-    fn ask_with_escalation(
-        &self,
-        state: &str,
-        questions: &Value,
-        deadline: Instant,
-        escalation_deadline: Instant,
-    ) -> Result<Answers, Refusal> {
         let mut answers = self.primary.ask(state, questions, deadline)?;
-        // The fence (N3): the second opinion must be in hand by the decision's
-        // apply tick. The decision is applied on that tick whatever the
-        // second model says, so an opinion that lands after it is no opinion
-        // at all — the gate takes the safe branch and the round records
-        // `escalation_late`.
-        let fence = escalation_deadline.min(deadline);
-        let fenced = fence < deadline;
         // The gates the cheap model was not sure about: their own numbers
         // are in `per_gate` (above its floor) or in `unsure` (below it).
         for gate in gates_below(&answers, self.escalate_below) {
-            // A gate that owns its own second opinion is left alone: the
-            // exclusion holds whatever the filter says.
-            if self.exclude_gates.contains(&gate) {
-                continue;
-            }
             // Only the gates the harness named: a gate outside the set keeps
             // the cheap model's answer (or its unsure) as it is.
             if let Some(gates) = &self.gates {
@@ -811,46 +571,26 @@ impl SysOne for EscalatingBackend {
                 .per_gate
                 .get(&gate)
                 .and_then(|answer| top_option(answer).cloned());
-            let primary_probs = probs_of(&answers, &gate);
             // The second model is asked this gate **alone**: one question in
             // one call, so its pack always fits.
             let one = one_question(questions, &gate);
             let started = Instant::now();
-            let (second_answer, outcome, refusal) = if Instant::now() >= fence {
-                // The decision's apply tick has passed already: the call is
-                // not made at all. Nothing waits for an opinion that cannot
-                // be applied (N3).
-                (None, EscalationOutcome::Late, None)
-            } else {
-                match self.second.ask(state, &one, fence) {
-                    Ok(second) => {
-                        let answer = second.per_gate.get(&gate).cloned();
-                        let outcome = if answer.is_some() {
-                            EscalationOutcome::Taken
-                        } else {
-                            EscalationOutcome::Unsure
-                        };
-                        (answer, outcome, None)
-                    }
-                    // A call that ran out of time at the fence missed the
-                    // decision's apply tick (N3). A call that ran out of time
-                    // at the request's own deadline did not.
-                    Err(Refusal::Timeout) if fenced => {
-                        (None, EscalationOutcome::Late, Some(Refusal::Timeout))
-                    }
-                    Err(Refusal::Timeout) => {
-                        (None, EscalationOutcome::Timeout, Some(Refusal::Timeout))
-                    }
-                    // The second model could not answer, and the refusal
-                    // keeps the reason: an endpoint that answered 503 and a
-                    // call that never reached one are two different problems.
-                    Err(refusal) => (None, EscalationOutcome::Unavailable, Some(refusal)),
+            let (second_answer, outcome) = match self.second.ask(state, &one, deadline) {
+                Ok(second) => {
+                    let answer = second.per_gate.get(&gate).cloned();
+                    let outcome = if answer.is_some() {
+                        EscalationOutcome::Taken
+                    } else {
+                        EscalationOutcome::Unsure
+                    };
+                    (answer, outcome)
                 }
+                Err(Refusal::Timeout) => (None, EscalationOutcome::Timeout),
+                Err(_) => (None, EscalationOutcome::Unavailable),
             };
             let latency_ms = ms(started.elapsed());
             let second_confidence = second_answer.as_ref().and_then(answer_confidence);
             let second_choice = second_answer.as_ref().and_then(|a| top_option(a).cloned());
-            let second_probs = second_answer.as_ref().map(answer_probs);
             // The second opinion is the gate's answer, or the gate stays
             // unsure: the cheap model's own answer was not trusted alone.
             match second_answer {
@@ -867,13 +607,10 @@ impl SysOne for EscalatingBackend {
                 gate: gate.clone(),
                 primary_confidence,
                 primary_choice,
-                primary_probs,
                 second_confidence,
                 second_choice,
-                second_probs: second_probs.unwrap_or_default(),
                 latency_ms,
                 outcome,
-                refusal,
             };
             answers.escalated.insert(gate, escalation.clone());
             self.escalations
@@ -928,26 +665,6 @@ fn top_option(answer: &Answer) -> Option<&String> {
     best.map(|(key, _)| key)
 }
 
-/// The probability of every option of a gate's answer.
-///
-/// A choice and a score both carry the options they were asked between;
-/// a noul has none.
-fn answer_probs(answer: &Answer) -> BTreeMap<String, f32> {
-    match answer {
-        Answer::Choice { probs, .. } | Answer::Score { probs, .. } => probs.clone(),
-        Answer::Noul(_) => BTreeMap::new(),
-    }
-}
-
-/// The probability of every option of a gate's answer, if the gate has one.
-fn probs_of(answers: &Answers, gate: &str) -> BTreeMap<String, f32> {
-    answers
-        .per_gate
-        .get(gate)
-        .map(answer_probs)
-        .unwrap_or_default()
-}
-
 /// The gates whose confidence is below `threshold`.
 fn gates_below(answers: &Answers, threshold: f32) -> Vec<String> {
     let mut gates: Vec<String> = answers
@@ -979,6 +696,48 @@ fn one_question(questions: &Value, gate: &str) -> Value {
         }
     }
     Value::Object(one)
+}
+
+/// Wrap the backends so that a gate the cheap model is unsure about is
+/// asked of the second model (D71).
+///
+/// `second` builds the second model for a primary backend's name, and is
+/// called once per wrapped backend: each gets a connection of its own
+/// (D50). A backend that has no second model is left as it is.
+///
+/// `gates` is the set of gates that may be escalated (the harness's
+/// `escalate_gates`): `None` is every gate below the threshold, and an
+/// empty set turns the escalation off.
+pub fn with_escalation(
+    backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
+    escalate_below: f32,
+    escalate_backend: &str,
+    gates: Option<BTreeSet<String>>,
+    second: impl Fn(&str) -> Option<Box<dyn SysOne + Send + Sync>>,
+) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
+    let mut out = BTreeMap::new();
+    for (name, backend) in backends {
+        if name == escalate_backend {
+            // The second model does not escalate to itself.
+            out.insert(name, backend);
+            continue;
+        }
+        match second(&name) {
+            Some(second) => {
+                out.insert(
+                    name,
+                    Box::new(
+                        EscalatingBackend::new(backend, second, escalate_below)
+                            .with_gates(gates.clone()),
+                    ) as Box<dyn SysOne + Send + Sync>,
+                );
+            }
+            None => {
+                out.insert(name, backend);
+            }
+        }
+    }
+    out
 }
 
 /// The cloud Jev backend (TypeSafe's System One API).
@@ -1512,7 +1271,6 @@ fn menu_answer(questions: &Value, confidence: f32) -> Result<Answers, Refusal> {
         per_gate,
         unsure: BTreeMap::new(),
         escalated: BTreeMap::new(),
-        decomposed: BTreeMap::new(),
         model: "stub".to_owned(),
         input_tokens: 64,
         latency_ms: 0,
@@ -1678,7 +1436,6 @@ fn parse_answers(body: &str, model: &str, latency_ms: u32) -> Result<Answers, Re
         per_gate,
         unsure: BTreeMap::new(),
         escalated: BTreeMap::new(),
-        decomposed: BTreeMap::new(),
         model: model.to_string(),
         input_tokens: u32::try_from(input_tokens).unwrap_or(u32::MAX),
         latency_ms,
@@ -2609,275 +2366,6 @@ mod tests {
         assert_eq!(backend.escalation_count(), 0);
     }
 
-    /// A backend that answers one named option of every choice gate.
-    struct PickerBackend {
-        pick: String,
-        confidence: f32,
-        calls: AtomicUsize,
-        /// The latency it reports.
-        latency_ms: u32,
-        /// How long it takes before it answers.
-        delay_ms: u64,
-    }
-
-    impl PickerBackend {
-        fn new(pick: &str, confidence: f32) -> Self {
-            Self {
-                pick: pick.to_string(),
-                confidence,
-                calls: AtomicUsize::new(0),
-                latency_ms: 0,
-                delay_ms: 0,
-            }
-        }
-
-        /// A picker that reports a latency of its own.
-        fn slow(pick: &str, confidence: f32, latency_ms: u32) -> Self {
-            Self {
-                latency_ms,
-                ..Self::new(pick, confidence)
-            }
-        }
-
-        /// A picker that takes its time before it answers.
-        fn slow_to_answer(pick: &str, confidence: f32, delay_ms: u64) -> Self {
-            Self {
-                delay_ms,
-                ..Self::new(pick, confidence)
-            }
-        }
-    }
-
-    impl SysOne for PickerBackend {
-        fn ask(
-            &self,
-            _state: &str,
-            questions: &Value,
-            _deadline: Instant,
-        ) -> Result<Answers, Refusal> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            if self.delay_ms > 0 {
-                std::thread::sleep(Duration::from_millis(self.delay_ms));
-            }
-            let mut per_gate = BTreeMap::new();
-            for (id, gate) in questions.as_object().expect("a table") {
-                let kind = gate.get("type").and_then(Value::as_str).unwrap_or("choice");
-                let answer = match kind {
-                    "noul" => Answer::Noul(0.8),
-                    _ => {
-                        let options: Vec<&String> = gate
-                            .get("criteria")
-                            .and_then(Value::as_object)
-                            .expect("options")
-                            .keys()
-                            .collect();
-                        // The named option is the one the model picked: it
-                        // holds the most probability even when the model
-                        // says it is unsure about it.
-                        let top = 0.5 + 0.5 * self.confidence;
-                        let rest = options.len().saturating_sub(1).max(1) as f32;
-                        let mut probs = BTreeMap::new();
-                        for option in options {
-                            let p = if option == &self.pick {
-                                top
-                            } else {
-                                (1.0 - top) / rest
-                            };
-                            probs.insert(option.clone(), p);
-                        }
-                        Answer::Choice {
-                            probs,
-                            confidence: self.confidence,
-                        }
-                    }
-                };
-                per_gate.insert(id.clone(), answer);
-            }
-            Ok(Answers {
-                per_gate,
-                unsure: BTreeMap::new(),
-                escalated: BTreeMap::new(),
-                decomposed: BTreeMap::new(),
-                model: "picker".to_string(),
-                input_tokens: 64,
-                latency_ms: self.latency_ms,
-            })
-        }
-
-        fn name(&self) -> &str {
-            "picker"
-        }
-    }
-
-    #[test]
-    fn an_escalation_records_both_models_choices() {
-        // The record says which option each model chose, not only how sure
-        // it was: a second opinion that disagrees with the first is the
-        // case worth reading afterwards.
-        let primary = PickerBackend::new("opt0", 0.2);
-        let second = PickerBackend::new("opt1", 0.9);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
-        let answers = backend
-            .ask(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_secs(5),
-            )
-            .expect("the answer comes back");
-        let escalation = answers.escalated.get("move").expect("the escalation");
-        assert_eq!(escalation.primary_choice.as_deref(), Some("opt0"));
-        assert_eq!(escalation.second_choice.as_deref(), Some("opt1"));
-    }
-
-    #[test]
-    fn the_pack_keeps_the_models_own_latency() {
-        // The pack's latency is the **model's** own: the tier's estimate of
-        // what a call costs. It must not carry the second opinion's round
-        // trip as well — the tier would then read the pack as costing
-        // twice what it costs, and the answers would land late and be
-        // dropped. The escalation's own time is in its record.
-        let primary = PickerBackend::slow("opt0", 0.2, 100);
-        let second = PickerBackend::slow_to_answer("opt1", 0.9, 40);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
-        let answers = backend
-            .ask(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_secs(5),
-            )
-            .expect("the answer comes back");
-        assert_eq!(
-            answers.latency_ms, 100,
-            "the pack carries the cheap model's own latency"
-        );
-        let escalation = answers.escalated.get("move").expect("the escalation");
-        assert!(
-            escalation.latency_ms >= 40,
-            "the second opinion's round trip is in its record: got {}",
-            escalation.latency_ms
-        );
-    }
-
-    #[test]
-    fn only_the_named_gates_are_escalated() {
-        // The filter says which gates the second opinion is bought for.
-        // A gate outside the filter keeps the first model's answer, even
-        // when the first model was unsure about it.
-        let pack = json!({
-            "move": {
-                "type": "choice",
-                "instructions": "Pick one.",
-                "criteria": {"opt0": "go", "opt1": "hold"},
-            },
-            "gesture": {
-                "type": "choice",
-                "instructions": "Pick one.",
-                "criteria": {"opt0": "go", "opt1": "hold"},
-            }
-        });
-        let primary = PickerBackend::new("opt0", 0.2);
-        let second = PickerBackend::new("opt1", 0.9);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5)
-            .with_gates(Some(BTreeSet::from(["gesture".to_string()])));
-        let answers = backend
-            .ask("the facts", &pack, Instant::now() + Duration::from_secs(5))
-            .expect("the answer comes back");
-        assert_eq!(backend.escalation_count(), 1);
-        assert!(answers.escalated.contains_key("gesture"));
-        assert!(!answers.escalated.contains_key("move"));
-        // The gate outside the filter keeps the first model's answer.
-        match answers.per_gate.get("move") {
-            Some(Answer::Choice { confidence, .. }) => {
-                assert!((confidence - 0.2).abs() < 0.01, "got {confidence}");
-            }
-            other => panic!("got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn an_empty_filter_escalates_nothing() {
-        let primary = PickerBackend::new("opt0", 0.2);
-        let second = PickerBackend::new("opt1", 0.9);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5)
-            .with_gates(Some(BTreeSet::new()));
-        let answers = backend
-            .ask(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_secs(5),
-            )
-            .expect("the answer comes back");
-        assert!(answers.escalated.is_empty());
-    }
-
-    #[test]
-    fn an_excluded_gate_is_not_escalated() {
-        // The exclusion holds whatever the filter says: a gate that owns its
-        // own second opinion is left alone even when the filter names it.
-        let primary = PickerBackend::new("opt0", 0.2);
-        let second = PickerBackend::new("opt1", 0.9);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5)
-            .with_gates(Some(BTreeSet::from(["move".to_string()])))
-            .with_exclude_gates(BTreeSet::from(["move".to_string()]));
-        let answers = backend
-            .ask(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_secs(5),
-            )
-            .expect("the answer comes back");
-        assert!(answers.escalated.is_empty());
-        assert_eq!(backend.escalation_count(), 0);
-    }
-
-    #[test]
-    fn a_decomposed_gate_is_logged_with_both_answers() {
-        // The tree's path is part of the round's record: which partition was
-        // chosen, what was asked inside it, and what was picked.
-        let record = DecompositionRecord {
-            steps: vec![
-                DecompositionStep {
-                    step: 1,
-                    partition: String::new(),
-                    probs: BTreeMap::from([("own".to_string(), 0.7)]),
-                    confidence: 0.7,
-                    chosen: "own".to_string(),
-                    escalated: false,
-                    latency_ms: 40,
-                },
-                DecompositionStep {
-                    step: 2,
-                    partition: "own".to_string(),
-                    probs: BTreeMap::from([("agent0".to_string(), 0.6)]),
-                    confidence: 0.6,
-                    chosen: "agent0".to_string(),
-                    escalated: false,
-                    latency_ms: 30,
-                },
-            ],
-        };
-        let answers = Answers {
-            per_gate: BTreeMap::new(),
-            unsure: BTreeMap::new(),
-            escalated: BTreeMap::new(),
-            decomposed: BTreeMap::from([("attention".to_string(), record.clone())]),
-            model: "d1-2B".to_string(),
-            input_tokens: 64,
-            latency_ms: 70,
-        };
-        let text = serde_json::to_string(&answers).expect("the answers serialise");
-        let back: Answers = serde_json::from_str(&text).expect("the answers come back");
-        assert_eq!(back, answers);
-        assert_eq!(
-            back.decomposed
-                .get("attention")
-                .expect("the record")
-                .steps
-                .len(),
-            2
-        );
-    }
-
     #[test]
     fn a_slow_second_model_leaves_the_gate_unsure() {
         // D71: the escalation is bounded by the deadline. A second opinion
@@ -2952,114 +2440,6 @@ mod tests {
     }
 
     #[test]
-    fn a_late_escalation_is_fenced_out() {
-        // N3: the decision is applied on its own tick whatever the second
-        // model says, so a second opinion that would land after that tick is
-        // no opinion at all. The call is not even made: nothing waits for an
-        // opinion that cannot be applied.
-        let primary = CountingBackend::new(0.2);
-        let second = CountingBackend::new(0.9);
-        let second_calls = Arc::clone(&second.calls);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
-        // The fence is already behind us: the decision's apply tick has
-        // passed by the time the cheap model has answered.
-        let answers = backend
-            .ask_with_escalation(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_secs(5),
-                Instant::now() - Duration::from_millis(1),
-            )
-            .expect("the pack is answered");
-        // The second model was not asked at all.
-        assert_eq!(second_calls.load(Ordering::SeqCst), 0);
-        // The gate decides nothing: the safe branch plays.
-        assert!(answers.per_gate.is_empty(), "the gate decides nothing");
-        assert_eq!(answers.unsure.get("move"), Some(&0.2));
-        let escalation = answers.escalated.get("move").expect("the escalation");
-        assert_eq!(escalation.outcome, EscalationOutcome::Late);
-        assert_eq!(escalation.second_confidence, None);
-    }
-
-    #[test]
-    fn an_escalation_that_misses_the_fence_is_late() {
-        // N3: the second opinion is bounded by the decision's apply tick, not
-        // only by the request's own deadline. A second model that cannot
-        // answer inside the fence missed the decision, and the round says so
-        // by name — not "it timed out".
-        let primary = CountingBackend::new(0.2);
-        let second = CountingBackend::slow(0.9, Duration::from_millis(500));
-        let second_calls = Arc::clone(&second.calls);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
-        let answers = backend
-            .ask_with_escalation(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_secs(5),
-                Instant::now() + Duration::from_millis(20),
-            )
-            .expect("the pack is answered");
-        // The second model was asked, and it could not answer in time.
-        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
-        assert!(answers.per_gate.is_empty(), "the gate decides nothing");
-        assert_eq!(answers.unsure.get("move"), Some(&0.2));
-        let escalation = answers.escalated.get("move").expect("the escalation");
-        assert_eq!(escalation.outcome, EscalationOutcome::Late);
-        assert_eq!(escalation.second_confidence, None);
-    }
-
-    #[test]
-    fn an_escalation_on_time_is_taken() {
-        // N3: the fence is a deadline, not a veto. A second opinion that is
-        // in hand before the decision's apply tick is taken, exactly as it
-        // was before the fence existed.
-        let primary = CountingBackend::new(0.2);
-        let second = CountingBackend::new(0.9);
-        let second_calls = Arc::clone(&second.calls);
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
-        let answers = backend
-            .ask_with_escalation(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_secs(5),
-                Instant::now() + Duration::from_secs(2),
-            )
-            .expect("the pack is answered");
-        assert_eq!(second_calls.load(Ordering::SeqCst), 1);
-        // The second model's answer is the gate's answer.
-        match answers.per_gate.get("move") {
-            Some(Answer::Choice { confidence, .. }) => {
-                assert!((confidence - 0.9).abs() < 0.01, "got {confidence}");
-            }
-            other => panic!("got {other:?}"),
-        }
-        assert!(!answers.unsure.contains_key("move"));
-        let escalation = answers.escalated.get("move").expect("the escalation");
-        assert_eq!(escalation.outcome, EscalationOutcome::Taken);
-        assert_eq!(escalation.second_confidence, Some(0.9));
-    }
-
-    #[test]
-    fn a_backend_without_a_fence_keeps_its_own_deadline() {
-        // N3: `ask` is the call with no fence of its own, so the second
-        // opinion is bounded by the request's deadline — the behaviour before
-        // the fence. A backend that escalates has to be asked through
-        // `ask_with_escalation` to be fenced.
-        let primary = CountingBackend::new(0.2);
-        let second = CountingBackend::slow(0.9, Duration::from_millis(500));
-        let backend = EscalatingBackend::new(Box::new(primary), Box::new(second), 0.5);
-        let answers = backend
-            .ask(
-                "the facts",
-                &one_gate_pack(),
-                Instant::now() + Duration::from_millis(50),
-            )
-            .expect("the pack is answered");
-        let escalation = answers.escalated.get("move").expect("the escalation");
-        assert_eq!(escalation.outcome, EscalationOutcome::Timeout);
-    }
-
-    #[test]
     fn the_stub_answers_its_script() {
         let answers = Answers {
             per_gate: BTreeMap::from([(
@@ -3071,7 +2451,6 @@ mod tests {
             )]),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
-            decomposed: BTreeMap::new(),
             model: "stub".to_string(),
             input_tokens: 0,
             latency_ms: 0,

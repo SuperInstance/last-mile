@@ -54,9 +54,7 @@
 //! one question at a time after the rounds are done.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use lm_agents::config::AgentsConfig;
@@ -66,7 +64,7 @@ use lm_agents::sysone::{
     Answer, Answers, EscalatingBackend, Escalation, Refusal, SysOne, ThorBackend,
 };
 use lm_agents::utter::{presence_gate, UTTERANCE_GATES};
-use lm_agents::{Agents, AskTiming};
+use lm_agents::Agents;
 use lm_core::header::Header;
 use lm_core::talk::talk_metrics;
 use lm_host_model::HostLoop;
@@ -84,29 +82,8 @@ const DEFAULT_REFLEX: &str = include_str!("../../../assets/reflexes/default.rhai
 /// The ticks a round is played for: a hundred seconds at 30 Hz.
 const TICKS: u64 = 3_000;
 
-/// The backend the watcher wraps: the Thor's d1-2B.
-///
-/// It is the only backend the watcher's log and the round's timings are
-/// joined on.
-const WATCHED_BACKEND: &str = "thor-d1-2b";
-
 /// The seeds the measurement plays.
 const SEEDS: [u64; 3] = [1, 2, 3];
-
-/// The seeds to play, if the environment names them.
-///
-/// The measurement plays three seeds. The pack capture needs more than that
-/// to have five hundred packs to compare, and it is the same round, played
-/// with more seeds: `LM_SEEDS=1,2,3,4,5,6`.
-fn seeds() -> Vec<u64> {
-    match std::env::var("LM_SEEDS") {
-        Ok(text) => text
-            .split(',')
-            .filter_map(|part| part.trim().parse::<u64>().ok())
-            .collect(),
-        Err(_) => SEEDS.to_vec(),
-    }
-}
 
 /// One escalation and the question the escalated gate was asked, so the
 /// judge can be asked exactly what the models were asked.
@@ -127,9 +104,6 @@ struct Ask {
     pack: Pack,
     /// The situation the pack was asked over: the facts text.
     state: String,
-    /// The pack as it was asked: the questions, so the same pack can be
-    /// asked again of another server and the answers compared.
-    questions: Value,
     /// The five presence nouls, by gate id.
     presence: BTreeMap<String, f32>,
     /// The confidence of every gate that has one, by gate id.
@@ -138,11 +112,6 @@ struct Ask {
     latency_ms: u32,
     /// The escalations this ask paid for (D71), with their questions.
     escalations: Vec<Escalated>,
-    /// The wire: the time to open a connection to the Thor, in
-    /// milliseconds, measured while the pack was in flight (N1).
-    network_ms: u32,
-    /// The refusal the call came back with, if it came back with one.
-    refusal: Option<String>,
 }
 
 /// The escalation arms: which gates a second opinion is bought for.
@@ -182,8 +151,6 @@ struct Watcher {
     log: Arc<Mutex<Vec<Ask>>>,
     /// The refusals the Thor itself produced, by name.
     refused: Arc<Mutex<BTreeMap<String, u64>>>,
-    /// Where the Thor is, for the wire probe (N1).
-    addr: String,
 }
 
 impl Watcher {
@@ -217,7 +184,7 @@ impl Watcher {
                 ) as Box<dyn SysOne + Send + Sync>
             }
         };
-        Self::over(inner, format!("{}:{}", host_of(&cfg.thor_base), port))
+        Self::over(inner)
     }
 
     /// A watcher over the Thor's d1-3B, for the floor calibration: the same
@@ -228,19 +195,14 @@ impl Watcher {
         let backend = ThorBackend::new(&cfg.thor_base, port, "d1-3b")
             .with_min_confidence(0.0)
             .with_timeout(Duration::from_millis(u64::from(cfg.request_timeout_ms)));
-        Self::over(
-            Box::new(backend),
-            format!("{}:{}", host_of(&cfg.thor_base), port),
-        )
+        Self::over(Box::new(backend))
     }
 
-    fn over(inner: Box<dyn SysOne + Send + Sync>, addr: String) -> Self {
+    fn over(inner: Box<dyn SysOne + Send + Sync>) -> Self {
         Watcher {
             inner,
             log: Arc::new(Mutex::new(Vec::new())),
             refused: Arc::new(Mutex::new(BTreeMap::new())),
-            // Where the model is, for the wire probe (N1).
-            addr,
         }
     }
 
@@ -257,59 +219,18 @@ impl Watcher {
 
 impl SysOne for Watcher {
     fn ask(&self, state: &str, questions: &Value, deadline: Instant) -> Result<Answers, Refusal> {
-        self.ask_with_escalation(state, questions, deadline, deadline)
-    }
-
-    /// The watcher forwards the escalation's deadline (N3).
-    ///
-    /// It wraps the escalating backend, so the fence behind it has to
-    /// survive the wrap: a wrapper that dropped it would let a second
-    /// opinion outlive the decision it serves.
-    fn ask_with_escalation(
-        &self,
-        state: &str,
-        questions: &Value,
-        deadline: Instant,
-        escalation_deadline: Instant,
-    ) -> Result<Answers, Refusal> {
-        // The wire, measured on its own thread while the pack is in flight
-        // (N1): the measurement never delays the thing it measures.
-        let probe = thread::spawn({
-            let addr = self.addr.clone();
-            move || probe_wire(&addr)
-        });
-        let pack = pack_of(questions);
-        let answers =
-            match self
-                .inner
-                .ask_with_escalation(state, questions, deadline, escalation_deadline)
-            {
-                Ok(answers) => answers,
-                Err(refusal) => {
-                    *self
-                        .refused
-                        .lock()
-                        .expect("the watcher's refusals")
-                        .entry(refusal.to_string())
-                        .or_default() += 1;
-                    // The refusal is logged as well, so the log and the round's
-                    // own timings line up one for one.
-                    self.log.lock().expect("the watcher's log").push(Ask {
-                        pack,
-                        state: state.to_owned(),
-                        questions: questions.clone(),
-                        presence: BTreeMap::new(),
-                        confidence: BTreeMap::new(),
-                        latency_ms: 0,
-                        escalations: Vec::new(),
-                        network_ms: 0,
-                        refusal: Some(refusal.to_string()),
-                    });
-                    drop(probe);
-                    return Err(refusal);
-                }
-            };
-        let network_ms = probe.join().unwrap_or(0);
+        let answers = match self.inner.ask(state, questions, deadline) {
+            Ok(answers) => answers,
+            Err(refusal) => {
+                *self
+                    .refused
+                    .lock()
+                    .expect("the watcher's refusals")
+                    .entry(refusal.to_string())
+                    .or_default() += 1;
+                return Err(refusal);
+            }
+        };
 
         let mut presence = BTreeMap::new();
         for gate in UTTERANCE_GATES {
@@ -352,13 +273,10 @@ impl SysOne for Watcher {
         self.log.lock().expect("the watcher's log").push(Ask {
             pack,
             state: state.to_owned(),
-            questions: questions.clone(),
             presence,
             confidence,
             latency_ms: answers.latency_ms,
             escalations,
-            network_ms,
-            refusal: None,
         });
 
         Ok(answers)
@@ -369,52 +287,6 @@ impl SysOne for Watcher {
     }
 }
 
-/// The host of the Thor's base URL.
-///
-/// The base is `http://<host>`, and the model ports hang off it.
-fn host_of(base: &str) -> String {
-    base.trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_end_matches('/')
-        .to_owned()
-}
-
-/// The pack a set of questions carried (D70).
-///
-/// The move pack holds the move gate, the talk pack the gates a line is
-/// chosen by.
-fn pack_of(questions: &Value) -> Pack {
-    if questions.get("move").is_some() {
-        Pack::Move
-    } else {
-        Pack::Talk
-    }
-}
-
-/// The wire to the Thor: the time to open a connection to it, in
-/// milliseconds.
-///
-/// The probe is a TCP handshake on the same route the pack takes, timed on
-/// its own thread so the pack is not delayed by the measurement. The
-/// handshake is the kernel's, so it is not queued behind the model's own
-/// work: the number is the wire, not the model's queue (N1).
-fn probe_wire(addr: &str) -> u32 {
-    let started = Instant::now();
-    let Ok(mut targets) = addr.to_socket_addrs() else {
-        return 0;
-    };
-    let Some(target) = targets.next() else {
-        return 0;
-    };
-    match std::net::TcpStream::connect_timeout(&target, Duration::from_millis(2000)) {
-        Ok(stream) => {
-            drop(stream);
-            u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX)
-        }
-        Err(_) => 0,
-    }
-}
-
 /// The shipped harness, read into memory.
 fn default_harness() -> Harness {
     Harness {
@@ -422,7 +294,6 @@ fn default_harness() -> Harness {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     }
@@ -450,42 +321,18 @@ struct Round {
     escalations: u64,
 }
 
-/// The configuration the measurement runs with.
-///
-/// The box to measure. The default is the Thor's own d1-2B; the environment
-/// points the round at another server of the same shape (the batched one),
-/// so the two can be measured on the same packs. The port override names the
-/// d1-2B's own port only: the batched server is a drop-in for :8094, and the
-/// other models keep the ports they have.
-fn measured_cfg() -> AgentsConfig {
-    let mut cfg = AgentsConfig::default();
-    if let Ok(base) = std::env::var("LM_THOR_BASE") {
-        cfg.thor_base = base;
-    }
-    if let Ok(port) = std::env::var("LM_THOR_PORT") {
-        cfg.ports.insert(
-            "d1-2b".to_owned(),
-            port.parse().expect("the port is a number"),
-        );
-    }
-    cfg
-}
-
 /// Play one round on the Thor, at the round's own rate, and measure it.
-///
-/// The round's own timings come back with it (N1): where a decision's time
-/// went is part of what the round measured.
-fn play(watcher: Watcher, seed: u64) -> (Round, Vec<Ask>, BTreeMap<String, u64>, Vec<AskTiming>) {
+fn play(watcher: Watcher, seed: u64) -> (Round, Vec<Ask>, BTreeMap<String, u64>) {
     let header = Header::default_round(seed, DEFAULT_REFLEX);
     let harness = default_harness();
-    let cfg = measured_cfg();
+    let cfg = AgentsConfig::default();
 
     let log = watcher.log();
     let refused = watcher.refused();
     let backends = BTreeMap::from([(
         // The policy's tiers ask for the fast tier by this name; the watcher
         // behind the name is the model this round measures.
-        WATCHED_BACKEND.to_owned(),
+        "thor-d1-2b".to_owned(),
         Box::new(watcher) as Box<dyn SysOne + Send + Sync>,
     )]);
 
@@ -513,85 +360,7 @@ fn play(watcher: Watcher, seed: u64) -> (Round, Vec<Ask>, BTreeMap<String, u64>,
     };
     let log = log.lock().expect("the watcher's log").clone();
     let refused = refused.lock().expect("the watcher's refusals").clone();
-    let timings = host
-        .agents()
-        .expect("the round has agents")
-        .timings()
-        .to_vec();
-    (round, log, refused, timings)
-}
-
-/// The split of one pack's thinks, in milliseconds (N1).
-///
-/// The whole think, from the mind asking to the decision being applied, is
-/// made of five parts, and every millisecond of it is in one of them.
-#[derive(Default)]
-struct Split {
-    /// The wait in our own least-use-first queue.
-    queue: Vec<u64>,
-    /// The wait in the worker's own channel: the call before this one.
-    worker: Vec<u64>,
-    /// The wire to the Thor.
-    network: Vec<u64>,
-    /// The model's own time: the pack and its second opinions, less the wire.
-    server: Vec<u64>,
-    /// The wait from the answer landing to the decision being applied.
-    apply: Vec<u64>,
-    /// The whole think.
-    total: Vec<u64>,
-}
-
-/// The split of one pack's thinks.
-///
-/// The round's own timings and the watcher's log are joined per pack: both
-/// are in the order the pack's worker worked through its asks, so the k-th
-/// ask of a pack is the k-th of each.
-///
-/// The join is on the backend as well as the pack. A round may ask more than
-/// one backend — the shipped policy's deep tier names the cloud — and only
-/// the Thor is watched, so the timings of the asks that went elsewhere are
-/// left out. Without that, the k-th of one list would be the (k+1)-th of the
-/// other, and every wire time would be read off the wrong ask.
-fn split_of(pack: Pack, backend: &str, timings: &[AskTiming], log: &[Ask], tick_hz: u16) -> Split {
-    let mut out = Split::default();
-    let asked: Vec<&AskTiming> = timings
-        .iter()
-        .filter(|t| t.pack == pack && t.backend == backend)
-        .collect();
-    let logged: Vec<&Ask> = log.iter().filter(|a| a.pack == pack).collect();
-    for (timing, entry) in asked.iter().zip(logged.iter()) {
-        if entry.refusal.is_some() {
-            // No answer came back, so there is no model to split out.
-            continue;
-        }
-        let flight = timing.flight_ms();
-        let network = u64::from(entry.network_ms);
-        let apply = timing.apply_ms(tick_hz);
-        out.queue.push(timing.queue_ms());
-        out.worker.push(timing.worker_ms());
-        out.network.push(network);
-        out.server.push(flight.saturating_sub(network));
-        out.apply.push(apply);
-        out.total
-            .push(timing.queue_ms() + timing.worker_ms() + flight + apply);
-    }
-    out
-}
-
-/// The percentile of a sorted slice of milliseconds, by rank.
-fn percentile_u64(sorted: &[u64], q: f32) -> u64 {
-    if sorted.is_empty() {
-        return 0;
-    }
-    let rank = ((sorted.len() - 1) as f32 * q).round() as usize;
-    sorted[rank]
-}
-
-/// The median and the 95th percentile of a set of milliseconds.
-fn split_row(values: &[u64]) -> (u64, u64) {
-    let mut sorted = values.to_vec();
-    sorted.sort_unstable();
-    (percentile_u64(&sorted, 0.50), percentile_u64(&sorted, 0.95))
+    (round, log, refused)
 }
 
 /// The percentile of a sorted slice, by rank.
@@ -633,18 +402,14 @@ fn top_option(answer: &Answer) -> Option<String> {
 /// What one arm did, over its rounds.
 struct ArmReport {
     arm: Arm,
-    /// The seeds the arm played, in order: the report names them.
-    seeds: Vec<u64>,
     rounds: Vec<Round>,
     asks: Vec<Ask>,
     refused: BTreeMap<String, u64>,
-    /// The round's own timings: where each decision's time went (N1).
-    timings: Vec<AskTiming>,
 }
 
 /// Play one arm's rounds and print the arm's numbers.
 fn run_arm(arm: Arm) -> ArmReport {
-    let cfg = measured_cfg();
+    let cfg = AgentsConfig::default();
     println!(
         "# the arm: {} (escalate below {:.2})",
         arm.name(),
@@ -652,12 +417,10 @@ fn run_arm(arm: Arm) -> ArmReport {
     );
     let mut rounds = Vec::new();
     let mut asks = Vec::new();
-    let mut timings: Vec<AskTiming> = Vec::new();
     let mut refused: BTreeMap<String, u64> = BTreeMap::new();
-    let seeds = seeds();
-    for &seed in &seeds {
+    for seed in SEEDS {
         let watcher = Watcher::d1_2b(&cfg, arm);
-        let (round, log, round_refused, seed_timings) = play(watcher, seed);
+        let (round, log, round_refused) = play(watcher, seed);
         println!(
             "round {seed}: {} utterances ({} orders, {} taken up), {} decisions, {} refusals, \
              {} asks sent, {} answered, {} expired, {} escalations, {} answers seen",
@@ -677,34 +440,12 @@ fn run_arm(arm: Arm) -> ArmReport {
         }
         rounds.push(round);
         asks.extend(log);
-        timings.extend(seed_timings);
     }
-
-    // The packs that were asked, dumped so they can be asked again of
-    // another server and the answers compared: LM_CAPTURE_PACKS=<file>
-    // writes one pack per line.
-    if let Ok(path) = std::env::var("LM_CAPTURE_PACKS") {
-        let mut text = String::new();
-        for ask in &asks {
-            let line = serde_json::json!({
-                "pack": ask.pack.as_str(),
-                "state": ask.state,
-                "questions": ask.questions,
-            });
-            text.push_str(&serde_json::to_string(&line).expect("the pack is JSON"));
-            text.push('\n');
-        }
-        std::fs::write(&path, text).expect("the packs are written");
-        println!("wrote {} packs to {path}", asks.len());
-    }
-
     ArmReport {
         arm,
-        seeds,
         rounds,
         asks,
         refused,
-        timings,
     }
 }
 
@@ -732,10 +473,15 @@ fn print_arm(report: &ArmReport) {
 
     println!("## the arm: {}", report.arm.name());
     println!();
-    for (seed, round) in report.seeds.iter().zip(rounds.iter()) {
+    for (seed, round) in rounds.iter().enumerate() {
         println!(
-            "- seed {seed}: {} lines ({} orders, {} taken up), {} decisions, {} refusals",
-            round.utterances, round.orders, round.orders_taken_up, round.decisions, round.refusals
+            "- seed {}: {} lines ({} orders, {} taken up), {} decisions, {} refusals",
+            SEEDS[seed],
+            round.utterances,
+            round.orders,
+            round.orders_taken_up,
+            round.decisions,
+            round.refusals
         );
     }
     println!(
@@ -774,80 +520,6 @@ fn print_arm(report: &ArmReport) {
             100.0 * escalations.len() as f64 / decisions.max(1) as f64
         );
     }
-
-    // The split of a think (N1): the same latency, taken apart.
-    //
-    // The round trip is one number around the HTTP call. This is the whole
-    // latency of a think, part by part: the wait in our own queue, the
-    // worker's own wait, the wire, the model, and the wait for the
-    // decision to be applied. Every millisecond of the think is in one of
-    // them, and the last row is their sum.
-    let tick_hz = Header::default_round(SEEDS[0], DEFAULT_REFLEX)
-        .params
-        .tick_hz;
-    let move_split = split_of(
-        Pack::Move,
-        WATCHED_BACKEND,
-        &report.timings,
-        &report.asks,
-        tick_hz,
-    );
-    let talk_split = split_of(
-        Pack::Talk,
-        WATCHED_BACKEND,
-        &report.timings,
-        &report.asks,
-        tick_hz,
-    );
-    println!("## the split of a think (N1)");
-    println!();
-    println!("| part | move pack p50 | move pack p95 | talk pack p50 | talk pack p95 |");
-    println!("|---|---|---|---|---|");
-    let rows: [(&str, &[u64], &[u64]); 6] = [
-        (
-            "our queue: the least-use-first wait",
-            &move_split.queue,
-            &talk_split.queue,
-        ),
-        (
-            "the worker's own queue: the call before this one",
-            &move_split.worker,
-            &talk_split.worker,
-        ),
-        ("the wire", &move_split.network, &talk_split.network),
-        ("the model", &move_split.server, &talk_split.server),
-        (
-            "the apply: the lead before the decision lands",
-            &move_split.apply,
-            &talk_split.apply,
-        ),
-        ("the whole think", &move_split.total, &talk_split.total),
-    ];
-    for (name, move_vals, talk_vals) in rows {
-        let (move_p50, move_p95) = split_row(move_vals);
-        let (talk_p50, talk_p95) = split_row(talk_vals);
-        println!("| {name} | {move_p50} ms | {move_p95} ms | {talk_p50} ms | {talk_p95} ms |");
-    }
-    println!();
-    let elsewhere = report
-        .timings
-        .iter()
-        .filter(|t| t.backend != WATCHED_BACKEND)
-        .count();
-    println!(
-        "- the split covers {} move pack thinks and {} talk pack thinks, over {} watched asks and {} timings",
-        move_split.total.len(),
-        talk_split.total.len(),
-        report.asks.len(),
-        report.timings.len()
-    );
-    println!(
-        "- {} asks went to another backend (the shipped policy's deep tier names the cloud) \
-         and are not in the split: they never reached the Thor",
-        elsewhere
-    );
-    println!();
-
     // The round trip per pack, and the latency the escalation added.
     for (pack, name) in [(Pack::Move, "move pack"), (Pack::Talk, "talk pack")] {
         let mut latencies: Vec<u32> = report
@@ -907,7 +579,7 @@ fn print_arm(report: &ArmReport) {
 /// model. The d1 servers are deterministic, so the judge's answer is the
 /// same on a re-ask.
 fn judge_escalations(escalated: &[Escalated]) {
-    let cfg = measured_cfg();
+    let cfg = AgentsConfig::default();
     let judge = ThorBackend::new(&cfg.thor_base, cfg.ports["d1-3b"], "d1-3b")
         .with_min_confidence(0.0)
         .with_timeout(Duration::from_secs(10));
@@ -995,14 +667,14 @@ fn judge_escalations(escalated: &[Escalated]) {
 /// own scale — the way the d1-2B's 0.30 was read
 /// (crates/lm-agents/tests/talk_on_thor.md).
 fn calibrate_d1_3b() {
-    let cfg = measured_cfg();
+    let cfg = AgentsConfig::default();
     println!("# the d1-3B behind the tier, the floor at zero");
     println!();
     let mut rounds = Vec::new();
     let mut asks = Vec::new();
     for seed in SEEDS {
         let watcher = Watcher::d1_3b(&cfg);
-        let (round, log, _refused, _timings) = play(watcher, seed);
+        let (round, log, _refused) = play(watcher, seed);
         println!(
             "round {seed}: {} utterances, {} decisions, {} refusals, {} asks sent, {} answered, {} expired",
             round.utterances,

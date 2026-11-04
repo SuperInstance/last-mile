@@ -23,7 +23,6 @@ pub mod lane;
 pub mod log;
 pub mod opal;
 pub mod params;
-pub mod refusal;
 pub mod rng;
 pub mod rules;
 pub mod sched;
@@ -39,25 +38,15 @@ pub use agent::{ActiveIntent, Agent, MotorCmd};
 pub use decision::{Action, Decision, Intent, Kind, Lane, Provenance, Roll, Source, Stamped, Tick};
 pub use fixed::{Angle, Pos, CHUNK_UNITS, UNITS_PER_M};
 pub use hash::{Fnv64, StateHash};
-pub use header::{
-    Header, HeaderV1, Lineage, LineageChange, Role, RosterEntry, VibeCarried, PROTO_VERSION,
-};
+pub use header::{Header, HeaderV1, Lineage, LineageChange, Role, RosterEntry, PROTO_VERSION};
 pub use hearing::{
     audible_to, audible_to_in_world, clarity, clarity_between, degrade, degrade_at, dist_units,
     range_units, DEFAULT_CELL_UNITS,
 };
 pub use lane::LaneConditioner;
-pub use log::{
-    LogError, Recorder, RoundLog, RoundLogV1, Segment, SegmentV2, MAGIC, MIN_READABLE_VERSION,
-};
+pub use log::{LogError, Recorder, RoundLog, RoundLogV1, Segment, MAGIC, MIN_READABLE_VERSION};
 pub use opal::{OpalError, TalkContext};
 pub use params::{ParamError, Params, BRANCH_FIELDS};
-// The model path's refusal vocabulary lives in `refusal`: `refusal::RefusalKind`
-// names what a *model* refused, and `rules::RefusalKind` (above) names what a
-// *script* refused. They are different words for different things, so the
-// model path's is not re-exported here — a use of `RefusalKind` at the crate
-// root is always the rules layer's.
-pub use refusal::{RefusalCounts, Refused};
 pub use rng::{Domain, Rng};
 pub use rules::{Beacons, Event, Outcome, Refusal, RefusalKind, RhaiRuleset, Ruleset, SimError};
 pub use sched::{lead_ticks, Reject, SchedStats, Sequencer};

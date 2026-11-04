@@ -57,15 +57,13 @@ use crate::agents::WordCounts;
 use crate::config::AgentsConfig;
 use crate::facts::Facts;
 use crate::gates::{answers_to_decisions, GateSet};
-use crate::surprise::{RoundSurprise, SituationKey};
 
 /// The pack a thought carries (D70): the move pack or the talk pack.
 pub use crate::gates::Pack;
 use crate::harness::Harness;
 use crate::phrasebook::Phrasebook;
 use crate::queue::ThinkReq;
-use crate::shared::SharedConfig;
-use crate::sysone::{Answers, Escalation, EscalationOutcome, Refusal, SysOne};
+use crate::sysone::{Answers, Escalation, Refusal, SysOne};
 use crate::utter::{
     pick_realizer_with, plan_from_gates, presence_gate, utterance_from_text, GateCtx, Realizer,
     WordSource, GATE_GESTURE, UTTERANCE_GATES,
@@ -660,25 +658,6 @@ pub struct Ask {
     pub timeout: Duration,
     /// The `pay_priority` lever's verdict for this ask.
     pub pay_priority: bool,
-    /// When the mind asked, on the monotonic clock (N1).
-    ///
-    /// The stamp is outside the sim: it is telemetry for the split, and it
-    /// never enters the sim's state — the sim only ever sees the decisions.
-    pub asked_at: Instant,
-    /// When the ask left the least-use-first queue (N1).
-    pub sent_at: Option<Instant>,
-    /// The tick this ask's decision is scheduled for (N3).
-    ///
-    /// The mind commits to it when it asks: the tick the answer lands on
-    /// when the model is on time, plus the decision's lead. A second opinion
-    /// that would land after it is no opinion at all.
-    pub apply_tick: Tick,
-    /// The decision's apply tick, as a wall-clock instant (N3).
-    ///
-    /// This is the escalation's deadline: the second opinion must be in
-    /// hand by then, or the gate takes the safe branch and the round records
-    /// `escalation_late`.
-    pub apply_deadline: Instant,
 }
 
 /// An ask that came home: the ask, the outcome, and the measured round trip.
@@ -690,33 +669,6 @@ pub struct Thought {
     pub result: Result<Answers, Refusal>,
     /// The wall-clock round trip the thinker measured, in milliseconds.
     pub rtt_ms: u32,
-    /// When the worker took the ask off its channel (N1).
-    ///
-    /// The time between the ask leaving the queue and the worker picking it
-    /// up is the worker's own wait: the worker was still busy with the
-    /// previous call.
-    pub picked_up: Instant,
-    /// When the answer came home (N1).
-    pub answered_at: Instant,
-}
-
-/// How an ask ended.
-///
-/// Every ask ends in exactly one of these three, and the round counts them
-/// apart: a question that was asked must not vanish between the mind and the
-/// log. A question that was refused before it was sent, a question whose
-/// answer never came back and a question that came back too late are three
-/// different problems, and one counter cannot tell them apart.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AskOutcome {
-    /// The answer came back and was taken.
-    Accepted,
-    /// The answer came back, but later than the tick the tier said it would
-    /// land on.
-    Late,
-    /// The ask ended in a refusal: the call did not come back, the pack did
-    /// not fit, the budget was spent, or the answer did not match.
-    Refused,
 }
 
 // ----------------------------------------------------------------- the worker
@@ -747,22 +699,6 @@ struct Lane {
     handle: Option<thread::JoinHandle<()>>,
 }
 
-/// What a panic said, as text.
-///
-/// A payload is `&'static str` for `panic!("…")` and `String` for
-/// `panic!("{}", x)`; anything else says only that it panicked. The message
-/// is a *why*, not a decision: it goes into the refusal's words, where a
-/// reader of the log can see it.
-fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
-    if let Some(text) = payload.downcast_ref::<&'static str>() {
-        (*text).to_owned()
-    } else if let Some(text) = payload.downcast_ref::<String>() {
-        text.clone()
-    } else {
-        "the backend panicked".to_owned()
-    }
-}
-
 impl Thinker {
     /// A thinker asking `backends` (by backend name) on its own threads.
     pub fn new(backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>) -> Thinker {
@@ -782,37 +718,10 @@ impl Thinker {
                     // connection per backend (D50). The loop ends when the
                     // thinker is dropped.
                     for ask in worker_rx {
-                        // When the worker takes the ask off its channel: the
-                        // wait before this is the worker's own queue (N1).
-                        let picked_up = Instant::now();
-                        let started = picked_up;
+                        let started = Instant::now();
                         let deadline = started + ask.timeout;
                         let result = match worker_backends.get(&ask.backend) {
-                            Some(backend) => {
-                                // A panic is a bug in the backend, but the
-                                // question still has to end somewhere (N4):
-                                // caught here, it becomes a named refusal,
-                                // and the worker keeps serving the lane. Left
-                                // alone it would kill the thread with the
-                                // ask still in its hands — a question that
-                                // vanished without a word.
-                                //
-                                // The ask is asked with the decision's own
-                                // apply tick as the escalation's deadline
-                                // (N3): a second opinion that would land
-                                // after the decision is no opinion at all.
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    backend.ask_with_escalation(
-                                        &ask.state,
-                                        &ask.questions,
-                                        deadline,
-                                        ask.apply_deadline,
-                                    )
-                                }))
-                                .unwrap_or_else(|payload| {
-                                    Err(Refusal::Panicked(panic_message(&payload)))
-                                })
-                            }
+                            Some(backend) => backend.ask(&ask.state, &ask.questions, deadline),
                             None => Err(Refusal::Malformed(format!(
                                 "no backend named {}",
                                 ask.backend
@@ -820,15 +729,11 @@ impl Thinker {
                         };
                         let rtt_ms =
                             u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
-                        // When the answer came home (N1).
-                        let answered_at = Instant::now();
                         if worker_tx
                             .send(Thought {
                                 ask,
                                 result,
                                 rtt_ms,
-                                picked_up,
-                                answered_at,
                             })
                             .is_err()
                         {
@@ -854,30 +759,19 @@ impl Thinker {
         }
     }
 
-    /// Send an ask to the worker that owns its pack.
-    ///
-    /// `false` means the ask never reached a worker: the lane is gone, or the
-    /// worker is not listening any more. The question ends there, and the
-    /// caller has to say so — a question that was asked and never sent must
-    /// not disappear without a word.
+    /// Queue an ask; never blocks and never fails (a dead worker drops the
+    /// ask, and the stale window on the sim side cleans up).
     ///
     /// The ask goes to its pack's worker (D70), so a talk pack in flight
     /// never delays the move pack.
-    ///
-    /// The ask is stamped here: this is the moment it leaves the
-    /// least-use-first queue, and the wait before it is the queue's own
-    /// (N1).
-    pub fn send(&self, mut ask: Ask) -> bool {
-        ask.sent_at = Some(Instant::now());
+    pub fn send(&self, ask: Ask) {
         if let Some(lane) = self.lanes.get(&ask.pack) {
             if let Some(sender) = &lane.to_worker {
                 if sender.send(ask).is_ok() {
                     self.sent.fetch_add(1, Ordering::SeqCst);
-                    return true;
                 }
             }
         }
-        false
     }
 
     /// Every thought that has come home since the last drain.
@@ -980,9 +874,6 @@ struct Flight {
     /// The wording of a line is written over the same situation the
     /// choice was made over, so the line and the choice agree.
     facts: Facts,
-    /// The coarse bucket of the same situation (the surprise signal): the
-    /// answer is counted under it when it comes home.
-    situation: SituationKey,
     /// How many questions the pack held.
     ///
     /// The utterance needs the whole talk pack; a pack that was cut short
@@ -1016,8 +907,6 @@ pub struct Mind {
     params: Params,
     gates: GateSet,
     policy: Policy,
-    /// The shared target the facts builder states (off by default).
-    shared: SharedConfig,
     mode: Mode,
     now: Tick,
     last_ask: Option<Tick>,
@@ -1039,9 +928,6 @@ pub struct Mind {
     /// The escalations of this round (D71): the gate, both confidences and
     /// the latency of every second opinion that was asked for.
     escalations: Vec<(Tick, Escalation)>,
-    /// The surprise table of this round: every answer that came home,
-    /// counted under the coarse bucket of the situation it was asked in.
-    surprise: RoundSurprise,
     seq_counter: u32,
     /// The round's roster: who exists, so a line may not name an agent
     /// that is not in the round (D37).
@@ -1076,7 +962,7 @@ impl Mind {
         // see, not a silent agent that never thinks: the gates are the
         // questions, and a question that does not fit the API's schema
         // is refused by the model anyway (D26).
-        let (gates, mut refusals) = match GateSet::parse(&harness.gates_toml) {
+        let (gates, refusals) = match GateSet::parse(&harness.gates_toml) {
             Ok(gates) => (gates, Vec::new()),
             Err(error) => (
                 GateSet::default(),
@@ -1087,24 +973,6 @@ impl Mind {
             ),
         };
         let phrasebook = Phrasebook::parse(&harness.phrasebook_toml).unwrap_or_default();
-        // The shared target is a harness parameter like the gates are: a
-        // harness whose facts file does not load, or asks for a target the
-        // facts cannot state, is a refusal the round can see — not a silent
-        // agent that states the wrong target (D26).
-        let (shared, shared_refusal) = match SharedConfig::parse(&harness.facts_toml)
-            .map_err(|error| format!("the harness facts do not load: {error}"))
-            .and_then(|shared| {
-                shared
-                    .validate()
-                    .map_err(|error| format!("the harness facts cannot be stated: {error}"))?;
-                Ok(shared)
-            }) {
-            Ok(shared) => (shared, None),
-            Err(error) => (SharedConfig::default(), Some(Refusal::Malformed(error))),
-        };
-        if let Some(refusal) = shared_refusal {
-            refusals.push((0, refusal));
-        }
         Mind {
             agent,
             role,
@@ -1113,7 +981,6 @@ impl Mind {
             params: Params::default(),
             gates,
             policy: Policy::for_harness(&harness.policy_toml),
-            shared,
             mode: Mode::parse(&cfg.mode),
             now: 0,
             last_ask: None,
@@ -1128,7 +995,6 @@ impl Mind {
             thoughts: Vec::new(),
             refusals,
             escalations: Vec::new(),
-            surprise: RoundSurprise::default(),
             seq_counter: 0,
             roster: Vec::new(),
             talk: TalkParams::default(),
@@ -1303,8 +1169,7 @@ impl Mind {
             return None;
         }
 
-        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg, &self.shared);
-        let situation = SituationKey::of(view, &facts, &self.params);
+        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
         let fresh_threat = view
             .enemies
             .iter()
@@ -1381,9 +1246,6 @@ impl Mind {
             deadline: now.saturating_add(u64::from(self.params.stale_window_ticks)),
             situation_key: facts.key,
         };
-        let asked_at = Instant::now();
-        let (apply_tick, apply_deadline) =
-            self.commit_apply(now, expected_land, tier.p99_ms(Pack::Move), asked_at);
         let ask = Ask {
             req: req.clone(),
             pack: Pack::Move,
@@ -1393,10 +1255,6 @@ impl Mind {
             questions_n,
             timeout: Duration::from_millis(u64::from(self.cfg.request_timeout_ms)),
             pay_priority: self.policy.pay_priority && fresh_threat,
-            asked_at,
-            sent_at: None,
-            apply_tick,
-            apply_deadline,
         };
         let flight = Flight {
             req: req.clone(),
@@ -1404,7 +1262,6 @@ impl Mind {
             tier: tier.name().to_owned(),
             expected_land,
             facts: facts.clone(),
-            situation,
             questions_n,
             pre_draft_at: None,
         };
@@ -1470,8 +1327,7 @@ impl Mind {
             return None;
         }
 
-        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg, &self.shared);
-        let situation = SituationKey::of(view, &facts, &self.params);
+        let facts = Facts::from_view(view, world, view.squad_id, &self.cfg);
         let tier =
             match self
                 .policy
@@ -1497,9 +1353,6 @@ impl Mind {
             deadline: now.saturating_add(u64::from(self.params.stale_window_ticks)),
             situation_key: facts.key,
         };
-        let asked_at = Instant::now();
-        let (apply_tick, apply_deadline) =
-            self.commit_apply(now, expected_land, tier.p99_ms(Pack::Talk), asked_at);
         let ask = Ask {
             req: req.clone(),
             pack: Pack::Talk,
@@ -1509,10 +1362,6 @@ impl Mind {
             questions_n,
             timeout: Duration::from_millis(u64::from(self.cfg.request_timeout_ms)),
             pay_priority: self.policy.pay_priority && fresh_threat,
-            asked_at,
-            sent_at: None,
-            apply_tick,
-            apply_deadline,
         };
         let flight = Flight {
             req: req.clone(),
@@ -1520,7 +1369,6 @@ impl Mind {
             tier: tier.name().to_owned(),
             expected_land,
             facts: facts.clone(),
-            situation,
             questions_n,
             pre_draft_at,
         };
@@ -1570,15 +1418,8 @@ impl Mind {
     ///
     /// A refusal produces no decision — it is logged, and the reflex keeps
     /// playing (D26). An answer that matches no flight in the mind's hands
-    /// is dropped, and the drop is a refusal with a name.
-    ///
-    /// The outcome says how the ask ended, so the round's counters can add
-    /// up: every ask ends in exactly one of accepted, late or refused.
-    pub fn on_answer(
-        &mut self,
-        req: Ask,
-        result: Result<Answers, Refusal>,
-    ) -> (Vec<Decision>, AskOutcome) {
+    /// is dropped.
+    pub fn on_answer(&mut self, req: Ask, result: Result<Answers, Refusal>) -> Vec<Decision> {
         let now = self.now;
         let pack = req.pack;
         let lane = match pack {
@@ -1586,26 +1427,17 @@ impl Mind {
             Pack::Talk => &mut self.talk_lane,
         };
         let Some(flight) = lane.in_flight.take() else {
-            // Nothing was in flight for this pack: the answer belongs to an
-            // ask this mind no longer owns. The ask ends here, and it ends
-            // with a name — a lost answer is a refusal, not a silence.
-            self.refusals.push((now, Refusal::Superseded));
-            return (Vec::new(), AskOutcome::Refused);
+            return Vec::new();
         };
         if flight.req.agent != req.req.agent
             || flight.req.asked != req.req.asked
             || flight.req.situation_key != req.req.situation_key
         {
             // The answer belongs to an ask this mind no longer owns; the
-            // flight goes back in its hands. The ask ends here, and it ends
-            // with a name.
+            // flight goes back in its hands.
             lane.in_flight = Some(flight);
-            self.refusals.push((now, Refusal::Superseded));
-            return (Vec::new(), AskOutcome::Refused);
+            return Vec::new();
         }
-        // The answer came back after the tick the tier said it would land on:
-        // the ask ended late, and the round counts it apart.
-        let late = now > flight.expected_land;
         if let Some(record) =
             self.thoughts.iter_mut().rev().find(|r| {
                 r.landed.is_none() && r.asked == flight.req.asked && r.tier == flight.tier
@@ -1613,10 +1445,6 @@ impl Mind {
         {
             record.landed = Some(now);
         }
-        // The surprise signal: the answer is counted under the coarse bucket
-        // of the situation it was asked in, from the answer alone — no clock,
-        // no latency, nothing the same round would not say again.
-        self.surprise.record(flight.situation, &result);
         // Teach the tier: a refusal burned its deadline, so it counts as the
         // timeout it cost (a slow tier must look slow to the next choice).
         let rtt_ms = match &result {
@@ -1629,7 +1457,7 @@ impl Mind {
         match result {
             Err(refusal) => {
                 self.refusals.push((now, refusal));
-                (Vec::new(), AskOutcome::Refused)
+                Vec::new()
             }
             Ok(answers) => {
                 // The confidence rule, per gate: a gate the backend was not
@@ -1639,37 +1467,9 @@ impl Mind {
                 // that chose a move refuses the move and leaves the line
                 // alone (D26/D49). Every one of them is a refusal, and a
                 // refusal is logged.
-                //
-                // The refusal is named after the rule that actually failed.
-                // A gate the second opinion could not answer is not a gate
-                // the backend was unsure about: it is a gate whose second
-                // opinion timed out, or whose second model could not be
-                // reached, and those are different problems with different
-                // fixes (D71).
-                for (gate, confidence) in &answers.unsure {
-                    let refusal = match answers.escalated.get(gate) {
-                        // The second opinion missed the decision's apply tick
-                        // (N3): the gate took the safe branch, and the round
-                        // says why, by the name N2 reserved.
-                        Some(escalation) => match escalation.outcome {
-                            EscalationOutcome::Late => Refusal::EscalationLate,
-                            _ => match escalation.refusal.clone() {
-                                // The second opinion failed, and it says how:
-                                // a timeout is a timeout, and an endpoint
-                                // that answered an error is not a call that
-                                // never reached one.
-                                Some(refusal) => refusal,
-                                None => match escalation.outcome {
-                                    EscalationOutcome::Timeout => Refusal::Timeout,
-                                    _ => Refusal::LowConfidence(*confidence),
-                                },
-                            },
-                        },
-                        // No second opinion was asked: the backend was
-                        // simply unsure, and that is what failed.
-                        None => Refusal::LowConfidence(*confidence),
-                    };
-                    self.refusals.push((now, refusal));
+                for confidence in answers.unsure.values() {
+                    self.refusals
+                        .push((now, Refusal::LowConfidence(*confidence)));
                 }
                 // The escalations (D71): the gate, both confidences and the
                 // latency of every second opinion that was asked for.
@@ -1714,14 +1514,7 @@ impl Mind {
                     }
                 }
                 self.restamp(&mut decisions);
-                (
-                    decisions,
-                    if late {
-                        AskOutcome::Late
-                    } else {
-                        AskOutcome::Accepted
-                    },
-                )
+                decisions
             }
         }
     }
@@ -1926,12 +1719,6 @@ impl Mind {
         &self.escalations
     }
 
-    /// The surprise table of this mind's round: every answer that came
-    /// home, counted under its situation bucket.
-    pub fn surprise(&self) -> &RoundSurprise {
-        &self.surprise
-    }
-
     /// Whether the verdict cache holds this situation on this menu.
     fn cached(&self, pack: Pack, situation_key: u64, menu_id: u64) -> bool {
         self.cache.contains_key(&(pack, situation_key, menu_id))
@@ -1950,29 +1737,6 @@ impl Mind {
             d.seq = self.seq_counter;
         }
     }
-
-    /// The tick this ask's decision is scheduled for, and the wall-clock
-    /// instant it falls on (N1/N3).
-    ///
-    /// The mind commits to the tick when it asks: the tick the answer lands
-    /// on when the model is on time (`expected_land`), plus the decision's
-    /// lead. The second opinion that may serve that decision is fenced by
-    /// it (N3), so a wait in the queue eats the second opinion's budget
-    /// instead of the round's.
-    fn commit_apply(
-        &self,
-        asked: Tick,
-        expected_land: Tick,
-        p99_ms: u32,
-        asked_at: Instant,
-    ) -> (Tick, Instant) {
-        let lead = u64::from(lead_ticks(&self.params, p99_ms));
-        let apply_tick = expected_land.saturating_add(lead);
-        // The budget between the ask and the tick the decision is applied on,
-        // in wall-clock milliseconds: the sim's ticks are wall-clock ticks.
-        let budget_ms = apply_tick.saturating_sub(asked) * 1000 / u64::from(self.params.tick_hz);
-        (apply_tick, asked_at + Duration::from_millis(budget_ms))
-    }
 }
 
 // -------------------------------------------------------------------- the tests
@@ -1982,7 +1746,7 @@ mod tests {
     use super::*;
     use crate::config::AgentsConfig;
     use crate::queue::{Budgets, LeastUseQueue};
-    use crate::sysone::{Answer, Escalation, EscalationOutcome, StubBackend};
+    use crate::sysone::{Answer, StubBackend};
     use crate::utter::{AutoRealizer, LlmRealizer, StubLlm, TemplateRealizer};
     use lm_core::decision::{Kind, Source};
     use lm_core::log::{Recorder, RoundLog};
@@ -2066,7 +1830,6 @@ mod tests {
             gates_toml: DEFAULT_GATES.to_owned(),
             policy_toml: policy.to_owned(),
             phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-            facts_toml: String::new(),
             reflexes: BTreeMap::new(),
             commit: "test".to_owned(),
         }
@@ -2088,14 +1851,12 @@ mod tests {
             beacons: vec![CellXY { x: 9, y: 2 }],
             spawns: vec![CellXY { x: 2, y: 2 }, CellXY { x: 9, y: 9 }],
             cell_units: 1024,
-            paint: lm_core::world::Paint::new(),
         }
     }
 
     /// A member's view standing at (x, y) on the tiny world.
     fn view_at(id: u16, x: u16, y: u16) -> ScoreView {
         ScoreView {
-            paint: Vec::new(),
             heard: Vec::new(),
             tick: 0,
             me: lm_core::view::AgentSnap {
@@ -2104,7 +1865,6 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
-                paint_slow_q8: 0,
             },
             squad: vec![lm_core::view::AgentSnap {
                 id,
@@ -2112,7 +1872,6 @@ mod tests {
                 role: Role::Member,
                 stunned: false,
                 airtime_ticks: 0,
-                paint_slow_q8: 0,
             }],
             enemies: vec![],
             beacons: vec![lm_core::view::BeaconSnap {
@@ -2141,7 +1900,6 @@ mod tests {
             )]),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
-            decomposed: BTreeMap::new(),
             model: "stub".to_owned(),
             input_tokens: 64,
             latency_ms: 0,
@@ -2353,7 +2111,7 @@ mod tests {
                     let result = thought
                         .result
                         .map(|answers| answers_asked(&thought.ask, &answers));
-                    decisions.extend(mind.on_answer(thought.ask, result).0);
+                    decisions.extend(mind.on_answer(thought.ask, result));
                 }
             }
             for mind in self.minds.values_mut() {
@@ -2455,10 +2213,10 @@ mod tests {
         // The shipped backends: reflex plus the two model tiers of D55.
         let backends: Vec<&str> = p.tiers.tiers().iter().map(|t| t.backend()).collect();
         assert_eq!(backends, vec!["reflex", "thor-d1-2b", "jev"]);
-        // The shipped escalation set is empty: escalation is off (D79). The
-        // second opinion did not beat the d1-2B's own answer on the move
-        // gate (McNemar p = 0.37) and changed no game measure.
-        assert_eq!(p.escalate_gates, Some(BTreeSet::new()));
+        // The shipped escalation set: the move gate alone (D71's accuracy
+        // was measured on the move gate; the talk gates' second opinion did
+        // not pay for its latency).
+        assert_eq!(p.escalate_gates, Some(BTreeSet::from(["move".to_owned()])));
         // A missing or broken policy file means the defaults, never a panic.
         assert_eq!(Policy::for_harness(""), p);
         assert_eq!(Policy::for_harness("tiers = ["), p);
@@ -2653,204 +2411,6 @@ mod tests {
     // ------------------------------------------------------ the prethink lever
 
     #[test]
-    fn an_unsure_gate_is_named_after_the_rule_that_failed() {
-        // D72 says an unsure gate makes no decision of its own. Which rule
-        // failed is a different question, and the answer differs: a gate the
-        // backend was unsure about is a low-confidence refusal, a gate whose
-        // second opinion timed out is a timeout, and a gate whose second
-        // model answered an error is that error. They are three different
-        // problems with three different fixes.
-        let cfg = AgentsConfig::default();
-        let world = tiny_world();
-        let view_a = view_at(3, 2, 2);
-        let menu_a = menu(&view_a);
-
-        /// One mind, asked once, and answered with `answers`.
-        fn answered(
-            cfg: &AgentsConfig,
-            world: &World,
-            view: &ScoreView,
-            menu: &Menu,
-            answers: Answers,
-        ) -> Mind {
-            let mut m = mind(3, cfg, STUB_POLICY);
-            let req = m
-                .on_tick(0, view, world, menu)
-                .expect("a novel situation asks");
-            let ask = m.take_flight(&req).expect("the ask flies");
-            m.on_answer(ask, Ok(answers));
-            m
-        }
-
-        /// The answers with one unsure gate, and the escalation behind it.
-        fn unsure_with(menu: &Menu, escalation: Option<Escalation>) -> Answers {
-            let mut answers = lane_answers(menu, 0);
-            answers.unsure.insert("move".to_owned(), 0.2);
-            if let Some(escalation) = escalation {
-                answers.escalated.insert("move".to_owned(), escalation);
-            }
-            answers
-        }
-
-        /// A second opinion that came to nothing, in the way it came to it.
-        fn escalation(outcome: EscalationOutcome, refusal: Option<Refusal>) -> Escalation {
-            Escalation {
-                gate: "move".to_owned(),
-                primary_confidence: 0.2,
-                primary_choice: None,
-                primary_probs: BTreeMap::new(),
-                second_confidence: None,
-                second_choice: None,
-                second_probs: BTreeMap::new(),
-                latency_ms: 10,
-                outcome,
-                refusal,
-            }
-        }
-
-        // No second opinion: the backend was unsure, and that is what failed.
-        let plain = answered(&cfg, &world, &view_a, &menu_a, unsure_with(&menu_a, None));
-        let (_, refusal) = plain.refusals()[0].clone();
-        assert!(
-            matches!(refusal, Refusal::LowConfidence(_)),
-            "an unsure gate is a low-confidence refusal"
-        );
-
-        // The second opinion timed out.
-        let timed_out = answered(
-            &cfg,
-            &world,
-            &view_a,
-            &menu_a,
-            unsure_with(
-                &menu_a,
-                Some(escalation(
-                    EscalationOutcome::Timeout,
-                    Some(Refusal::Timeout),
-                )),
-            ),
-        );
-        let (_, refusal) = timed_out.refusals()[0].clone();
-        assert!(
-            matches!(refusal, Refusal::Timeout),
-            "a second opinion that timed out is a timeout"
-        );
-
-        // The second model answered an error: that is the error, not a call
-        // that never reached one.
-        let errored = answered(
-            &cfg,
-            &world,
-            &view_a,
-            &menu_a,
-            unsure_with(
-                &menu_a,
-                Some(escalation(
-                    EscalationOutcome::Unavailable,
-                    Some(Refusal::Http(503)),
-                )),
-            ),
-        );
-        let (_, refusal) = errored.refusals()[0].clone();
-        assert!(
-            matches!(refusal, Refusal::Http(503)),
-            "a second opinion that answered 503 is that error"
-        );
-    }
-
-    #[test]
-    fn a_backend_that_panics_does_not_take_the_question_with_it() {
-        // N4: a panic in a backend is a bug, but the question it was asked
-        // still has to end somewhere. The worker catches the crash, answers
-        // with a refusal of its own name, and keeps serving — the ask does
-        // not vanish with the thread, and the lane does not die with it.
-        struct Panicking;
-        impl SysOne for Panicking {
-            fn ask(
-                &self,
-                _state: &str,
-                _questions: &Value,
-                _deadline: Instant,
-            ) -> Result<Answers, Refusal> {
-                panic!("the model is on fire");
-            }
-            fn name(&self) -> &str {
-                "panicking"
-            }
-        }
-
-        fn ask_of(agent: u16, asked: Tick) -> Ask {
-            let now = Instant::now();
-            Ask {
-                req: crate::queue::ThinkReq {
-                    agent,
-                    squad: 0,
-                    pack: Pack::Move,
-                    asked,
-                    deadline: asked + 30,
-                    situation_key: 1,
-                },
-                pack: Pack::Move,
-                backend: "panicking".to_owned(),
-                state: String::new(),
-                questions: serde_json::json!({}),
-                questions_n: 0,
-                timeout: Duration::from_secs(1),
-                pay_priority: false,
-                asked_at: now,
-                sent_at: None,
-                apply_tick: asked,
-                apply_deadline: now + Duration::from_secs(1),
-            }
-        }
-
-        let thinker = Thinker::new(BTreeMap::from([(
-            "panicking".to_owned(),
-            Box::new(Panicking) as Box<dyn SysOne + Send + Sync>,
-        )]));
-
-        // The panic is the worker's to catch. The message it would print is
-        // silenced for the thinker's own threads only — every other panic of
-        // the process keeps its words — and the refusal carries the why.
-        let stop = Instant::now() + Duration::from_secs(5);
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            let thinker = std::thread::current()
-                .name()
-                .is_some_and(|name| name.starts_with("lm-thinker-"));
-            if !thinker {
-                previous(info);
-            }
-        }));
-        assert!(thinker.send(ask_of(3, 10)));
-        let first = loop {
-            let drained = thinker.drain();
-            if let Some(thought) = drained.into_iter().next() {
-                break thought;
-            }
-            assert!(Instant::now() < stop, "the crashed ask never came home");
-            std::thread::sleep(Duration::from_millis(1));
-        };
-        assert!(
-            matches!(&first.result, Err(Refusal::Panicked(why)) if why.contains("on fire")),
-            "a crashed backend is a refusal that says so, not a lost ask: {:?}",
-            first.result
-        );
-
-        // The worker survived: a second ask comes home the same way, and
-        // nothing is left pending.
-        assert!(thinker.send(ask_of(3, 40)));
-        loop {
-            if !thinker.drain().is_empty() {
-                break;
-            }
-            assert!(Instant::now() < stop, "the second ask never came home");
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(thinker.pending(), 0, "the lane kept serving");
-    }
-
-    #[test]
     fn prethink_answer_used_when_situation_arrives() {
         let cfg = AgentsConfig::default();
         let world = tiny_world();
@@ -2858,7 +2418,7 @@ mod tests {
         let view_b = view_at(3, 5, 5);
         let menu_a = menu(&view_a);
         let menu_b = menu(&view_b);
-        let key_a = Facts::from_view(&view_a, &world, 0, &cfg, &SharedConfig::default()).key;
+        let key_a = Facts::from_view(&view_a, &world, 0, &cfg).key;
 
         let mut m = mind(3, &cfg, STUB_POLICY);
 
@@ -2867,9 +2427,8 @@ mod tests {
             .on_tick(0, &view_a, &world, &menu_a)
             .expect("a novel situation asks");
         let ask = m.take_flight(&req).expect("the ask flies");
-        let (decisions, outcome) = m.on_answer(ask, Ok(lane_answers(&menu_a, 0)));
+        let decisions = m.on_answer(ask, Ok(lane_answers(&menu_a, 0)));
         assert_eq!(decisions.len(), 1, "the move gate becomes a lane");
-        assert_eq!(outcome, AskOutcome::Accepted);
 
         // A quiet tick on the same situation asks nothing.
         assert!(m.on_tick(1, &view_a, &world, &menu_a).is_none());
@@ -2904,145 +2463,11 @@ mod tests {
             .on_tick(0, &view_a, &world, &menu_a)
             .expect("a novel situation asks");
         let ask = m.take_flight(&req).expect("the ask flies");
-        let (decisions, outcome) = m.on_answer(ask, Err(Refusal::Timeout));
-        assert!(decisions.is_empty());
-        assert_eq!(outcome, AskOutcome::Refused);
+        assert!(m.on_answer(ask, Err(Refusal::Timeout)).is_empty());
         let req = m
             .on_tick(8, &view_a, &world, &menu_a)
             .expect("prethink asks about the quiet situation");
         assert_eq!(req.situation_key, key_a);
-    }
-
-    // ---------------------------------------------------------- the fence (N3)
-
-    /// The move gate's answer, with the second opinion's outcome.
-    ///
-    /// The second opinion is the one the fence is about: `Late` means it
-    /// would have landed after the decision's apply tick, so it is no
-    /// opinion at all and the gate stays unsure.
-    fn escalated_move(menu: &Menu, outcome: EscalationOutcome) -> Answers {
-        let mut answers = lane_answers(menu, 0);
-        let second = match outcome {
-            EscalationOutcome::Taken => {
-                // The second model answered, and its answer is the gate's.
-                let probs = match answers.per_gate.get("move") {
-                    Some(Answer::Choice { probs, .. }) => probs.clone(),
-                    _ => BTreeMap::new(),
-                };
-                answers.per_gate.insert(
-                    "move".to_owned(),
-                    Answer::Choice {
-                        probs,
-                        confidence: 0.9,
-                    },
-                );
-                Some(0.9)
-            }
-            _ => {
-                // No opinion: the gate is unsure, and the cheap model's own
-                // number is what is left of it.
-                answers.per_gate.remove("move");
-                answers.unsure.insert("move".to_owned(), 0.2);
-                None
-            }
-        };
-        answers.escalated.insert(
-            "move".to_owned(),
-            Escalation {
-                gate: "move".to_owned(),
-                primary_confidence: 0.2,
-                primary_choice: None,
-                primary_probs: BTreeMap::new(),
-                second_confidence: second,
-                second_choice: None,
-                second_probs: BTreeMap::new(),
-                latency_ms: 500,
-                outcome,
-                // The mechanism behind the outcome (N2): the second opinion
-                // was fenced out, so there is no call that failed — the
-                // outcome says which rule it was.
-                refusal: None,
-            },
-        );
-        answers
-    }
-
-    #[test]
-    fn a_late_escalation_takes_the_safe_branch() {
-        // N3: a second opinion that missed the decision's apply tick is no
-        // opinion at all. The move is not taken — the safe branch plays, the
-        // reflex moves the agent — and the round records the refusal by
-        // name, so the loss is visible.
-        let cfg = AgentsConfig::default();
-        let world = tiny_world();
-        let view = view_at(1, 2, 2);
-        let menu = menu(&view);
-        let mut m = speaking_mind(1, &cfg);
-
-        let req = m.on_tick(0, &view, &world, &menu).expect("the mind asks");
-        let ask = m.take_flight(&req).expect("the ask flies");
-        let answers = escalated_move(&menu, EscalationOutcome::Late);
-        let (decisions, outcome) = m.on_answer(ask, Ok(answers));
-
-        // The move was not taken.
-        assert!(
-            !decisions.iter().any(|d| matches!(d.kind, Kind::Lane(_))),
-            "the safe branch plays: {decisions:?}"
-        );
-        // The ask ended in exactly one state (N4): the answer came home in
-        // time, so the *question* was answered. The gate it carried took
-        // the safe branch, and that refusal is a separate ledger — named
-        // below.
-        assert_eq!(outcome, AskOutcome::Accepted);
-        // And the round says why, by name.
-        assert!(
-            m.refusals()
-                .iter()
-                .any(|(_, r)| *r == Refusal::EscalationLate),
-            "the round named the late escalation: {:?}",
-            m.refusals()
-        );
-        // And the escalation itself is on the record, with its outcome.
-        assert!(
-            m.escalations()
-                .iter()
-                .any(|(_, e)| e.outcome == EscalationOutcome::Late),
-            "the escalation is logged: {:?}",
-            m.escalations()
-        );
-    }
-
-    #[test]
-    fn an_escalation_on_time_is_taken() {
-        // N3: the fence is a deadline, not a veto. A second opinion that is
-        // in hand before the decision's apply tick is taken, and the move is
-        // made on the second model's word.
-        let cfg = AgentsConfig::default();
-        let world = tiny_world();
-        let view = view_at(1, 2, 2);
-        let menu = menu(&view);
-        let mut m = speaking_mind(1, &cfg);
-
-        let req = m.on_tick(0, &view, &world, &menu).expect("the mind asks");
-        let ask = m.take_flight(&req).expect("the ask flies");
-        let answers = escalated_move(&menu, EscalationOutcome::Taken);
-        let (decisions, outcome) = m.on_answer(ask, Ok(answers));
-
-        // The move was taken.
-        assert!(
-            decisions.iter().any(|d| matches!(d.kind, Kind::Lane(_))),
-            "the model decided the move: {decisions:?}"
-        );
-        // And the ask ended in exactly one state: taken (N4).
-        assert_eq!(outcome, AskOutcome::Accepted);
-        // And the fence did not fire.
-        assert!(
-            !m.refusals()
-                .iter()
-                .any(|(_, r)| *r == Refusal::EscalationLate),
-            "the fence did not fire: {:?}",
-            m.refusals()
-        );
     }
 
     // ------------------------------------------------------------- the host
@@ -3217,7 +2642,6 @@ mod tests {
                 .map(|(id, confidence)| (id.clone(), *confidence))
                 .collect(),
             escalated: answers.escalated.clone(),
-            decomposed: BTreeMap::new(),
             model: answers.model.clone(),
             input_tokens: answers.input_tokens,
             latency_ms: answers.latency_ms,
@@ -3239,12 +2663,12 @@ mod tests {
         if let Some(req) = mind.on_tick(0, view, world, &menu) {
             let ask = mind.take_flight(&req).expect("the ask flies");
             let answers = answers_asked(&ask, &answers);
-            decisions.extend(mind.on_answer(ask, Ok(answers)).0);
+            decisions.extend(mind.on_answer(ask, Ok(answers)));
         }
         if let Some(req) = mind.on_tick_talk(0, view, world, &menu) {
             let ask = mind.take_flight(&req).expect("the ask flies");
             let answers = answers_asked(&ask, &answers);
-            decisions.extend(mind.on_answer(ask, Ok(answers)).0);
+            decisions.extend(mind.on_answer(ask, Ok(answers)));
         }
         decisions
     }
@@ -3354,35 +2778,6 @@ mod tests {
                 .1
                 .to_string()
                 .contains("the harness gates do not load"),
-            "got {:?}",
-            m.refusals()[0].1
-        );
-    }
-
-    #[test]
-    fn a_harness_whose_facts_cannot_be_stated_is_a_refusal() {
-        // The shared target is a fact the builder says out loud, and a
-        // repulsor cannot be one: the beacon would be named as the target
-        // and described as pushing away from it. So the round sees the
-        // refusal rather than a silent agent with the wrong target (D26).
-        let mut h = harness(STUB_POLICY);
-        h.facts_toml = r#"
-            [shared]
-            rule = "ghost"
-
-            [shared.ghost]
-            kind = "repulsor"
-        "#
-        .to_owned();
-
-        let m = Mind::new(1, Role::Member, &h, &AgentsConfig::default());
-
-        assert_eq!(m.refusals().len(), 1);
-        assert!(
-            m.refusals()[0]
-                .1
-                .to_string()
-                .contains("the harness facts cannot be stated"),
             "got {:?}",
             m.refusals()[0].1
         );
