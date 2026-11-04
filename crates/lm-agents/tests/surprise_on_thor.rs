@@ -146,7 +146,6 @@ fn default_harness() -> lm_agents::harness::Harness {
         gates_toml: DEFAULT_GATES.to_owned(),
         policy_toml: DEFAULT_POLICY.to_owned(),
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
-        facts_toml: String::new(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
     }
@@ -396,7 +395,6 @@ fn the_table_entry_round_trips() {
     let answers = lm_agents::sysone::Answers {
         per_gate: BTreeMap::new(),
         escalated: BTreeMap::new(),
-        decomposed: BTreeMap::new(),
         unsure: BTreeMap::from([("attention".to_owned(), 0.2)]),
         model: "d1-2b".to_owned(),
         input_tokens: 0,

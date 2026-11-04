@@ -106,7 +106,6 @@ fn fence_harness() -> Harness {
         phrasebook_toml: DEFAULT_PHRASEBOOK.to_owned(),
         reflexes: BTreeMap::new(),
         commit: "content:test-harness".to_owned(),
-        facts_toml: String::new(),
     }
 }
 
@@ -135,7 +134,6 @@ fn slow_second() -> StubBackend {
             per_gate: BTreeMap::new(),
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
-            decomposed: BTreeMap::new(),
             model: "stub".to_owned(),
             input_tokens: 0,
             latency_ms: 0,
