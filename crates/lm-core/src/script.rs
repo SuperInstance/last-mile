@@ -400,7 +400,6 @@ mod tests {
             role,
             stunned: false,
             airtime_ticks: 0,
-            paint_slow_q8: 0,
         }
     }
 

@@ -32,6 +32,14 @@ pub const MATERIAL_FLOOR: u8 = CellKind::Floor.tag();
 pub const MATERIAL_WALL: u8 = CellKind::Wall.tag();
 /// The material class of a cover face.
 pub const MATERIAL_COVER: u8 = CellKind::Cover.tag();
+/// The material class of a street face: the open floor that lies between two
+/// buildings.
+///
+/// It is a material class of its own because a street is a different colour
+/// from the ground it is cut out of — and because the greedy pass merges
+/// per class, so a street keeps its own long runs instead of being cut into
+/// the ground's quads.
+pub const MATERIAL_ROAD: u8 = 3;
 
 /// A face in integer cell space.
 ///
@@ -183,7 +191,17 @@ pub fn chunk_quads(world: &World, chunk: ChunkCoord, cfg: &RenderConfig) -> Vec<
         for x in x0..x0 + side {
             let local = (x - x0, y - y0);
             match world.grid.get(cell_of(x, y)) {
-                CellKind::Floor => quads.push(floor_quad(local.0, local.1)),
+                CellKind::Floor => {
+                    // A floor cell between two buildings is a street, and a
+                    // street is drawn in its own colour: the city reads as
+                    // blocks with roads between them.
+                    let material = if crate::street::is_street(world, cell_of(x, y)) {
+                        MATERIAL_ROAD
+                    } else {
+                        MATERIAL_FLOOR
+                    };
+                    quads.push(floor_quad(local.0, local.1, material));
+                }
                 CellKind::Wall => box_quads(&mut quads, world, x, y, local, wall, MATERIAL_WALL),
                 CellKind::Cover => box_quads(&mut quads, world, x, y, local, cover, MATERIAL_COVER),
             }
@@ -434,15 +452,15 @@ fn quad_of(frame: &Frame, slice: i32, rect: Rect, material: u8) -> RawQuad {
     }
 }
 
-/// The floor quad of a cell.
-fn floor_quad(x: i32, y: i32) -> RawQuad {
+/// The floor quad of a cell: the ground, or a street.
+fn floor_quad(x: i32, y: i32, material: u8) -> RawQuad {
     RawQuad {
         origin: [x, y, 0],
         u_axis: [1, 0, 0],
         v_axis: [0, 1, 0],
         u_len: 1,
         v_len: 1,
-        material: MATERIAL_FLOOR,
+        material,
     }
 }
 

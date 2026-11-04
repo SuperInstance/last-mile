@@ -33,20 +33,11 @@
 //! ticks on which an agent had an enemy in sight, and the gap between the
 //! squads' final scores. A draw rate on its own says whether a round was
 //! decided; these say whether it was a fight.
-//!
-//! ## The paint's knobs
-//!
-//! `DECISIVENESS_PAINT` sweeps the paint's *rule* (`slow_q8 x bounce_q8`)
-//! and `DECISIVENESS_SPLAT` sweeps the paint's *medium* (`splat_radius_cells
-//! x dry_ticks`): how far a splat reaches, and how long it stays wet. The
-//! two are separate on purpose — a big, long splat is still only a mark on
-//! the ground while both rule knobs are zero, so the medium can be measured
-//! without the rule and the rule without the medium.
 
 use std::path::{Path, PathBuf};
 
 use lm_core::header::Header;
-use lm_core::params::{Params, MAX_DRY_TICKS, MAX_SPLAT_RADIUS_CELLS};
+use lm_core::params::Params;
 use lm_core::sim::Sim;
 use lm_core::world::los;
 
@@ -68,24 +59,6 @@ const SEEDS: u64 = 100;
 /// The root of the repository, where the assets live.
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// The integer square root, by Newton's method.
-///
-/// The crate does its arithmetic in integers only, and so does the sweep:
-/// the fairness bound has to be the same number on every machine (D69's
-/// spirit).
-fn isqrt(n: u64) -> u64 {
-    if n == 0 {
-        return 0;
-    }
-    let mut x = n;
-    let mut y = x.div_ceil(2);
-    while y < x {
-        x = y;
-        y = (x + n / x) / 2;
-    }
-    x
 }
 
 /// The reflex the sweep plays: the shipped one, or the one of the harness the
@@ -130,10 +103,6 @@ fn play(seed: u64, params: &Params, reflex: &str) -> Round {
     // The swept knobs go into the header: the sim reads its params from there.
     h.params.win_score = params.win_score;
     h.params.time_limit_ticks = params.time_limit_ticks;
-    h.params.slow_q8 = params.slow_q8;
-    h.params.bounce_q8 = params.bounce_q8;
-    h.params.splat_radius_cells = params.splat_radius_cells;
-    h.params.dry_ticks = params.dry_ticks;
     let mut sim = Sim::new(&h).expect("the round starts");
     let mut tick = 0;
     let mut tags = 0u64;
@@ -256,73 +225,6 @@ fn cells() -> Vec<(u32, u32)> {
     }
 }
 
-/// The paint cells the sweep plays: `DECISIVENESS_PAINT`, a comma-separated
-/// list of `slow_q8 x bounce_q8`.
-///
-/// The default is the paint rules off — the round the sweep measured before
-/// the paint had a rule of its own — so the sweep without the variable is
-/// the sweep it always was.
-fn paint_cells() -> Vec<(u16, u16)> {
-    match std::env::var("DECISIVENESS_PAINT") {
-        Ok(value) => value
-            .split(',')
-            .filter_map(|cell| {
-                let mut parts = cell.split('x');
-                let slow_q8 = parts.next()?.trim().parse::<u16>().ok()?;
-                let bounce_q8 = parts.next()?.trim().parse::<u16>().ok()?;
-                Some((slow_q8, bounce_q8))
-            })
-            .collect(),
-        Err(_) => vec![(0, 0)],
-    }
-}
-
-/// The splat cells the sweep plays: `DECISIVENESS_SPLAT`, a comma-separated
-/// list of `splat_radius_cells x dry_ticks`.
-///
-/// The default is the shipped default — radius 1, dry 150 ticks — so the
-/// sweep without the variable is the sweep it always was.
-///
-/// A pair outside the bounds the params allow is skipped with a note rather
-/// than played: a radius over [`MAX_SPLAT_RADIUS_CELLS`] or a dry time over
-/// [`MAX_DRY_TICKS`] is a round the params refuse, and a dry time of zero is
-/// a round that never shows any paint (the params refuse that too). A typo
-/// in the variable must not become a different sweep.
-fn splat_cells() -> Vec<(u8, u16)> {
-    let Ok(value) = std::env::var("DECISIVENESS_SPLAT") else {
-        let defaults = Params::default();
-        return vec![(defaults.splat_radius_cells, defaults.dry_ticks)];
-    };
-    let mut cells = Vec::new();
-    for pair in value.split(',') {
-        let mut parts = pair.split('x');
-        let radius = parts.next().unwrap_or_default().trim().parse::<u32>();
-        let dry = parts.next().unwrap_or_default().trim().parse::<u32>();
-        match (radius, dry) {
-            (Ok(radius), Ok(dry)) => {
-                if radius > u32::from(MAX_SPLAT_RADIUS_CELLS) {
-                    println!(
-                        "note: skipping splat {pair}: the radius {radius} is over the maximum {MAX_SPLAT_RADIUS_CELLS}"
-                    );
-                    continue;
-                }
-                if dry == 0 || dry > u32::from(MAX_DRY_TICKS) {
-                    println!(
-                        "note: skipping splat {pair}: the dry time {dry} is outside 1..={MAX_DRY_TICKS}"
-                    );
-                    continue;
-                }
-                cells.push((
-                    u8::try_from(radius).expect("the radius fits"),
-                    u16::try_from(dry).expect("the dry time fits"),
-                ));
-            }
-            _ => println!("note: skipping splat {pair}: it is not `radius x dry`"),
-        }
-    }
-    cells
-}
-
 /// The sweep test.
 ///
 /// This test is slow and ignored by default. To run it, use:
@@ -338,113 +240,99 @@ fn decisiveness_sweep() {
         "harness: {}",
         std::env::var("DECISIVENESS_HARNESS").unwrap_or_else(|_| "the shipped reflex".to_owned())
     );
-    println!(
-        "columns: win_score, time_limit_ticks, slow_q8, bounce_q8, radius, dry, squad 0 wins, squad 1 wins, draws, draw %, median end tick, draws before the limit"
-    );
     for (win_score, time_limit_ticks) in cells() {
-        for (slow_q8, bounce_q8) in paint_cells() {
-            for (radius, dry) in splat_cells() {
-                let params = Params {
-                    win_score,
-                    time_limit_ticks,
-                    slow_q8,
-                    bounce_q8,
-                    splat_radius_cells: radius,
-                    dry_ticks: dry,
-                    ..Params::default()
-                };
-                let rounds = play_seeds(&params, &reflex);
+        let params = Params {
+            win_score,
+            time_limit_ticks,
+            ..Params::default()
+        };
+        let rounds = play_seeds(&params, &reflex);
 
-                // Count results
-                let mut wins0 = 0;
-                let mut wins1 = 0;
-                let mut draws = 0;
-                // Draws that ended before the time limit: both squads reached
-                // win_score on the same tick (a mirror match), not a timeout.
-                let mut early_draws = 0;
-                let mut total_ticks = Vec::new();
-                let mut total_tags = 0u64;
-                let mut total_sight = 0u64;
-                let mut total_margin = 0i64;
-                let mut total_score0 = 0i64;
-                let mut total_score1 = 0i64;
-                let mut lowest_score = i64::MAX;
-                // A round where a squad was held off the board: the collapse the
-                // engagement must not have.
-                let mut collapses = 0u64;
-                // The rounds in which a fight happened at all.
-                let mut fought = 0u64;
+        // Count results
+        let mut wins0 = 0;
+        let mut wins1 = 0;
+        let mut draws = 0;
+        // Draws that ended before the time limit: both squads reached
+        // win_score on the same tick (a mirror match), not a timeout.
+        let mut early_draws = 0;
+        let mut total_ticks = Vec::new();
+        let mut total_tags = 0u64;
+        let mut total_sight = 0u64;
+        let mut total_margin = 0i64;
+        let mut total_score0 = 0i64;
+        let mut total_score1 = 0i64;
+        let mut lowest_score = i64::MAX;
+        // A round where a squad was held off the board: the collapse the
+        // engagement must not have.
+        let mut collapses = 0u64;
+        // The rounds in which a fight happened at all.
+        let mut fought = 0u64;
 
-                for round in &rounds {
-                    total_ticks.push(round.tick);
-                    total_tags += round.tags;
-                    total_sight += round.sight_ticks;
-                    total_margin += round.margin;
-                    if round.tags > 0 {
-                        fought += 1;
-                    }
-                    if let (Some(first), Some(second)) = (round.scores.first(), round.scores.get(1))
-                    {
-                        total_score0 += *first;
-                        total_score1 += *second;
-                        let low = (*first).min(*second);
-                        lowest_score = lowest_score.min(low);
-                        if low < 200 {
-                            collapses += 1;
-                        }
-                    }
-                    match round.winner {
-                        Some(0) => wins0 += 1,
-                        Some(1) => wins1 += 1,
-                        Some(_) => panic!("Unexpected winner value: {:?}", round.winner),
-                        None => {
-                            draws += 1;
-                            if round.tick < u64::from(time_limit_ticks) {
-                                early_draws += 1;
-                            }
-                        }
+        for round in &rounds {
+            total_ticks.push(round.tick);
+            total_tags += round.tags;
+            total_sight += round.sight_ticks;
+            total_margin += round.margin;
+            if round.tags > 0 {
+                fought += 1;
+            }
+            if let (Some(first), Some(second)) = (round.scores.first(), round.scores.get(1)) {
+                total_score0 += *first;
+                total_score1 += *second;
+                let low = (*first).min(*second);
+                lowest_score = lowest_score.min(low);
+                if low < 200 {
+                    collapses += 1;
+                }
+            }
+            match round.winner {
+                Some(0) => wins0 += 1,
+                Some(1) => wins1 += 1,
+                Some(_) => panic!("Unexpected winner value: {:?}", round.winner),
+                None => {
+                    draws += 1;
+                    if round.tick < u64::from(time_limit_ticks) {
+                        early_draws += 1;
                     }
                 }
+            }
+        }
 
-                // Calculate median tick
-                total_ticks.sort();
-                let median_tick = if total_ticks.is_empty() {
-                    0
-                } else {
-                    let len = total_ticks.len();
-                    if len % 2 == 0 {
-                        (total_ticks[len / 2 - 1] + total_ticks[len / 2]) / 2
-                    } else {
-                        total_ticks[len / 2]
-                    }
-                };
+        // Calculate median tick
+        total_ticks.sort();
+        let median_tick = if total_ticks.is_empty() {
+            0
+        } else {
+            let len = total_ticks.len();
+            if len % 2 == 0 {
+                (total_ticks[len / 2 - 1] + total_ticks[len / 2]) / 2
+            } else {
+                total_ticks[len / 2]
+            }
+        };
 
-                // Verify assertions
-                assert_eq!(
-                    wins0 + wins1 + draws,
-                    SEEDS,
-                    "Every round must end with a win or draw"
-                );
+        // Verify assertions
+        assert_eq!(
+            wins0 + wins1 + draws,
+            SEEDS,
+            "Every round must end with a win or draw"
+        );
 
-                // Print results for this parameter combination
-                let draw_percent = (draws as f64 / SEEDS as f64) * 100.0;
-                println!(
-                    "{}, {}, {}, {}, {}, {}, {}, {}, {}, {:.1}%, {}, early draws {}",
-                    win_score,
-                    time_limit_ticks,
-                    slow_q8,
-                    bounce_q8,
-                    radius,
-                    dry,
-                    wins0,
-                    wins1,
-                    draws,
-                    draw_percent,
-                    median_tick,
-                    early_draws
-                );
-                // What the rounds did, over the seeds.
-                println!(
+        // Print results for this parameter combination
+        let draw_percent = (draws as f64 / SEEDS as f64) * 100.0;
+        println!(
+            "{}, {}, {}, {}, {}, {:.1}%, {}, early draws {}",
+            win_score,
+            time_limit_ticks,
+            wins0,
+            wins1,
+            draws,
+            draw_percent,
+            median_tick,
+            early_draws
+        );
+        // What the rounds did, over the seeds.
+        println!(
                 "    tags/round {:.2}, sight ticks/round {:.1}, score margin/round {:.1}, mean scores {:.0} / {:.0}, lowest squad score {}, collapsed rounds {}, rounds with a fight {} ({:.0}%)",
                 total_tags as f64 / SEEDS as f64,
                 total_sight as f64 / SEEDS as f64,
@@ -456,26 +344,5 @@ fn decisiveness_sweep() {
                 fought,
                 100.0 * fought as f64 / SEEDS as f64,
             );
-                // Fairness: the same bound the fairness guard uses (`tests/fairness.rs`):
-                // over the decided rounds the win gap must stay inside 2-sigma, so
-                // neither colour may win more than the guard allows. The bound is
-                // printed next to the share so a sweep can be read against the guard
-                // without running it.
-                let decided = wins0 + wins1;
-                let bound = 2 * isqrt(decided);
-                let gap = wins0.abs_diff(wins1);
-                println!(
-                "    wins: squad 0 {} ({:.0}%), squad 1 {} ({:.0}%) of {} decided, gap {}, 2-sigma bound {} -- {}",
-                wins0,
-                100.0 * wins0 as f64 / SEEDS as f64,
-                wins1,
-                100.0 * wins1 as f64 / SEEDS as f64,
-                decided,
-                gap,
-                bound,
-                if gap <= bound { "fair" } else { "UNFAIR" }
-            );
-            }
-        }
     }
 }

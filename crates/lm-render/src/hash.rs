@@ -27,31 +27,46 @@ use crate::greedy::{cells_per_chunk, chunk_origin};
 use crate::mesh::{build_chunk, ChunkCoord, ChunkMesh};
 use crate::palette::{Palette, RenderConfig};
 
+/// The tag of a cell that is outside the world.
+///
+/// The grid reads out of bounds as a wall, but the street rule does not: a
+/// cell at the edge of the map is not between two buildings, it is at the
+/// edge of the board. So the hash needs a tag of its own for "outside", or
+/// the hash of a chunk at the edge would not be the hash of its mesh.
+const TAG_OUTSIDE: u8 = 3;
+
 /// The hash of a chunk's structure: everything that can change its mesh.
 ///
 /// It is an FNV-1a-64 over the `CellKind` tag of every cell of the chunk
 /// in canonical row-major order, then the wall and cover heights, then the
-/// palette version. It carries no positions, no ticks and nothing else
-/// that changes from round to round, so the same structure always hashes
-/// the same — wherever it stands in the world.
+/// palette's own colours and shade. It carries no positions, no ticks and
+/// nothing else that changes from round to round, so the same structure
+/// always hashes the same — wherever it stands in the world.
+///
+/// The hash covers the chunk **and the ring of cells around it**: a cell on
+/// the chunk's edge may be a street because of a wall that lies in the next
+/// chunk, so the halo is part of the structure the mesh is built from. A
+/// hash that left the halo out would give two different meshes the same
+/// key, and the content-addressed cache (D46) would hand out the wrong one.
 ///
 /// The hash covers the chunk, not the world it sits in: the world's cell
 /// size belongs to the world the cache belongs to, and a cache is never
 /// shared between two worlds.
-pub fn structure_hash(world: &World, chunk: ChunkCoord, cfg: &RenderConfig) -> u64 {
+pub fn structure_hash(
+    world: &World,
+    chunk: ChunkCoord,
+    cfg: &RenderConfig,
+    palette: &Palette,
+) -> u64 {
     let cells = cells_per_chunk(world);
     let (x0, y0) = chunk_origin(chunk, cells);
     let side = i32::try_from(cells).unwrap_or(0);
     let mut h = Fnv64::new();
     h.u32(cells);
     h.u32(cells);
-    for y in y0..y0 + side {
-        for x in x0..x0 + side {
-            let cell = CellXY {
-                x: u16::try_from(x).unwrap_or(0),
-                y: u16::try_from(y).unwrap_or(0),
-            };
-            h.write(&[world.grid.get(cell).tag()]);
+    for y in y0 - 1..y0 + side + 1 {
+        for x in x0 - 1..x0 + side + 1 {
+            h.write(&[cell_tag(world, x, y)]);
         }
     }
     // The heights the boxes are drawn at, bit for bit: a float that differs
@@ -59,8 +74,39 @@ pub fn structure_hash(world: &World, chunk: ChunkCoord, cfg: &RenderConfig) -> u
     h.u32(cfg.wall_height_m.to_bits());
     h.u32(cfg.cover_height_m.to_bits());
     // The palette: a new palette is a new mesh, even on the same cells.
+    // Its colours and its shade are hashed as they are, so the hash says
+    // what this docstring says it says.
+    h.u32(palette.side_shade.to_bits());
+    for color in [
+        palette.material_colors.floor,
+        palette.material_colors.road,
+        palette.material_colors.wall,
+        palette.material_colors.cover,
+        palette.material_colors.beacon_held,
+        palette.material_colors.beacon_free,
+    ] {
+        h.u32(color.r.to_bits());
+        h.u32(color.g.to_bits());
+        h.u32(color.b.to_bits());
+        h.u32(color.a.to_bits());
+    }
     h.u32(cfg.palette.version());
     h.finish()
+}
+
+/// The tag of the cell at `(x, y)`, or [`TAG_OUTSIDE`] when it is off the
+/// board.
+fn cell_tag(world: &World, x: i32, y: i32) -> u8 {
+    if !world.grid.in_bounds(x, y) {
+        return TAG_OUTSIDE;
+    }
+    world
+        .grid
+        .get(CellXY {
+            x: u16::try_from(x).unwrap_or(0),
+            y: u16::try_from(y).unwrap_or(0),
+        })
+        .tag()
 }
 
 /// The world-anchored cache key of a chunk (D46).
@@ -177,7 +223,7 @@ impl ChunkCache {
         cfg: &RenderConfig,
         palette: &Palette,
     ) -> Handle<ChunkMesh> {
-        let structure = structure_hash(world, chunk, cfg);
+        let structure = structure_hash(world, chunk, cfg, palette);
         let key = ChunkKey {
             cx: chunk.cx,
             cy: chunk.cy,
@@ -275,27 +321,57 @@ mod tests {
         // Two chunks of the same structure, side by side.
         let world = floor_world(32, 16);
         let cfg = render_config();
+        let palette = Palette::default();
         let chunk = ChunkCoord { cx: 0, cy: 0 };
 
-        let first = structure_hash(&world, chunk, &cfg);
-        let second = structure_hash(&world, chunk, &cfg);
+        let first = structure_hash(&world, chunk, &cfg, &palette);
+        let second = structure_hash(&world, chunk, &cfg, &palette);
         assert_eq!(first, second, "the same chunk hashes the same");
 
         // The hash is of the structure, not of the place: the same cells at
-        // another world position hash the same.
-        let other = structure_hash(&world, ChunkCoord { cx: 1, cy: 0 }, &cfg);
-        assert_eq!(first, other, "the hash is content-addressed");
+        // another world position hash the same — as long as the ring of
+        // cells around them is the same too. (The ring is part of the
+        // structure: a cell on the chunk's edge may be a street because of
+        // a building that stands in the next chunk, so the halo is part of
+        // the mesh and has to be part of the hash.)
+        let mut interior = floor_world(64, 32);
+        interior.grid.cells.fill(CellKind::Floor);
+        let middle = structure_hash(&interior, ChunkCoord { cx: 1, cy: 0 }, &cfg, &palette);
+        let other = structure_hash(&interior, ChunkCoord { cx: 2, cy: 0 }, &cfg, &palette);
+        assert_eq!(middle, other, "the hash is content-addressed");
+    }
+
+    #[test]
+    fn the_hash_covers_the_ring_around_the_chunk() {
+        // A building just outside the chunk changes the chunk's mesh — the
+        // ground beside it is a street — so it has to change the chunk's
+        // hash too. A hash that left the ring out would give two different
+        // meshes the same key.
+        let mut world = floor_world(64, 32);
+        let cfg = render_config();
+        let palette = Palette::default();
+        let chunk = ChunkCoord { cx: 2, cy: 0 };
+
+        let before = structure_hash(&world, chunk, &cfg, &palette);
+        // The cell just to the left of the chunk.
+        world.grid.cells[31] = CellKind::Wall;
+        let after = structure_hash(&world, chunk, &cfg, &palette);
+        assert_ne!(
+            before, after,
+            "the ring around the chunk is part of its structure"
+        );
     }
 
     #[test]
     fn hash_changes_with_structure() {
         let mut world = floor_world(16, 16);
         let cfg = render_config();
+        let palette = Palette::default();
         let chunk = ChunkCoord { cx: 0, cy: 0 };
 
-        let before = structure_hash(&world, chunk, &cfg);
+        let before = structure_hash(&world, chunk, &cfg, &palette);
         world.grid.cells[0] = CellKind::Wall;
-        let after = structure_hash(&world, chunk, &cfg);
+        let after = structure_hash(&world, chunk, &cfg, &palette);
         assert_ne!(before, after, "one wall cell changes the structure");
 
         // And so does the height the boxes are drawn at.
@@ -303,7 +379,7 @@ mod tests {
         taller.wall_height_m = 3.0;
         assert_ne!(
             before,
-            structure_hash(&world, chunk, &taller),
+            structure_hash(&world, chunk, &taller, &palette),
             "the wall height is part of the mesh"
         );
     }
@@ -311,11 +387,12 @@ mod tests {
     #[test]
     fn hash_ignores_non_structure() {
         let cfg = render_config();
+        let palette = Palette::default();
         let chunk = ChunkCoord { cx: 0, cy: 0 };
 
         // A round that is played: the tick moves on and the agents walk.
         let mut sim = Sim::new(&Header::default_round(1, REFLEX)).expect("the round starts");
-        let before = structure_hash(sim.world(), chunk, &cfg);
+        let before = structure_hash(sim.world(), chunk, &cfg, &palette);
         let start: Vec<_> = sim
             .agent_ids()
             .iter()
@@ -324,7 +401,7 @@ mod tests {
         for _ in 0..60 {
             sim.step(&[]);
         }
-        let after = structure_hash(sim.world(), chunk, &cfg);
+        let after = structure_hash(sim.world(), chunk, &cfg, &palette);
         assert_eq!(before, after, "the tick and the agents are not structure");
         let end: Vec<_> = sim
             .agent_ids()
@@ -349,8 +426,8 @@ mod tests {
                 let chunk = ChunkCoord { cx, cy };
                 if chunk_cells(&two, chunk) == chunk_cells(&four, chunk) {
                     assert_eq!(
-                        structure_hash(&two, chunk, &cfg),
-                        structure_hash(&four, chunk, &cfg),
+                        structure_hash(&two, chunk, &cfg, &palette),
+                        structure_hash(&four, chunk, &cfg, &palette),
                         "the squad count is not part of the structure"
                     );
                     compared += 1;
@@ -368,15 +445,20 @@ mod tests {
         let palette = Palette::default();
         let mut cache = ChunkCache::new();
 
-        let left = cache.get_or_build(&world, ChunkCoord { cx: 0, cy: 0 }, &cfg, &palette);
-        let right = cache.get_or_build(&world, ChunkCoord { cx: 1, cy: 0 }, &cfg, &palette);
+        // Two chunks in the middle of the world, where the ring around them
+        // is floor as well: the same structure, the same ring, so the same
+        // mesh asset.
+        let mut interior = floor_world(64, 32);
+        interior.grid.cells.fill(CellKind::Floor);
+        let left = cache.get_or_build(&interior, ChunkCoord { cx: 1, cy: 0 }, &cfg, &palette);
+        let right = cache.get_or_build(&interior, ChunkCoord { cx: 2, cy: 0 }, &cfg, &palette);
         assert_eq!(left, right, "the same structure is the same mesh asset");
         assert_eq!(cache.builds, 1, "the mesh was built once");
         assert_eq!(cache.map.len(), 2, "both world tiles are keyed");
 
         // The key holds the world tile and the structure, never a screen
         // position.
-        let structure = structure_hash(&world, ChunkCoord { cx: 1, cy: 0 }, &cfg);
+        let structure = structure_hash(&interior, ChunkCoord { cx: 2, cy: 0 }, &cfg, &palette);
         let key = ChunkKey {
             cx: 1,
             cy: 0,

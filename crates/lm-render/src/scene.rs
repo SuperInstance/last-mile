@@ -15,6 +15,7 @@
 //! is a bug in the 3D view.
 
 use lm_core::fixed::{Angle, Pos, ANGLE_TURN, UNITS_PER_M};
+use lm_core::header::Role;
 use lm_core::sim::Sim;
 use lm_core::world::World;
 
@@ -163,6 +164,17 @@ pub struct FigureDraw {
     pub pos_m: (f32, f32),
     /// Which way it faces, in radians (a full turn is `2π`).
     pub facing_rad: f32,
+    /// Whether it leads its squad.
+    ///
+    /// The leader is told apart by its **silhouette**, not by its colour:
+    /// a piece that is told apart by a hat is still the leader when the
+    /// colour is in shadow or the figure is two pixels wide.
+    pub leader: bool,
+    /// How many ticks of the stun are left, when it is stunned.
+    ///
+    /// The pips over a stunned agent are one for each of these: a stunned
+    /// agent that looks the same as a free one is a round nobody can read.
+    pub stun_ticks: u32,
     /// The colour of its material: the squad's own.
     pub color: Color,
 }
@@ -206,6 +218,7 @@ pub fn agent_figures(
     let mut roster = sim.agent_ids();
     roster.sort_unstable();
     roster.dedup();
+    let now = sim.tick();
     roster
         .iter()
         .filter_map(|&id| {
@@ -219,10 +232,24 @@ pub fn agent_figures(
                 squad: agent.squad,
                 pos_m: pos_m(from, agent.pos, alpha),
                 facing_rad: facing_rad(agent.facing),
+                leader: agent.role == Role::Leader,
+                stun_ticks: agent.stunned_until.filter(|t| now < *t).map_or(0, |t| {
+                    u32::try_from(t.saturating_sub(now)).unwrap_or(u32::MAX)
+                }),
                 color: palette.squad_color(agent.squad),
             })
         })
         .collect()
+}
+
+/// Where an agent stands right now, in metres.
+///
+/// The position is not interpolated: this is where the piece *is*, for
+/// something that has to say where it is — the dab of paint a hit leaves,
+/// for instance, which lands where the target stood when it was hit.
+pub fn agent_pos_m(sim: &Sim, id: u16) -> Option<(f32, f32)> {
+    let agent = sim.agent(id)?;
+    Some(pos_m(agent.pos, agent.pos, 0.0))
 }
 
 /// One beacon as the 3D view draws it (Task 8's reviewer finding 4).
@@ -280,12 +307,15 @@ fn cell_centre_m(world: &World, cell: lm_core::world::CellXY) -> (f32, f32) {
 /// the void outside it. A close overview frames the squad *and* what it
 /// plays toward: the figures read at a glance, the beacons stand over the
 /// horizon behind them, and the world fills the frame from its near edge.
-pub fn overview_distance(squad_radius_m: f32) -> f32 {
-    const MIN_DISTANCE_M: f32 = 20.0;
+///
+/// The distance itself is the look's — the **diorama distance** — and this
+/// only ever asks for more room than the look gives, when the squad has
+/// spread out too far for the look's distance to hold it all.
+pub fn overview_distance(squad_radius_m: f32, floor_m: f32) -> f32 {
     // At the overview pitch (about 43°) and a 45° vertical field of view,
     // the frame's ground extent is roughly the distance itself; twice the
     // squad's radius plus a margin puts the whole squad comfortably inside.
-    (MIN_DISTANCE_M).max(squad_radius_m * 2.4 + 12.0)
+    floor_m.max(squad_radius_m * 2.4 + 6.0)
 }
 
 /// The yaw of the opening camera: which side of the squad it sits on.
@@ -737,11 +767,12 @@ mod tests {
     #[test]
     fn overview_distance_frames_the_squad_closely() {
         // A tight squad (the seed-1 home squad's radius is about 2.8 m) gets
-        // the close overview, not a 100 m one: the figures have to read as
-        // figures, and the beacons behind them have to stay under the top of
-        // the frame. A spread-out squad still gets the distance it needs.
-        assert_eq!(overview_distance(0.0), 20.0);
-        assert_eq!(overview_distance(2.8), 20.0);
-        assert!((overview_distance(30.0) - (30.0 * 2.4 + 12.0)).abs() < 1e-4);
+        // the look's own diorama distance, not a 100 m one: the figures have
+        // to read as figures, and the beacons behind them have to stay under
+        // the top of the frame. A spread-out squad still gets the distance it
+        // needs — the look's distance is a floor, never a ceiling.
+        assert_eq!(overview_distance(0.0, 17.0), 17.0);
+        assert_eq!(overview_distance(2.8, 17.0), 17.0);
+        assert!((overview_distance(30.0, 17.0) - (30.0 * 2.4 + 6.0)).abs() < 1e-4);
     }
 }
