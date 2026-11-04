@@ -43,19 +43,6 @@
 # facts builder's ENEMY_NEAR_CELLS) and 4 cells for an ally (the agents
 # config's ally_range_cells). Change one, change the other.
 #
-# The doctrine is the `advance` one (Casey's decision, 2026-10-30): a squad
-# never camps. Its second branch holds a beacon only while the beacon is
-# contested — an enemy is within 6 cells — and otherwise the squad keeps
-# advancing to the next beacon. The shipped doctrine held the beacon
-# whenever no enemy was near, and that is what froze the game: the squad
-# reached its beacon, the branch fired, and the squad sat there for the
-# rest of the round (crates/lm-agents/tests/engagement.md: 0 sight ticks
-# and 0 tags for the shipped doctrine, against 444-802 sight ticks a round
-# in the `advance` variant's three Thor rounds — and the same file's
-# "The same measurement after the change" section has the re-measurement,
-# which moved the scores but not the contact). The old doctrine is kept,
-# comparable, as the `hold` variant (assets/harness/variants/hold).
-#
 # The talk gates below choose what an agent *says* (Task 4). They are asked
 # in the same call as the move gate, and they are worded the same way: as a
 # rule over the stated facts, never as an open question. The wording of the
@@ -66,7 +53,7 @@
 id = "move"
 type = "choice"
 options_from = "menu"
-instructions = "Your squad's doctrine, in order: (1) If an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells, retreat. (2) If you are standing on a beacon your squad holds and an enemy is within 6 cells of you, hold. (3) Otherwise go to the nearest beacon your squad does not hold, if there is one; if there is none, hold."
+instructions = "Your squad's doctrine, in order: (1) If an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells, retreat. (2) If you are standing on a beacon your squad holds and no enemy is within 6 cells, hold. (3) Otherwise go to the nearest beacon your squad does not hold, if there is one; if there is none, hold."
 
 # How each kind of menu option is described. The menu decides how many
 # beacon options there are, so the file describes the kinds; `{beacon}` is
@@ -81,7 +68,7 @@ instructions = "Your squad's doctrine, in order: (1) If an enemy can see you wit
 # instead of inside one.
 [gates.criteria]
 beacon = "go to beacon {beacon} (the doctrine's third branch: go to the nearest beacon your squad does not hold)"
-hold = "hold position (the doctrine's second branch: you are standing on a beacon your squad holds and an enemy is within 6 cells of you; or the doctrine's third branch, last part: there is no beacon your squad does not hold)"
+hold = "hold position (the doctrine's second branch: you are standing on a beacon your squad holds and no enemy is within 6 cells, or there is no beacon your squad does not hold)"
 follow = "follow the squad leader (no branch of the doctrine says to follow the leader)"
 retreat = "retreat to the squad's spawn (the doctrine's first branch: an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells)"
 
@@ -132,91 +119,6 @@ agent5 = "agent 5 in particular (the doctrine's second branch: that agent in par
 agent6 = "agent 6 in particular (the doctrine's second branch: that agent in particular needs it)"
 agent7 = "agent 7 in particular (the doctrine's second branch: that agent in particular needs it)"
 
-# The same gate asked as a two-step tree.
-#
-# The gate above asks a ten-option question: a squad, everybody, or one
-# agent of eight. That is a wide question, and the wide question is why
-# the model is unsure about it. The tree asks the same thing in two
-# smaller questions: the coarse partition first, then the choice inside
-# the partition it picked.
-#
-# The tree is **off** unless a parameter asks for it (`shape.tree_gate`
-# in agents.toml): writing the tree here is the harness offering it, not
-# the harness using it.
-#
-# The partition is by **squad**, and it is absolute: "squad 0" is agents
-# 0-3 and "squad 1" is agents 4-7, whoever is asking. It cannot be
-# "your own squad" and "another squad", because the tree is the same
-# tree for every agent and half the roster is on each side: a partition
-# that meant "yours" would offer one squad's agents to the agents of the
-# other squad. The facts say which squad the asker is on, so the model
-# can still tell its own side from the other.
-#
-# A branch with a single option is already the answer, so those branches
-# ask nothing twice: the tree costs one extra round trip only when the
-# line is for one agent in particular.
-[gates.decompose]
-instructions = "Who the line is for, in coarse terms? There are four kinds of addressee: your own squad as a whole, one agent of squad 0 in particular, one agent of squad 1 in particular, or everybody who can hear. The roster is: squad 0 is agents 0, 1, 2 and 3; squad 1 is agents 4, 5, 6 and 7. The facts tell you which squad is yours."
-
-[[gates.decompose.partitions]]
-key = "your_squad"
-description = "your squad as a whole (the doctrine's first branch: the whole squad has to act on it)"
-instructions = "You said the line is for your squad as a whole. There is one answer in this group."
-
-[[gates.decompose.partitions.options]]
-option = "squad"
-description = "your squad (the doctrine's first branch: the whole squad has to act on it)"
-
-[[gates.decompose.partitions]]
-key = "squad_0"
-description = "one agent of squad 0 in particular (agents 0, 1, 2 and 3)"
-instructions = "You said the line is for one agent of squad 0 in particular. Which agent?"
-
-[[gates.decompose.partitions.options]]
-option = "agent0"
-description = "agent 0 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions.options]]
-option = "agent1"
-description = "agent 1 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions.options]]
-option = "agent2"
-description = "agent 2 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions.options]]
-option = "agent3"
-description = "agent 3 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions]]
-key = "squad_1"
-description = "one agent of squad 1 in particular (agents 4, 5, 6 and 7)"
-instructions = "You said the line is for one agent of squad 1 in particular. Which agent?"
-
-[[gates.decompose.partitions.options]]
-option = "agent4"
-description = "agent 4 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions.options]]
-option = "agent5"
-description = "agent 5 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions.options]]
-option = "agent6"
-description = "agent 6 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions.options]]
-option = "agent7"
-description = "agent 7 in particular (the doctrine's second branch: that agent in particular needs it)"
-
-[[gates.decompose.partitions]]
-key = "everybody"
-description = "everybody who can hear (the doctrine's third branch: the whole field must hear it)"
-instructions = "You said the line is for everybody who can hear. There is one answer in this group."
-
-[[gates.decompose.partitions.options]]
-option = "all"
-description = "everybody who can hear (the doctrine's third branch: the whole field must hear it)"
 [[gates]]
 id = "attention_present"
 type = "noul"
@@ -227,26 +129,7 @@ instructions = "Is there anyone this line is for?"
 id = "intention"
 type = "score"
 options_from = "fixed"
-# The urgency gate: how urgent is this moment, on a scale of three.
-#
-# The scale is stated as a rule over the facts the builder states, the
-# way the move gate states its doctrine, because the levels are what the
-# model reads. The levels below used to name "an enemy can see you
-# **within 6 cells**" and "a beacon your squad holds is about to be
-# lost" — and the builder states neither: the count line it states is
-# "no enemy is within 6 cells of you" (the doctrine's own number, for
-# the move gate), and it says which squad holds a beacon, never that a
-# beacon is about to be lost. So the model read the scale against a
-# count line that contradicts it, and answered "idle" for an enemy
-# watching the agent from eleven cells away, and for an agent that had
-# just been tagged (crates/lm-agents/tests/urgency_on_thor.md).
-#
-# The rule is now over the facts that are there: the enemy lines say
-# "can see you (clear line of sight)" at any distance, the stun says
-# "You are stunned.", and an ally's line says "and is stunned". A squad
-# under fire, or a squad that has just been hit, is urgent; a moment
-# with nothing in it is idle.
-instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. The rule, in order: (1) if an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned, the moment is urgent. (2) if no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned, the moment is idle. (3) otherwise the moment is ordinary."
+instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. Use the facts: an enemy you can see, a beacon your squad is about to lose and a squad that is not moving together make the moment urgent; a quiet moment makes it idle."
 
 # A score gate's levels are an ordered scale, not a map of options. The
 # API takes them as an array of 2 to 10 descriptions, lowest score first,
@@ -257,26 +140,20 @@ instructions = "How urgent is this moment? Answer with the level and its score, 
 # is decided by that score and never by the order of this file. The index
 # the model answers is the score, which is what the affect of the line is
 # bucketed from (idle 0, ordinary 1, urgent 2).
-#
-# Every level is phrased over the facts the builder states, so that the
-# model matches one of them to what it is told. Measured on the Thor's
-# d1-2B over the game's own facts: a moment with an enemy watching the
-# agent is urgent (p = 0.98), a tagged agent is urgent (p = 0.99), and a
-# quiet moment is calm (p(urgent) = 0.004).
 [[gates.levels]]
 key = "idle"
 score = 0
-description = "idle: no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned"
+description = "the moment is quiet: no enemy is within 6 cells and your squad is where it should be"
 
 [[gates.levels]]
 key = "ordinary"
 score = 1
-description = "ordinary: nothing is happening that your squad has to know about now"
+description = "the moment is ordinary: the usual play goes on and nothing has to be said now"
 
 [[gates.levels]]
 key = "urgent"
 score = 2
-description = "urgent: an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned"
+description = "the moment is urgent: an enemy can see you within 6 cells, or a beacon your squad holds is about to be lost"
 
 [[gates]]
 id = "intention_present"

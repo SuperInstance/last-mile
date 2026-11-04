@@ -38,7 +38,6 @@ use std::collections::BTreeMap;
 
 use lm_agents::mind::ThoughtRecord;
 use lm_agents::sink::{ChannelSink, DecisionInbox};
-use lm_agents::surprise::RoundSurprise;
 use lm_agents::{AgentStats, Agents};
 use lm_core::decision::{Decision, Kind, Provenance, Source, Tick};
 use lm_core::fixed::Pos;
@@ -372,15 +371,6 @@ impl HostLoop {
         self.agents.as_ref().map(Agents::stats)
     }
 
-    /// The round's surprise table: where the minds were unsure, refused or
-    /// escalated, by situation bucket. The between-round flow carries its
-    /// top entries into the round's record, where the reviewer reads them.
-    ///
-    /// `None` when the round has no agents.
-    pub fn agent_surprise(&self) -> Option<RoundSurprise> {
-        self.agents.as_ref().map(Agents::surprise)
-    }
-
     /// The round's agents, when the host has them.
     pub fn agents(&self) -> Option<&Agents> {
         self.agents.as_ref()
@@ -413,13 +403,7 @@ impl HostLoop {
         let Some(agents) = self.agents.as_mut() else {
             return;
         };
-        let refused = agents.on_tick(now, &self.sim);
-        // The refusals go into the log, on the tick they happened on: the
-        // reason a mind said nothing is part of the round's record (N2), and
-        // a replay reads it from there.
-        for refusal in refused {
-            self.recorder.record_refusal(refusal);
-        }
+        agents.on_tick(now, &self.sim);
 
         // The decisions that came home since the last tick. They are picked
         // up before the sequencer is drained, so one that is due now is

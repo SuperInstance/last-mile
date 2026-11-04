@@ -94,14 +94,13 @@ use bevy::{
         view::screenshot::{save_to_disk, Screenshot, ScreenshotCaptured},
         RenderPlugin,
     },
+    time::Real,
 };
 use bevy_egui::{EguiContext, EguiGlobalSettings, EguiPlugin, PrimaryEguiContext};
 use lm_agents::config::AgentsConfig;
-use lm_agents::decompose::shape_backends;
-use lm_agents::gates::GateSet;
 use lm_agents::harness::Harness;
 use lm_agents::mind::Policy;
-use lm_agents::sysone::{JevBackend, StubBackend, SysOne, ThorBackend};
+use lm_agents::sysone::{with_escalation, JevBackend, StubBackend, SysOne, ThorBackend};
 use lm_agents::Agents;
 use lm_core::header::Header;
 use lm_host_model::host_loop::HostLoop;
@@ -137,6 +136,31 @@ struct ShotRequest {
     frames: u32,
     spawned: bool,
 }
+
+/// The frame times of the round, in milliseconds.
+///
+/// The host does not report frame times by itself, and a measurement of
+/// what a small language model costs the game needs them: a model that
+/// shares the GPU with the renderer shows up as frames that take longer
+/// than the display's rate.
+#[derive(Resource, Default)]
+struct FrameTimes {
+    /// The time between the frames, in milliseconds.
+    samples: Vec<f32>,
+    /// The frames that are not counted: the start-up, while the window
+    /// and the pipelines settle.
+    skipped: u32,
+}
+
+/// How many frames are let go before the timing starts.
+///
+/// The first frames of a round pay for the window and the shaders, and
+/// they cost the same in every run: they are not what a measurement of
+/// the GPU's share is about.
+const WARMUP_FRAMES: u32 = 30;
+
+/// How many frames pass between the reports.
+const REPORT_FRAMES: u32 = 600;
 
 /// What the command line asks for.
 struct Options {
@@ -653,7 +677,19 @@ fn main() -> AppExit {
         }
     }
 
-    app.add_systems(Update, count_frames);
+    app.add_systems(Update, (count_frames, time_the_frames));
+
+    // The frame times are reported as the round goes on, and once more
+    // when the window closes: the report is the outside proof of what the
+    // renderer did, and a run that is stopped early still has one.
+    app.init_resource::<FrameTimes>()
+        .add_systems(Update, report_frame_times)
+        .add_systems(
+            Last,
+            say_frame_times_on_exit
+                .in_set(bevy::app::OnAppExitSystems)
+                .run_if(|messages: Res<Messages<AppExit>>| !messages.is_empty()),
+        );
 
     if let Some(request) = options.shot {
         app.insert_resource(request).add_systems(
@@ -699,7 +735,7 @@ fn attach_agents(
         )
     })?;
 
-    let backends = backends(choice, &cfg, &harness)?;
+    let backends = backends(choice, &cfg, &harness);
     if backends.is_empty() {
         return Err("no model is there to ask".to_owned());
     }
@@ -818,20 +854,15 @@ fn backends(
     choice: AgentChoice,
     cfg: &AgentsConfig,
     harness: &Harness,
-) -> Result<BTreeMap<String, Box<dyn SysOne + Send + Sync>>, String> {
+) -> BTreeMap<String, Box<dyn SysOne + Send + Sync>> {
     // The match is the whole answer: each arm hands the map it built, and
     // `off` is simply the empty one. (An earlier cut of this function kept
     // an outer `out` and let the arms write it — a match in statement
     // position whose arms disagreed about their type, which the Windows
     // build refused; this shape is the one that built.)
-    // A harness whose gates do not load is a refusal the round can see, not
-    // a game that will not start (D26): the mind refuses the malformed
-    // gates and the round plays on. The shape is off by default, so the
-    // gates are only read to look a tree up.
-    let gates = GateSet::parse(&harness.gates_toml).unwrap_or_default();
     match choice {
         // No models at all: the round thinks with nothing.
-        AgentChoice::Off => Ok(BTreeMap::new()),
+        AgentChoice::Off => BTreeMap::new(),
         AgentChoice::Stub => {
             // The stub answers every tier the policy names: the gates, the
             // policy and the ladder are the real ones, only the model is not.
@@ -846,14 +877,10 @@ fn backends(
                 });
             }
             // The escalation (D71) is modelled by the stub too, so the gate
-            // tests cover it without the Thor, and so is the shape. The
-            // harness names the gates that may be escalated (policy.toml's
-            // `escalate_gates`, D75) — the one setting, read where it has
-            // always lived.
-            shape_backends(&gates, cfg, policy.escalate_gates.clone(), out, |_| {
+            // tests cover it without the Thor.
+            with_escalation(out, cfg.escalate_below, &cfg.escalate_backend, |_| {
                 Some(Box::new(StubBackend::menu()) as Box<dyn SysOne + Send + Sync>)
             })
-            .map_err(|err| format!("the shape is not applied: {err}"))
         }
         AgentChoice::Thor => {
             // The Thor's models: one port each.
@@ -868,16 +895,11 @@ fn backends(
                 out.insert(name, Box::new(backend));
             }
             // The escalation (D71): a gate the cheap model is unsure about
-            // is asked of the second model, that one question alone. And
-            // the shape: the gate named in the harness's parameters is
-            // asked as a tree or with its rare options ghosted. Which gates
-            // may be escalated is the harness's to say (policy.toml's
-            // `escalate_gates`, D75).
-            let policy = Policy::for_harness(&harness.policy_toml);
-            let mut out = shape_backends(&gates, cfg, policy.escalate_gates.clone(), out, |_| {
+            // is asked of the second model, that one question alone.
+            let thor = with_escalation(out, cfg.escalate_below, &cfg.escalate_backend, |_| {
                 thor_backend(cfg, &cfg.escalate_backend)
-            })
-            .map_err(|err| format!("the shape is not applied: {err}"))?;
+            });
+            let mut out = thor;
             // The cloud tier, when its key is there. That key only ever goes
             // to api.typesafe.ai -- never to the Thor.
             match JevBackend::from_secrets() {
@@ -887,7 +909,7 @@ fn backends(
                 }
                 Err(err) => eprintln!("lm-host: the cloud tier is not available: {err}"),
             }
-            Ok(out)
+            out
         }
     }
 }
@@ -1241,6 +1263,55 @@ fn count_frames(mut frame: ResMut<FrameCount>, wavs: Res<audio_plugin::MicWavs>)
     if wavs.finished {
         frame.0 += 1;
     }
+}
+
+/// Time the frames: how long each one took.
+///
+/// The time is the gap between the frames, which is what the display's
+/// rate allows. A GPU that is busy with something else shows up here as
+/// frames that take longer than the rate.
+fn time_the_frames(time: Res<Time<Real>>, mut times: ResMut<FrameTimes>) {
+    if times.samples.is_empty() && times.skipped < WARMUP_FRAMES {
+        times.skipped += 1;
+        return;
+    }
+    times.samples.push(time.delta_secs() * 1000.0);
+}
+
+/// Say how the frames have gone, every so many frames.
+fn report_frame_times(times: Res<FrameTimes>, frames: Res<FrameCount>) {
+    if frames.0 == 0 || frames.0 % REPORT_FRAMES != 0 {
+        return;
+    }
+    say_frame_times(&times, "so far");
+}
+
+/// Say how the frames went, when the window closes.
+fn say_frame_times_on_exit(world: &mut World) {
+    let times = world.resource::<FrameTimes>();
+    say_frame_times(times, "in all");
+}
+
+/// Say how the frames went: how many, and the middle and the tail.
+///
+/// The median is the frame the round mostly ran at, and the ninety-fifth
+/// is the frame the round was worst off by: a GPU shared with a language
+/// model shows in the tail.
+fn say_frame_times(times: &FrameTimes, when: &str) {
+    if times.samples.is_empty() {
+        return;
+    }
+    let mut sorted = times.samples.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let at = |q: f32| sorted[(((sorted.len() - 1) as f32) * q).round() as usize];
+    println!(
+        "lm-host: the frames {when}: {} drawn, p50 {:.1} ms, p95 {:.1} ms, \
+         max {:.1} ms",
+        sorted.len(),
+        at(0.50),
+        at(0.95),
+        sorted[sorted.len() - 1]
+    );
 }
 
 #[cfg(test)]
