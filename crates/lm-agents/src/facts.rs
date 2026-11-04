@@ -15,7 +15,6 @@ use lm_core::world::{jps, los, CellXY, World};
 use std::collections::BTreeMap;
 
 use crate::config::AgentsConfig;
-use crate::shared::{PullBand, SharedConfig, SharedRule};
 
 /// The compass words in the order their field indices run; row 0 is
 /// north, so +y is south. "here" is a zero step.
@@ -54,20 +53,7 @@ impl Facts {
     /// Deterministic by construction: fixed sentence order, integer math
     /// only, ordered maps only — the same view on the same world always
     /// yields the same text, fields and key.
-    ///
-    /// `shared` is the harness's shared-target parameter. It is off by
-    /// default, and when it is off the facts are exactly the shipped ones:
-    /// the doctrine's target is the nearest beacon the squad does not
-    /// hold. When it is on, the shared target takes that place — the
-    /// beacon both squads are sent to, read off the beacons every agent
-    /// can see, so both squads get the same one (see [`crate::shared`]).
-    pub fn from_view(
-        view: &ScoreView,
-        world: &World,
-        me_squad: u8,
-        cfg: &AgentsConfig,
-        shared: &SharedConfig,
-    ) -> Facts {
+    pub fn from_view(view: &ScoreView, world: &World, me_squad: u8, cfg: &AgentsConfig) -> Facts {
         let me = view.me.cell;
         let mut lines: Vec<String> = Vec::new();
         let mut fields: BTreeMap<String, i64> = BTreeMap::new();
@@ -85,25 +71,6 @@ impl Facts {
             me.x,
             me.y
         ));
-
-        // The shared target: the one beacon both squads are sent to, so
-        // that they meet instead of walking to mirrored beacons. It is
-        // off by default; when it is on it takes the place of the
-        // doctrine's own target, and the facts say so in the same
-        // sentence as the beacon it names.
-        let shared_target = shared.resolve(view);
-        if let Some(target) = &shared_target {
-            for line in target.summary() {
-                lines.push(line);
-            }
-            fields.insert("shared.target".to_string(), i64::from(target.beacon));
-            fields.insert("shared.distance".to_string(), i64::from(target.distance));
-            if target.rule == SharedRule::Ghost {
-                fields.insert("shared.pull".to_string(), target.pull_q14);
-                fields.insert("shared.band".to_string(), pull_band_value(target.band));
-                fields.insert("shared.radius".to_string(), i64::from(target.radius_cells));
-            }
-        }
 
         // Each beacon: holder, walking-path length and bearing, all
         // computed by code (the path in cells from JPS, the compass word
@@ -145,15 +112,10 @@ impl Facts {
             }
         }
         let nearest_unheld = nearest_unheld.map(|(index, _)| index);
-        // The fields state what the text states, so the nearest unheld
-        // beacon is only a field while it is also what the text says. When
-        // a shared target is stated instead, it takes the field's place.
-        if shared_target.is_none() {
-            fields.insert(
-                "beacon.nearest_unheld".to_string(),
-                nearest_unheld.map_or(-1, i64::from),
-            );
-        }
+        fields.insert(
+            "beacon.nearest_unheld".to_string(),
+            nearest_unheld.map_or(-1, i64::from),
+        );
 
         for (i, beacon) in view.beacons.iter().enumerate() {
             let mine = beacon.holder == Some(me_squad);
@@ -169,13 +131,8 @@ impl Facts {
                 beacon.holder.map_or(-1, i64::from),
             );
             // The doctrine's wording, said of this beacon: it is the one
-            // the rule would send me to, or it is not. With a shared
-            // target the rule sends both squads to one beacon, so the
-            // marker says which one that is and the other beacons say
-            // plainly that they are not it.
-            let nearest = if let Some(target) = &shared_target {
-                target.marker(i as u8)
-            } else if mine {
+            // the rule would send me to, or it is not.
+            let nearest = if mine {
                 String::new()
             } else if nearest_unheld == Some(i as u8) {
                 "; it is the nearest beacon your squad does not hold".to_owned()
@@ -239,30 +196,6 @@ impl Facts {
                 lines.push(format!("You are standing on beacon {i}, {whose}."));
             }
             None => lines.push("You are not standing on a beacon.".to_owned()),
-        }
-
-        // The paint under my feet. Standing in the other team's paint is
-        // contact: it slows me down, and it is why I am walking slowly. The
-        // sentence says so in one line, and only when it is true — the
-        // slowdown is the sim's own number, so the facts never promise a
-        // slowdown the round is not applying.
-        let paint_under = view.paint.iter().find(|p| p.cell == me).map(|p| p.owner);
-        if let Some(owner) = paint_under {
-            if owner != me_squad {
-                fields.insert("me.in_enemy_paint".to_string(), 1);
-                fields.insert(
-                    "me.paint_slow_q8".to_string(),
-                    i64::from(view.me.paint_slow_q8),
-                );
-                if view.me.paint_slow_q8 > 0 {
-                    lines.push(
-                        "You are standing in the other team's paint; it is slowing you down."
-                            .to_owned(),
-                    );
-                } else {
-                    lines.push("You are standing in the other team's paint.".to_owned());
-                }
-            }
         }
 
         // The doctrine's target, named. When there is none the rule says
@@ -462,32 +395,17 @@ fn role_word(role: Role) -> &'static str {
     }
 }
 
-/// The band a pull falls in, as a number for the fields: none, weak, strong.
-fn pull_band_value(band: PullBand) -> i64 {
-    match band {
-        PullBand::None => 0,
-        PullBand::Weak => 1,
-        PullBand::Strong => 2,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::AgentsConfig;
     use lm_core::header::Role;
-    use lm_core::view::{AgentSnap, BeaconSnap, EnemySeen, PaintSnap};
+    use lm_core::view::{AgentSnap, BeaconSnap, EnemySeen};
     use lm_core::world::{jps, CellKind, CellXY, Grid};
 
     /// The facts of a squad-0 view under the default config.
     fn facts(view: &ScoreView, world: &World) -> Facts {
-        Facts::from_view(
-            view,
-            world,
-            0,
-            &AgentsConfig::default(),
-            &SharedConfig::default(),
-        )
+        Facts::from_view(view, world, 0, &AgentsConfig::default())
     }
 
     /// An unstunned snapshot at a cell.
@@ -498,7 +416,6 @@ mod tests {
             role,
             stunned: false,
             airtime_ticks: 0,
-            paint_slow_q8: 0,
         }
     }
 
@@ -521,7 +438,6 @@ mod tests {
             beacons: vec![CellXY { x: 4, y: 2 }, CellXY { x: 10, y: 2 }],
             spawns: vec![CellXY { x: 2, y: 2 }, CellXY { x: 10, y: 10 }],
             cell_units: 1024,
-            paint: lm_core::world::Paint::new(),
         }
     }
 
@@ -530,7 +446,6 @@ mod tests {
     /// stale memory of another, one ally in range and the leader far away.
     fn base_view() -> ScoreView {
         ScoreView {
-            paint: Vec::new(),
             heard: Vec::new(),
             tick: 100,
             me: snap(3, 2, 2, Role::Member),
@@ -577,156 +492,6 @@ mod tests {
     }
 
     #[test]
-    fn standing_in_the_other_teams_paint_is_stated() {
-        // The agent stands in the enemy's paint, and the paint is slowing
-        // it: the facts say so in one line.
-        let mut view = base_view();
-        view.paint = vec![PaintSnap {
-            cell: CellXY { x: 2, y: 2 },
-            owner: 1,
-            wet_q8: 255,
-            splats: 1,
-        }];
-        view.me.paint_slow_q8 = 128;
-        let f = facts(&view, &wall_world());
-        assert!(
-            f.text
-                .contains("You are standing in the other team's paint"),
-            "the paint is stated: {}",
-            f.text
-        );
-        assert!(
-            f.text.contains("it is slowing you down"),
-            "the slowdown is stated: {}",
-            f.text
-        );
-        assert_eq!(f.fields.get("me.in_enemy_paint"), Some(&1));
-        assert_eq!(f.fields.get("me.paint_slow_q8"), Some(&128));
-    }
-
-    #[test]
-    fn the_paint_of_your_own_squad_is_not_stated_as_the_enemys() {
-        let mut view = base_view();
-        view.paint = vec![PaintSnap {
-            cell: CellXY { x: 2, y: 2 },
-            owner: 0,
-            wet_q8: 255,
-            splats: 1,
-        }];
-        let f = facts(&view, &wall_world());
-        assert!(
-            !f.text.contains("other team's paint"),
-            "own paint is not the enemy's: {}",
-            f.text
-        );
-        assert!(!f.fields.contains_key("me.in_enemy_paint"));
-    }
-
-    #[test]
-    fn the_paint_is_stated_without_a_slowdown_when_there_is_none() {
-        // The paint rules can be off: the agent is in the enemy's paint,
-        // but nothing is slowing it, and the facts do not say it is.
-        let mut view = base_view();
-        view.paint = vec![PaintSnap {
-            cell: CellXY { x: 2, y: 2 },
-            owner: 1,
-            wet_q8: 255,
-            splats: 1,
-        }];
-        view.me.paint_slow_q8 = 0;
-        let f = facts(&view, &wall_world());
-        assert!(f
-            .text
-            .contains("You are standing in the other team's paint"));
-        assert!(!f.text.contains("slowing you down"));
-        assert_eq!(f.fields.get("me.paint_slow_q8"), Some(&0));
-    }
-
-    /// The facts under a shared-target rule.
-    fn shared_facts(view: &ScoreView, world: &World, rule: SharedRule) -> Facts {
-        Facts::from_view(
-            view,
-            world,
-            0,
-            &AgentsConfig::default(),
-            &SharedConfig {
-                rule,
-                ..SharedConfig::default()
-            },
-        )
-    }
-
-    #[test]
-    fn the_default_states_no_shared_target() {
-        let f = facts(&base_view(), &wall_world());
-        assert!(!f.text.contains("shared target"));
-        assert!(!f.fields.contains_key("shared.target"));
-        // The shipped target is still the nearest unheld beacon.
-        assert!(f
-            .text
-            .contains("it is the nearest beacon your squad does not hold"));
-    }
-
-    #[test]
-    fn a_shared_target_is_stated_for_both_squads() {
-        let view = base_view();
-        let f = shared_facts(&view, &wall_world(), SharedRule::Free);
-        // Beacon 0 is unheld, so it is the beacon no squad holds.
-        assert!(f.text.contains("The shared target is beacon 0"));
-        assert!(f
-            .text
-            .contains("it is the shared target: the beacon no squad holds"));
-        assert!(f.text.contains("Beacon 1"));
-        assert!(f.text.contains("it is not the shared target"));
-        assert_eq!(f.fields.get("shared.target"), Some(&0));
-        // The doctrine's own target is not stated any more.
-        assert!(!f.text.contains("nearest beacon your squad does not hold"));
-    }
-
-    #[test]
-    fn the_shared_target_is_the_same_for_both_squads() {
-        let mut other = base_view();
-        other.squad_id = 1;
-        other.me = snap(7, 12, 12, Role::Leader);
-        let mine = shared_facts(&base_view(), &wall_world(), SharedRule::Free);
-        let theirs = shared_facts(&other, &wall_world(), SharedRule::Free);
-        assert_eq!(
-            mine.fields.get("shared.target"),
-            theirs.fields.get("shared.target")
-        );
-        assert!(theirs.text.contains("The shared target is beacon 0"));
-    }
-
-    #[test]
-    fn the_centre_rule_names_the_centre_beacon() {
-        let f = shared_facts(&base_view(), &wall_world(), SharedRule::Centre);
-        // Beacon 0 at (4, 2) and beacon 1 at (10, 2) are both 6 cells from
-        // each other, and the other pair is much further away, so beacon 0
-        // is the most central of the two.
-        assert_eq!(f.fields.get("shared.target"), Some(&0));
-        assert!(f.text.contains("the most central of the beacons"));
-    }
-
-    #[test]
-    fn the_ghost_rule_states_the_field() {
-        let f = shared_facts(&base_view(), &wall_world(), SharedRule::Ghost);
-        assert!(f.text.contains("You are pulled toward beacon 0"));
-        assert!(f.text.contains("The pull reaches"));
-        assert!(f.fields.contains_key("shared.pull"));
-        assert!(f.fields.contains_key("shared.band"));
-        // The field is in the key, so the situation moves with it.
-        let plain = shared_facts(&base_view(), &wall_world(), SharedRule::Free);
-        assert_ne!(f.key, plain.key);
-    }
-
-    #[test]
-    fn a_shared_target_changes_the_key_but_not_the_shipped_one() {
-        let plain = facts(&base_view(), &wall_world());
-        let shared = shared_facts(&base_view(), &wall_world(), SharedRule::Free);
-        assert_ne!(plain.key, shared.key);
-    }
-
-    #[test]
     fn facts_state_numbers_not_grids() {
         let f = facts(&base_view(), &wall_world());
         // Numbers, in cells, from code: positions and distances.
@@ -741,7 +506,6 @@ mod tests {
     #[test]
     fn stale_enemies_omitted() {
         let view = ScoreView {
-            paint: Vec::new(),
             enemies: vec![
                 EnemySeen {
                     id: 7,
@@ -772,7 +536,6 @@ mod tests {
 
         // One step south is a different situation.
         let moved = ScoreView {
-            paint: Vec::new(),
             me: snap(3, 2, 3, Role::Member),
             squad: vec![
                 snap(0, 12, 12, Role::Leader),
@@ -788,7 +551,6 @@ mod tests {
         // A later tick, the same situation: the key addresses the
         // situation, not the clock (Task 5 detects novelty through it).
         let later = ScoreView {
-            paint: Vec::new(),
             tick: 200,
             ..base_view()
         };
@@ -810,7 +572,7 @@ mod tests {
         // memory would be stale, and the ally 2 cells out is out of range.
         let mut view = base_view();
         view.enemies[1].age_ticks = 4;
-        let f = Facts::from_view(&view, &world, 0, &cfg, &SharedConfig::default());
+        let f = Facts::from_view(&view, &world, 0, &cfg);
         assert!(f.text.contains("Enemy 4"));
         assert!(!f.text.contains("Enemy 5"), "age 4 is stale at window 3");
         assert!(!f.fields.contains_key("enemy.5.dist"));
@@ -819,13 +581,7 @@ mod tests {
         assert!(f.text.contains("No allies are within 1 cells."));
 
         // The defaults keep both.
-        let f = Facts::from_view(
-            &view,
-            &world,
-            0,
-            &AgentsConfig::default(),
-            &SharedConfig::default(),
-        );
+        let f = Facts::from_view(&view, &world, 0, &AgentsConfig::default());
         assert!(f.text.contains("Enemy 5"), "age 4 is fresh at window 6");
         assert!(f.fields.contains_key("ally.1.dist"));
     }
@@ -939,7 +695,6 @@ mod tests {
     #[test]
     fn empty_situations_say_so() {
         let view = ScoreView {
-            paint: Vec::new(),
             me: snap(0, 2, 2, Role::Leader),
             squad: vec![snap(0, 2, 2, Role::Leader)],
             enemies: vec![],
@@ -970,7 +725,6 @@ mod tests {
             beacons: vec![CellXY { x: 4, y: 2 }],
             spawns: vec![CellXY { x: 0, y: 0 }],
             cell_units: 1024,
-            paint: lm_core::world::Paint::new(),
         };
         let mut view = base_view();
         view.beacons = vec![BeaconSnap {

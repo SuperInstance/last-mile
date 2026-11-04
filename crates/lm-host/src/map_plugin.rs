@@ -93,30 +93,6 @@ pub fn fog_color(state: FogState) -> Color {
     }
 }
 
-/// How far the paint pulls a cell's colour towards the squad's.
-///
-/// The paint is a stain on the ground, not a floor: the terrain still shows
-/// through it, so a wall under fresh paint is still a wall.
-const PAINT_STRENGTH: f32 = 0.6;
-
-/// The colour of a cell with paint on it.
-///
-/// The paint is in the colour of the squad that splatted it, and it fades as
-/// it dries: a fresh splat is mostly the squad's colour and a dry one is the
-/// ground again. `wet_q8` is the paint's wetness in Q8 — 255 is fresh, 0 is
-/// dry.
-pub fn paint_over(ground: Color, paint: Color, wet_q8: u8) -> Color {
-    let g = ground.to_srgba();
-    let p = paint.to_srgba();
-    let t = (f32::from(wet_q8) / f32::from(lm_core::world::paint::WET_Q8_MAX)) * PAINT_STRENGTH;
-    Color::srgba(
-        g.red + (p.red - g.red) * t,
-        g.green + (p.green - g.green) * t,
-        g.blue + (p.blue - g.blue) * t,
-        g.alpha + (p.alpha - g.alpha) * t,
-    )
-}
-
 /// A colour of the map as an egui colour: the panels speak in the colours of
 /// the world.
 pub fn egui_color(color: Color) -> bevy_egui::egui::Color32 {
@@ -169,15 +145,6 @@ pub struct CurrentMap(pub Option<MapModel>);
 pub struct TileLayer {
     /// The fog of every cell as it was last drawn.
     pub drawn: Vec<FogState>,
-    /// The terrain of every cell as it was last drawn, paint and all.
-    pub drawn_terrain: Vec<Option<Color>>,
-    /// The paint of every cell, by cell index: the owner plus one in the
-    /// high byte (0 for no paint) and how wet it is in the low byte.
-    ///
-    /// It is rebuilt every frame, because the paint changes as it dries, and
-    /// it is here so that the drawing asks once per cell instead of looking
-    /// for the paint of a cell among all the paint.
-    pub paint: Vec<u16>,
     /// The width of the grid, in cells.
     pub grid_w: u16,
     /// The height of the grid, in cells.
@@ -195,10 +162,6 @@ pub struct TileLayer {
 /// same component.
 #[derive(Component)]
 enum Body {
-    /// The terrain of a cell of the grid, in row-major order. It carries the
-    /// paint of the round: a cell with paint in it is drawn in the colour of
-    /// the squad that splatted it.
-    Terrain(usize),
     /// The fog over a cell of the grid, in row-major order.
     Fog(usize),
     /// An agent, by its id.
@@ -272,13 +235,6 @@ fn bottom_height(height: f32) -> f32 {
     (height * 0.25).clamp(70.0, 150.0)
 }
 
-/// The height of the conductor's score: more of the window, because it
-/// stacks four staves per agent where the roll draws one lane, and the
-/// words and marks on the voice staff have to stay readable.
-fn score_height(height: f32) -> f32 {
-    (height * 0.40).clamp(150.0, 300.0)
-}
-
 /// The camera: where it looks, and how closely.
 #[derive(Resource, Debug)]
 pub struct CameraRig {
@@ -312,29 +268,6 @@ pub enum MapSet {
     Map,
 }
 
-/// The map's own camera — the one this plugin moves.
-///
-/// The marker matters the moment a second view shares the app (`--view
-/// both`): the 3D view's world camera and its blit camera are cameras too,
-/// and this plugin's controller must never touch them. The first `both`
-/// layout dragged the 3D camera to the ground plane every frame — its
-/// queries said `With<Camera>` and every camera answered.
-#[derive(Component)]
-pub struct MapCamera;
-
-/// The bottom panel's mode, as a resource the model's own switch rides in
-/// (the model crate knows no Bevy, so the host wraps it — the same shape
-/// as the view switch's wrapper).
-#[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct Bottom(pub lm_host_model::view::BottomSwitch);
-
-impl Bottom {
-    /// The mode the panel is in.
-    pub fn mode(&self) -> lm_host_model::view::BottomMode {
-        self.0.mode
-    }
-}
-
 /// The map plugin: the world, the bodies on it, and the camera.
 pub struct MapPlugin;
 
@@ -344,10 +277,6 @@ impl Plugin for MapPlugin {
             .init_resource::<TileLayer>()
             .init_resource::<Layout>()
             .init_resource::<CameraRig>()
-            // The bottom panel's mode sizes it (the score is the taller of
-            // the two), so the map keeps its share of the window in step
-            // with whichever is drawing.
-            .init_resource::<Bottom>()
             .add_systems(Startup, spawn_world)
             .add_systems(
                 Update,
@@ -369,7 +298,7 @@ fn spawn_world(
     // The camera: bevy_egui hangs its context on the first camera, so it has
     // to exist before the panels are drawn -- even when the file that was
     // asked for could not be opened and there is no world to draw.
-    commands.spawn((Camera2d, MapCamera));
+    commands.spawn(Camera2d);
 
     let Some(sim) = round.sim() else {
         return;
@@ -391,7 +320,6 @@ fn spawn_world(
             commands.spawn((
                 Sprite::from_color(cell_color(grid.get(cell)), Vec2::splat(cell_m)),
                 Transform::from_translation(centre),
-                Body::Terrain(index),
             ));
             commands.spawn((
                 Sprite::from_color(FOG_VISIBLE, Vec2::splat(cell_m)),
@@ -428,7 +356,6 @@ fn spawn_world(
     }
 
     layer.drawn = vec![FogState::Visible; cells];
-    layer.drawn_terrain = vec![None; cells];
     layer.grid_w = grid.w;
     layer.grid_h = grid.h;
     layer.cell_m = cell_m;
@@ -486,11 +413,7 @@ fn bevy_point(pos_m: (f32, f32)) -> Vec2 {
 }
 
 /// The layout of the window, as it is now.
-fn update_layout(
-    mut layout: ResMut<Layout>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    bottom: Res<Bottom>,
-) {
+fn update_layout(mut layout: ResMut<Layout>, windows: Query<&Window, With<PrimaryWindow>>) {
     let Ok(window) = windows.single() else {
         return;
     };
@@ -499,14 +422,7 @@ fn update_layout(
     layout.bar = top_height(size.x);
     layout.talk = talk_height(size.x);
     layout.top = layout.bar + layout.talk;
-    // The score stacks four staves per agent where the roll draws one lane,
-    // so it takes the larger share of the window while it is the one
-    // drawing. The map above shrinks by the same amount, and the click
-    // routing follows, because everything reads this one layout.
-    layout.bottom = match bottom.mode() {
-        lm_host_model::view::BottomMode::Roll => bottom_height(size.y),
-        lm_host_model::view::BottomMode::Score => score_height(size.y),
-    };
+    layout.bottom = bottom_height(size.y);
 }
 
 /// Build the map of this frame: the world as the viewer may see it, with
@@ -543,13 +459,9 @@ fn build_map(
 /// It looks at the agent being played, or at the one being watched; when
 /// nobody is being watched it stays where it was left, and the person drives
 /// it with WASD, the drag and the wheel.
-///
-/// Only the map's own camera ([`MapCamera`]) — never any other view's: in
-/// the `both` layout the 3D view's cameras live in the same app, and a
-/// controller that reached for every `Camera` would drag them along.
 fn update_camera(
-    mut cameras: Query<&mut Transform, With<MapCamera>>,
-    mut projections: Query<&mut Projection, With<MapCamera>>,
+    mut cameras: Query<&mut Transform, With<Camera>>,
+    mut projections: Query<&mut Projection, With<Camera>>,
     mut rig: ResMut<CameraRig>,
     map: Res<CurrentMap>,
     input: Res<Input>,
@@ -614,51 +526,8 @@ fn draw_map(
     let tick_spacing = TICK_SPACING_M.max(MIN_TICK_PX / px_per_m);
     let tick_gap = AGENT_RADIUS_M.max(MIN_AGENT_PX * 0.5 / px_per_m) * 1.6 + TICK_GAP_M;
 
-    // The paint, by cell: the terrain of a painted cell is drawn in the
-    // colour of the squad that splatted it. The paint of the round changes
-    // as it dries, so the lookup is rebuilt every frame.
-    let cells = model.cells.len();
-    if layer.paint.len() != cells {
-        layer.paint = vec![0; cells];
-    } else {
-        layer.paint.fill(0);
-    }
-    for paint in &model.paint {
-        let index =
-            usize::from(paint.cell.y) * usize::from(layer.grid_w) + usize::from(paint.cell.x);
-        if let Some(slot) = layer.paint.get_mut(index) {
-            *slot = (u16::from(paint.owner.saturating_add(1)) << 8) | u16::from(paint.wet_q8);
-        }
-    }
-
     for (mut sprite, mut transform, mut visibility, body) in &mut bodies {
         match body {
-            // The terrain, and the paint on it: a cell that carries paint is
-            // drawn in the colour of the squad that splatted it, fading as
-            // the paint dries. Only the cells whose colour changed are
-            // repainted.
-            Body::Terrain(index) => {
-                let Some(&(_, kind, _)) = model.cells.get(*index) else {
-                    continue;
-                };
-                let ground = cell_color(kind);
-                let color = match layer.paint.get(*index).copied().unwrap_or(0) {
-                    0 => ground,
-                    paint => {
-                        let owner = ((paint >> 8) as u8).saturating_sub(1);
-                        let wet = (paint & 0xff) as u8;
-                        paint_over(ground, squad_color(owner), wet)
-                    }
-                };
-                if layer.drawn_terrain.get(*index) == Some(&Some(color)) {
-                    continue;
-                }
-                sprite.color = color;
-                if let Some(slot) = layer.drawn_terrain.get_mut(*index) {
-                    *slot = Some(color);
-                }
-            }
-
             // The fog: only the cells whose fog changed are repainted.
             Body::Fog(index) => {
                 let Some(&(_, _, state)) = model.cells.get(*index) else {
