@@ -12,10 +12,7 @@
 //!    simulation's legal menu into the `questions` pack of a System One call
 //!    (D37). A `choice` gate over the menu gets one criterion per option,
 //!    keyed `opt0`, `opt1`, … — the same keys the answer comes back under, so
-//!    an option and its probability never come apart. A `score` gate gets an
-//!    **array** of level descriptions, lowest score first: the API refuses a
-//!    score question whose criteria is a map (it wants 2 to 10 levels, in
-//!    order), and it answers with the index of the level it picked.
+//!    an option and its probability never come apart.
 //! 2. **Answering.** [`answers_to_decisions`] turns the model's answers into
 //!    decisions: the menu's `choice` gate becomes a [`Lane`] — one quantised
 //!    sample per option, in menu order — and every other gate is left to the
@@ -29,15 +26,14 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 
 use lm_core::{Decision, Kind, Lane, Menu, MenuOption, Provenance, Source, Tick};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use crate::sysone::{Answer, Answers, Refusal, MAX_SCORE_LEVELS, MIN_SCORE_LEVELS};
-use crate::utter::{PRESENCE_SUFFIX, UTTERANCE_GATES};
+use crate::sysone::{Answer, Answers, Refusal};
 
 /// The prefix of a menu option's key: `opt0`, `opt1`, …
 ///
@@ -55,13 +51,6 @@ const PROB_SCALE: f32 = 255.0;
 
 /// The most gates a set may hold: a lane names its gate with a `u8`.
 const MAX_GATES: usize = 256;
-
-/// The most options one question may name.
-///
-/// The API takes a choice question's options as a map and the widest one
-/// the harness asks is the attention gate's ten (who the line is for), so
-/// a tree may not ask a wider question than that.
-const MAX_OPTIONS: usize = 10;
 
 // ---------------------------------------------------------------- the schema
 
@@ -100,114 +89,6 @@ pub enum OptionsFrom {
     Menu,
 }
 
-/// One level of a score gate: its key, its score and what it means.
-///
-/// A score gate is an **ordered scale**, not a set of options: the API
-/// takes its levels as an array of 2 to 10 descriptions, lowest score
-/// first, and answers with the index of the level it picked. So a level
-/// says its own score here, and the order of the array is decided by the
-/// score and never by the order the file happens to be written in.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct Level {
-    /// The level's key: how the code names it (`idle`, `urgent`).
-    #[serde(rename = "key")]
-    pub key: String,
-    /// The level's score: the lowest level is 0, the next is 1, and so on.
-    ///
-    /// The scores count from zero without a gap, because the index the
-    /// model answers *is* the score: the answer's level 2 is the level
-    /// whose score is 2.
-    #[serde(rename = "score")]
-    pub score: u32,
-    /// What the level means, in the words the model reads.
-    #[serde(rename = "description")]
-    pub description: String,
-}
-
-/// A gate asked as a **two-step tree**.
-///
-/// The tree is the harness's own question library, written in `gates.toml`
-/// next to the gate it decomposes: step 1 asks the coarse partition, and
-/// step 2 asks the choice inside the partition step 1 picked. The tree is
-/// off by default (a harness turns it on with a parameter, never by
-/// writing the tree alone), and both answers are logged, so a round says
-/// which path the tree took.
-///
-/// A partition with a single option is a **dead end**: the answer is
-/// already decided by step 1, so no second question is asked. That is
-/// what makes the tree a tree and not a fixed pair of questions.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct Decomposition {
-    /// The first question: the coarse partition, in the words the model
-    /// reads.
-    pub instructions: String,
-    /// The partitions step 1 may choose between.
-    #[serde(default, rename = "partitions")]
-    pub partitions: Vec<Partition>,
-}
-
-/// One coarse partition: what step 2 asks when step 1 chose it.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct Partition {
-    /// The partition's key: how the code names it, and what step 1's
-    /// answer names.
-    #[serde(rename = "key")]
-    pub key: String,
-    /// What this partition means, in the words step 1 shows the model.
-    pub description: String,
-    /// The question step 2 asks, in this partition.
-    pub instructions: String,
-    /// The options step 2 asks between: the leaves of this branch.
-    #[serde(default, rename = "options")]
-    pub options: Vec<Leaf>,
-}
-
-/// One leaf of the tree: an option of the gate the tree is for.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct Leaf {
-    /// The option of the original gate this leaf names.
-    ///
-    /// The leaf keeps the original gate's key, so the tree's answer is the
-    /// gate's answer: nothing downstream has to know the tree was used.
-    #[serde(rename = "option")]
-    pub option: String,
-    /// What the leaf means, in the words the model reads.
-    pub description: String,
-}
-
-/// Which pack a question belongs to (D70).
-///
-/// The move pack holds the questions whose answer is the agent's move, and
-/// is asked on every think. The talk pack holds the questions a line is
-/// chosen by, and is asked only when the agent has something to say. They
-/// are two requests: the talk pack never waits behind the move pack, and
-/// the move pack never waits behind the talk pack.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Pack {
-    /// The move pack: the gates that decide where the agent walks.
-    Move,
-    /// The talk pack: the gates that decide what the agent says.
-    Talk,
-}
-
-impl Pack {
-    /// The pack's name, for the log and the telemetry.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Pack::Move => "move",
-            Pack::Talk => "talk",
-        }
-    }
-
-    /// The gates of this pack, in the order the file lists them.
-    pub fn gates<'a>(&self, set: &'a GateSet) -> impl Iterator<Item = &'a Gate> {
-        let pack = *self;
-        set.gates
-            .iter()
-            .filter(move |gate| is_talk_gate(&gate.id) == (pack == Pack::Talk))
-    }
-}
-
 /// One gate: a typed question, its instructions and its options.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct Gate {
@@ -231,20 +112,8 @@ pub struct Gate {
     /// menu decides how many beacons there are and the file must not
     /// depend on that. The text of a beacon option may hold `{beacon}`,
     /// which is filled with that beacon's number.
-    ///
-    /// A `score` gate does not use this: its options are the ordered
-    /// scale of [`Level`]s.
     #[serde(default, rename = "criteria")]
     pub criteria: BTreeMap<String, String>,
-    /// The levels of a `score` gate: an ordered scale, lowest score first.
-    ///
-    /// The API wants a score question's criteria as an **array** of 2 to
-    /// 10 level descriptions, so the levels are written out here with
-    /// their scores instead of as a map: a map's key order is not a
-    /// scale, and the API refuses the whole pack when a score question
-    /// arrives as one.
-    #[serde(default, rename = "levels")]
-    pub levels: Vec<Level>,
     /// Where the options come from.
     #[serde(default, rename = "options_from")]
     pub options_from: OptionsFrom,
@@ -257,18 +126,6 @@ pub struct Gate {
     /// line is about, never where to walk.
     #[serde(default = "moves_by_default", rename = "moves")]
     pub moves: bool,
-    /// The two-step tree this gate may be asked as.
-    ///
-    /// It is written here, in the harness's own file, because the tree is
-    /// a question and a question belongs to the harness: the questions we
-    /// know to ask are our experience
-    /// (docs/design/questions-as-experience.md).
-    ///
-    /// The tree is **off** unless a parameter turns it on, so a harness
-    /// that writes one and does not ask for it keeps asking the gate as
-    /// it is written.
-    #[serde(default, rename = "decompose")]
-    pub decompose: Option<Decomposition>,
 }
 
 /// A gate is a move unless the file says otherwise.
@@ -330,8 +187,7 @@ impl Gate {
         match self.kind {
             // A yes/no question has no options.
             GateKind::Noul => {}
-            // A choice is a map of option key -> what the option means.
-            GateKind::Choice => {
+            GateKind::Choice | GateKind::Score => {
                 let criteria = match self.options_from {
                     OptionsFrom::Menu => self.menu_criteria(menu),
                     OptionsFrom::Fixed => self
@@ -342,39 +198,8 @@ impl Gate {
                 };
                 question.insert("criteria".to_string(), Value::Object(criteria));
             }
-            // A score is an ordered scale: an **array** of level
-            // descriptions, lowest score first. The API refuses a score
-            // question whose criteria is a map ("criteria must be an array
-            // of 2 to 10 levels"), and it answers with the index of the
-            // level it picked — so the array's order is the scale.
-            GateKind::Score => {
-                question.insert(
-                    "criteria".to_string(),
-                    Value::Array(self.level_descriptions()),
-                );
-            }
         }
         Value::Object(question)
-    }
-
-    /// The levels of a score gate, lowest score first.
-    ///
-    /// The order is the score's and never the file's: a file may write
-    /// its levels in any order, and the array the model reads is always
-    /// the scale from the lowest level to the highest.
-    fn levels_by_score(&self) -> Vec<&Level> {
-        let mut levels: Vec<&Level> = self.levels.iter().collect();
-        levels.sort_by_key(|level| level.score);
-        levels
-    }
-
-    /// The descriptions of the levels, lowest score first: the array the
-    /// API wants for a `score` question.
-    fn level_descriptions(&self) -> Vec<Value> {
-        self.levels_by_score()
-            .into_iter()
-            .map(|level| json!(level.description))
-            .collect()
     }
 }
 
@@ -411,32 +236,8 @@ pub enum GateError {
     DuplicateId(String),
     /// A gate with fixed options lists none.
     MissingCriteria(String),
-    /// A score gate's levels do not fit the API's scale.
-    ScoreLevels {
-        /// Which gate it was.
-        id: String,
-        /// Why the levels do not fit.
-        why: String,
-    },
-    /// A score gate takes its options from the menu.
-    ///
-    /// The menu's options are named keys, not a scale: the API wants a
-    /// score question's levels as an ordered array, and the menu cannot
-    /// say which of its options is the lowest level.
-    ScoreOverMenu(String),
     /// The set holds more gates than a `u8` can number.
     TooManyGates,
-    /// A gate's two-step tree does not fit.
-    ///
-    /// The tree is a question about the gate's own options, so it has to
-    /// reach every one of them exactly once, and it can only be written
-    /// for a gate with fixed options.
-    Decomposition {
-        /// Which gate it was.
-        id: String,
-        /// Why the tree does not fit.
-        why: String,
-    },
 }
 
 impl fmt::Display for GateError {
@@ -452,170 +253,11 @@ impl fmt::Display for GateError {
             GateError::MissingCriteria(id) => {
                 write!(f, "the gate {id} has fixed options and lists none")
             }
-            GateError::ScoreLevels { id, why } => {
-                write!(f, "the score gate {id} does not fit the scale: {why}")
-            }
-            GateError::ScoreOverMenu(id) => write!(
-                f,
-                "the score gate {id} takes its levels from the menu, and the menu is not a scale"
-            ),
             GateError::TooManyGates => {
                 write!(f, "a gate set holds at most {MAX_GATES} gates")
             }
-            GateError::Decomposition { id, why } => {
-                write!(f, "the tree of the gate {id} does not fit: {why}")
-            }
         }
     }
-}
-
-/// Check a score gate against the API's scale.
-///
-/// The API wants a `score` question's criteria as an **array of 2 to 10**
-/// level descriptions, lowest score first, and it answers with the index
-/// of the level it picked. So the levels have to exist, they have to
-/// number 2 to 10, and their scores have to count 0, 1, 2, … with no gap
-/// and no repeat: the index the model answers is the score, and the affect
-/// the line gets is bucketed from it.
-fn check_score_gate(gate: &Gate) -> Result<(), GateError> {
-    let id = gate.id.clone();
-    if gate.options_from == OptionsFrom::Menu {
-        return Err(GateError::ScoreOverMenu(id));
-    }
-    let count = gate.levels.len();
-    if !(MIN_SCORE_LEVELS..=MAX_SCORE_LEVELS).contains(&count) {
-        return Err(GateError::ScoreLevels {
-            id,
-            why: format!(
-                "it holds {count} levels and the API takes {MIN_SCORE_LEVELS} to {MAX_SCORE_LEVELS}"
-            ),
-        });
-    }
-    let mut keys: BTreeSet<&str> = BTreeSet::new();
-    for level in &gate.levels {
-        if level.key.is_empty() {
-            return Err(GateError::ScoreLevels {
-                id,
-                why: "a level has no key".to_string(),
-            });
-        }
-        if level.description.is_empty() {
-            return Err(GateError::ScoreLevels {
-                id,
-                why: format!("the level {} has no description", level.key),
-            });
-        }
-        if !keys.insert(level.key.as_str()) {
-            return Err(GateError::ScoreLevels {
-                id,
-                why: format!("two levels are named {}", level.key),
-            });
-        }
-    }
-    let mut scores: Vec<u32> = gate.levels.iter().map(|level| level.score).collect();
-    scores.sort_unstable();
-    for (index, score) in scores.iter().enumerate() {
-        if *score != index as u32 {
-            return Err(GateError::ScoreLevels {
-                id,
-                why: format!("the scores must count from zero, but they are {scores:?}"),
-            });
-        }
-    }
-    Ok(())
-}
-
-/// Check a gate's two-step tree against the gate it decomposes.
-///
-/// The tree is a question about the gate's own options, so it has to fit
-/// the gate in three ways:
-///
-/// - it can only be written for a **choice** gate with **fixed** options,
-///   because the tree's leaves name the gate's options one for one;
-/// - every leaf must name an option the gate actually has, and every
-///   option of the gate must be named by exactly one leaf, so the tree
-///   reaches every answer the gate could have given;
-/// - both steps are questions to the API, so neither may name more
-///   options than the API takes.
-fn check_decomposition(gate: &Gate) -> Result<(), GateError> {
-    let Some(tree) = &gate.decompose else {
-        return Ok(());
-    };
-    let refuse = |why: String| GateError::Decomposition {
-        id: gate.id.clone(),
-        why,
-    };
-
-    if gate.kind != GateKind::Choice {
-        return Err(refuse(
-            "only a choice gate has options to decompose".to_string(),
-        ));
-    }
-    if gate.options_from != OptionsFrom::Fixed {
-        return Err(refuse(
-            "it takes its options from the menu, and a tree names the gate's own options"
-                .to_string(),
-        ));
-    }
-    if tree.partitions.is_empty() {
-        return Err(refuse("it has no partitions".to_string()));
-    }
-    if tree.partitions.len() > MAX_OPTIONS {
-        return Err(refuse(format!(
-            "the first step names {} partitions and the API takes at most {MAX_OPTIONS}",
-            tree.partitions.len()
-        )));
-    }
-
-    let mut keys: BTreeSet<&str> = BTreeSet::new();
-    let mut reached: BTreeMap<&str, &str> = BTreeMap::new();
-    for partition in &tree.partitions {
-        if partition.key.is_empty() {
-            return Err(refuse("a partition has no key".to_string()));
-        }
-        if !keys.insert(partition.key.as_str()) {
-            return Err(refuse(format!(
-                "two partitions are named {}",
-                partition.key
-            )));
-        }
-        if partition.options.is_empty() {
-            return Err(refuse(format!(
-                "the partition {} has no options",
-                partition.key
-            )));
-        }
-        if partition.options.len() > MAX_OPTIONS {
-            return Err(refuse(format!(
-                "the partition {} names {} options and the API takes at most {MAX_OPTIONS}",
-                partition.key,
-                partition.options.len()
-            )));
-        }
-        for leaf in &partition.options {
-            if !gate.criteria.contains_key(&leaf.option) {
-                return Err(refuse(format!(
-                    "the leaf {} is not an option of the gate",
-                    leaf.option
-                )));
-            }
-            if let Some(other) = reached.insert(leaf.option.as_str(), partition.key.as_str()) {
-                return Err(refuse(format!(
-                    "the option {} is reached twice, by the partitions {} and {}",
-                    leaf.option, other, partition.key
-                )));
-            }
-        }
-    }
-
-    for option in gate.criteria.keys() {
-        if !reached.contains_key(option.as_str()) {
-            return Err(refuse(format!(
-                "the option {option} is reached by no partition"
-            )));
-        }
-    }
-    Ok(())
 }
 
 /// An agent's gates: the questions it asks its decision model.
@@ -666,21 +308,12 @@ impl GateSet {
             if gates[..index].iter().any(|g| g.id == gate.id) {
                 return Err(GateError::DuplicateId(gate.id.clone()));
             }
-            match gate.kind {
-                // A choice with fixed options has to say what its options
-                // mean; a choice over the menu takes them from the menu.
-                GateKind::Choice => {
-                    if gate.options_from == OptionsFrom::Fixed && gate.criteria.is_empty() {
-                        return Err(GateError::MissingCriteria(gate.id.clone()));
-                    }
-                }
-                // A score is a scale, and the scale has to fit the API's.
-                GateKind::Score => check_score_gate(gate)?,
-                // A noul has no options at all.
-                GateKind::Noul => {}
+            if gate.options_from == OptionsFrom::Fixed
+                && matches!(gate.kind, GateKind::Choice | GateKind::Score)
+                && gate.criteria.is_empty()
+            {
+                return Err(GateError::MissingCriteria(gate.id.clone()));
             }
-            // A gate may carry a two-step tree; the tree has to fit it.
-            check_decomposition(gate)?;
         }
 
         Ok(GateSet { gates })
@@ -696,43 +329,12 @@ impl GateSet {
         self.gates.iter().find(|g| g.id == id)
     }
 
-    /// The two-step tree of the gate with this id, if it has one.
-    ///
-    /// The tree is written in the harness's own file, so a caller that
-    /// wants to ask a gate as a tree needs nothing but the harness. The
-    /// tree being there does not mean it is asked: a parameter turns it
-    /// on (see [`crate::decompose`]).
-    pub fn decomposition_of(&self, id: &str) -> Option<&Decomposition> {
-        self.gate(id)?.decompose.as_ref()
-    }
-
-    /// The level a score answer named.
-    ///
-    /// The API answers a score question with the **index** of the level it
-    /// picked, counted from the lowest level of the array that was sent.
-    /// This maps that index back to the level it names, so the code never
-    /// has to guess what "level 2" meant: the index is the level's score.
-    pub fn level_for(&self, gate: &str, index: usize) -> Option<&Level> {
-        let gate = self.gate(gate)?;
-        gate.levels
-            .iter()
-            .find(|level| usize::try_from(level.score).ok() == Some(index))
-    }
-
     /// Where the gate with this id sits in the set, if the set has one.
     ///
     /// The pack is asked in file order and capped by `max_questions`, so
     /// the index says whether a gate was asked at all.
     pub fn index_of(&self, id: &str) -> Option<usize> {
         self.gates.iter().position(|gate| gate.id == id)
-    }
-
-    /// Where the gate with this id sits in the pack it belongs to (D70).
-    ///
-    /// The talk pack holds the talk gates and the move pack the rest, so a
-    /// gate's index in its own pack says whether that pack asked it.
-    pub fn pack_index_of(&self, pack: Pack, id: &str) -> Option<usize> {
-        pack.gates(self).position(|gate| gate.id == id)
     }
 
     /// How many gates the set holds.
@@ -747,11 +349,9 @@ impl GateSet {
 
     /// The `questions` pack of a System One call (D37).
     ///
-    /// One entry per gate, keyed by the gate's id. A `choice` gate over
-    /// the menu carries one criterion per menu option, keyed `opt0`,
-    /// `opt1`, … — the keys its answer comes back under. A `score` gate
-    /// carries an **array** of level descriptions, lowest score first:
-    /// the API refuses a score question whose criteria is a map.
+    /// One entry per gate, keyed by the gate's id. A `choice` or `score`
+    /// gate over the menu carries one criterion per menu option, keyed
+    /// `opt0`, `opt1`, … — the keys its answer comes back under.
     pub fn to_questions(&self, menu: &Menu) -> Value {
         self.to_questions_limited(menu, u16::MAX)
     }
@@ -768,68 +368,6 @@ impl GateSet {
         }
         Value::Object(questions)
     }
-
-    /// The gates of the **move pack** (D70).
-    ///
-    /// Every gate that is not a talk gate: the menu choices whose answer is
-    /// the agent's move, and any other gate the harness adds. The move pack
-    /// is asked on every think, so it holds the questions that move the
-    /// game.
-    pub fn move_gates(&self) -> impl Iterator<Item = &Gate> {
-        self.gates.iter().filter(|gate| !is_talk_gate(&gate.id))
-    }
-
-    /// The gates of the **talk pack** (D70): the gates a line needs — the
-    /// five utterance gates and the presence gate of each.
-    pub fn talk_gates(&self) -> impl Iterator<Item = &Gate> {
-        self.gates.iter().filter(|gate| is_talk_gate(&gate.id))
-    }
-
-    /// How many gates the move pack holds.
-    pub fn move_len(&self) -> u16 {
-        u16::try_from(self.move_gates().count()).unwrap_or(u16::MAX)
-    }
-
-    /// How many gates the talk pack holds.
-    pub fn talk_len(&self) -> u16 {
-        u16::try_from(self.talk_gates().count()).unwrap_or(u16::MAX)
-    }
-
-    /// The `questions` pack of the move pack (D70), capped at `limit` gates.
-    pub fn move_questions(&self, menu: &Menu, limit: u16) -> Value {
-        self.questions_of(self.move_gates(), menu, limit)
-    }
-
-    /// The `questions` pack of the talk pack (D70), capped at `limit` gates.
-    pub fn talk_questions(&self, menu: &Menu, limit: u16) -> Value {
-        self.questions_of(self.talk_gates(), menu, limit)
-    }
-
-    /// The `questions` pack of a set of gates, capped at `limit`.
-    fn questions_of<'a>(
-        &self,
-        gates: impl Iterator<Item = &'a Gate>,
-        menu: &Menu,
-        limit: u16,
-    ) -> Value {
-        let mut questions = Map::new();
-        for gate in gates.take(usize::from(limit)) {
-            questions.insert(gate.id.clone(), gate.question(menu));
-        }
-        Value::Object(questions)
-    }
-}
-
-/// Whether a gate id is one of the talk gates (D70): a line gate, or the
-/// presence gate of one.
-///
-/// The talk pack is the gates a line is chosen by, so this is what the pack
-/// split turns on: the move pack holds every other gate.
-pub fn is_talk_gate(id: &str) -> bool {
-    UTTERANCE_GATES.contains(&id)
-        || id
-            .strip_suffix(PRESENCE_SUFFIX)
-            .is_some_and(|gate| UTTERANCE_GATES.contains(&gate))
 }
 
 /// Turn the model's answers into decisions.
@@ -853,10 +391,8 @@ pub fn is_talk_gate(id: &str) -> bool {
 /// over: it travels in the decision's provenance, so the log names the exact
 /// situation the model answered (and the policy sees when a situation
 /// repeats).
-#[allow(clippy::too_many_arguments)] // a decision is a gate's answer over a menu
 pub fn answers_to_decisions(
     set: &GateSet,
-    pack: Pack,
     answers: &Answers,
     menu: &Menu,
     agent: u16,
@@ -867,20 +403,15 @@ pub fn answers_to_decisions(
     // An answer that names a gate we never asked is not an answer to our
     // question: refuse the whole pack instead of taking the part that fits.
     for id in answers.per_gate.keys() {
-        if set.pack_index_of(pack, id).is_none() {
+        if set.gate(id).is_none() {
             return Err(Refusal::Malformed(format!(
-                "the answer names the gate {id}, which is not one of this pack's"
+                "the answer names the gate {id}, which is not one of ours"
             )));
         }
     }
 
     let mut decisions = Vec::new();
     for (index, gate) in set.gates().iter().enumerate() {
-        // A gate of the other pack is not in this answer (D70): the move
-        // pack decides where the agent walks, the talk pack what it says.
-        if set.pack_index_of(pack, &gate.id).is_none() {
-            continue;
-        }
         // A gate with fixed options is not a lane: it is asked, answered
         // and logged, and whatever it calls for arrives in phase 4.
         if gate.options_from != OptionsFrom::Menu {
@@ -1013,9 +544,6 @@ mod tests {
     fn answers_for(gate: &str, answer: Answer) -> Answers {
         Answers {
             per_gate: BTreeMap::from([(gate.to_string(), answer)]),
-            unsure: BTreeMap::new(),
-            escalated: BTreeMap::new(),
-            decomposed: BTreeMap::new(),
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,
@@ -1122,9 +650,8 @@ beacon = "walk to beacon {beacon}"
             choice(&[("opt0", 0.1), ("opt1", 0.6), ("opt2", 0.2), ("opt3", 0.1)]),
         );
 
-        let decisions =
-            answers_to_decisions(&set, Pack::Move, &answers, &menu, 3, 100, 4, SITUATION)
-                .expect("the answer becomes a decision");
+        let decisions = answers_to_decisions(&set, &answers, &menu, 3, 100, 4, SITUATION)
+            .expect("the answer becomes a decision");
         assert_eq!(decisions.len(), 1);
 
         let decision = &decisions[0];
@@ -1170,7 +697,7 @@ beacon = "walk to beacon {beacon}"
             choice(&[("opt0", 0.5), ("opt1", 0.3), ("opt2", 0.2)]),
         );
 
-        let refusal = answers_to_decisions(&set, Pack::Move, &answers, &menu, 0, 10, 2, SITUATION)
+        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2, SITUATION)
             .expect_err("the stale answer is refused");
         assert_eq!(refusal, Refusal::MenuChanged);
     }
@@ -1181,7 +708,7 @@ beacon = "walk to beacon {beacon}"
         let menu = menu();
         let answers = answers_for("sneak", Answer::Noul(0.5));
 
-        let refusal = answers_to_decisions(&set, Pack::Move, &answers, &menu, 0, 10, 2, SITUATION)
+        let refusal = answers_to_decisions(&set, &answers, &menu, 0, 10, 2, SITUATION)
             .expect_err("the unknown gate is refused");
         assert!(matches!(refusal, Refusal::Malformed(_)), "got {refusal:?}");
     }
@@ -1220,125 +747,6 @@ beacon = "walk to beacon {beacon}"
     }
 
     #[test]
-    fn the_doctrine_is_the_advance_one_and_the_hold_variant_keeps_the_old_one() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/harness");
-        let default = Harness::open(&root.join("default")).expect("the default harness opens");
-        let hold = Harness::open(&root.join("variants/hold")).expect("the hold variant opens");
-
-        // The default holds the beacon only while it is contested: the
-        // `advance` doctrine (Casey's decision, 2026-10-30).
-        let default_set = GateSet::parse(&default.gates_toml).expect("the default gates parse");
-        let instructions = &default_set
-            .gate("move")
-            .expect("the move gate is there")
-            .instructions;
-        assert!(
-            instructions.contains("and an enemy is within 6 cells of you, hold"),
-            "the default harness does not hold only while the beacon is contested: {instructions}"
-        );
-
-        // The `hold` variant keeps the doctrine the default harness shipped
-        // until then: hold the beacon whenever no enemy is near. It is kept
-        // so the two stay comparable.
-        let hold_set = GateSet::parse(&hold.gates_toml).expect("the hold variant gates parse");
-        let old = &hold_set
-            .gate("move")
-            .expect("the move gate is there")
-            .instructions;
-        assert!(
-            old.contains("and no enemy is within 6 cells, hold"),
-            "the hold variant does not hold the old doctrine: {old}"
-        );
-
-        // Every harness in the tree parses: a variant whose gates do not
-        // parse is a variant nobody can play.
-        let mut dirs = vec![root.join("default")];
-        for entry in std::fs::read_dir(root.join("variants")).expect("the variants are there") {
-            let path = entry.expect("the entry reads").path();
-            if path.is_dir() {
-                dirs.push(path);
-            }
-        }
-        for dir in dirs {
-            let harness = Harness::open(&dir).expect("the harness opens");
-            GateSet::parse(&harness.gates_toml)
-                .unwrap_or_else(|err| panic!("the gates of {} parse: {err}", dir.display()));
-        }
-    }
-
-    #[test]
-    fn the_urgency_gate_is_stated_over_the_facts_the_builder_states() {
-        // The urgency gate is a score gate: the model picks a level and the
-        // index of the level is the score the affect is bucketed from. The
-        // levels are what the model reads, so they have to be phrased over
-        // facts the facts builder actually states — otherwise the model
-        // matches the level against a fact it was never given and answers
-        // the wrong level.
-        //
-        // It did: the levels said "an enemy can see you **within 6 cells**"
-        // and "a beacon your squad holds is **about to be lost**". The
-        // builder states neither: its count line is "no enemy is within 6
-        // cells of you" (the doctrine's own number, for the move gate),
-        // and it says which squad holds a beacon, never that one is about
-        // to be lost. On the Thor's d1-2B that made a tagged agent read as
-        // calm (p(urgent) = 0.005) and an enemy watching the agent from
-        // eleven cells read as ordinary — see
-        // crates/lm-agents/tests/urgency_on_thor.md.
-        let set = default_set();
-        let gate = set.gate("intention").expect("the urgency gate is there");
-        assert_eq!(gate.kind, GateKind::Score);
-
-        // The scale is still three levels, lowest score first, and the
-        // scores are the ones the affect buckets are read from.
-        let levels = gate.levels_by_score();
-        let keys: Vec<&str> = levels.iter().map(|level| level.key.as_str()).collect();
-        assert_eq!(keys, vec!["idle", "ordinary", "urgent"]);
-        let scores: Vec<u32> = levels.iter().map(|level| level.score).collect();
-        assert_eq!(scores, vec![0, 1, 2]);
-
-        // The two ends of the scale name the facts the builder states:
-        // the enemy lines say "can see you", the stun says "You are
-        // stunned." and an ally's line says "and is stunned". The middle
-        // is the "otherwise", so it names nothing.
-        for level in levels.iter().filter(|level| level.key != "ordinary") {
-            assert!(
-                level.description.contains("can see you"),
-                "the level {} does not name the enemy's line: {}",
-                level.key,
-                level.description
-            );
-            assert!(
-                level.description.contains("stunned"),
-                "the level {} does not name the stun: {}",
-                level.key,
-                level.description
-            );
-        }
-
-        // And no level asks for a fact the builder cannot state: it says
-        // which squad holds a beacon, never that a beacon is about to be
-        // lost, and it counts the enemies within six cells for the move
-        // gate, not for the tone.
-        for level in &levels {
-            assert!(
-                !level.description.contains("about to be lost"),
-                "the level {} asks for a fact the builder never states: {}",
-                level.key,
-                level.description
-            );
-        }
-        assert!(!gate.instructions.contains("about to be lost"));
-        assert!(!gate.instructions.contains("not moving together"));
-
-        // The instructions are the rule over the same facts.
-        assert!(gate.instructions.contains("an enemy can see you"));
-        assert!(gate.instructions.contains("you are stunned"));
-        assert!(gate
-            .instructions
-            .contains("an ally within 4 cells of you is stunned"));
-    }
-
-    #[test]
     fn a_noul_gate_makes_no_decision() {
         // The call-out is logged in phase 3; the utterance arrives in
         // phase 4. It never becomes a decision.
@@ -1346,28 +754,9 @@ beacon = "walk to beacon {beacon}"
         let menu = menu();
         let answers = answers_for("gesture_present", Answer::Noul(0.8));
 
-        let decisions = answers_to_decisions(&set, Pack::Talk, &answers, &menu, 1, 5, 1, SITUATION)
+        let decisions = answers_to_decisions(&set, &answers, &menu, 1, 5, 1, SITUATION)
             .expect("the answer is accepted");
         assert!(decisions.is_empty(), "got {decisions:?}");
-    }
-
-    #[test]
-    fn a_pack_answers_only_its_own_gates() {
-        // D70: the move pack and the talk pack are separate requests, so
-        // an answer over the other pack's gates is not an answer to this
-        // question.
-        let set = default_set();
-        let menu = menu();
-        let answers = answers_for(
-            "move",
-            Answer::Choice {
-                probs: BTreeMap::new(),
-                confidence: 0.9,
-            },
-        );
-        let refusal = answers_to_decisions(&set, Pack::Talk, &answers, &menu, 1, 5, 1, SITUATION)
-            .expect_err("the talk pack was not asked the move gate");
-        assert!(matches!(refusal, Refusal::Malformed(_)), "got {refusal:?}");
     }
 
     #[test]
@@ -1394,7 +783,7 @@ beacon = "walk to beacon {beacon}"
             choice(&[("opt0", 0.5), ("opt1", 0.2), ("opt2", 0.2), ("opt3", 0.1)]),
         );
 
-        let decisions = answers_to_decisions(&set, Pack::Move, &answers, &menu, 2, 7, 3, SITUATION)
+        let decisions = answers_to_decisions(&set, &answers, &menu, 2, 7, 3, SITUATION)
             .expect("the answer is accepted");
         assert_eq!(decisions.len(), 1);
         match &decisions[0].kind {
@@ -1428,15 +817,12 @@ beacon = "walk to beacon {beacon}"
         per_gate.insert("aim".to_string(), choice(&probs));
         let answers = Answers {
             per_gate,
-            unsure: BTreeMap::new(),
-            escalated: BTreeMap::new(),
-            decomposed: BTreeMap::new(),
             model: "d1-3B".to_string(),
             input_tokens: 512,
             latency_ms: 120,
         };
 
-        let decisions = answers_to_decisions(&set, Pack::Move, &answers, &menu, 2, 7, 3, SITUATION)
+        let decisions = answers_to_decisions(&set, &answers, &menu, 2, 7, 3, SITUATION)
             .expect("the answers are accepted");
         assert_eq!(decisions.len(), 2);
         let gates: Vec<u8> = decisions
@@ -1470,183 +856,6 @@ beacon = "walk to beacon {beacon}"
         assert_eq!(criteria.len(), 2);
         assert_eq!(criteria["north"], "the beacon lies north of you");
         assert_eq!(criteria["south"], "the beacon lies south of you");
-    }
-
-    #[test]
-    fn score_criteria_are_an_ordered_array() {
-        // The API wants a score question's criteria as an ARRAY of 2 to
-        // 10 level descriptions, lowest score first. A map is refused —
-        // and the whole pack with it, which is what stopped the agents
-        // from deciding anything on the Thor.
-        let set = default_set();
-        let questions = set.to_questions(&menu());
-
-        let criteria = questions["intention"]["criteria"]
-            .as_array()
-            .expect("the score criteria are an array");
-        assert_eq!(criteria.len(), 3);
-        assert_eq!(
-            criteria[0],
-            "idle: no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned"
-        );
-        assert_eq!(
-            criteria[1],
-            "ordinary: nothing is happening that your squad has to know about now"
-        );
-        assert_eq!(
-            criteria[2],
-            "urgent: an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned"
-        );
-
-        // The order is the score's and not the file's: a file that writes
-        // its levels out of order still sends the scale from the lowest
-        // level to the highest.
-        let text = r#"
-            [[gates]]
-            id = "intention"
-            type = "score"
-            options_from = "fixed"
-            instructions = "How urgent is this moment?"
-
-            [[gates.levels]]
-            key = "urgent"
-            score = 2
-            description = "the moment is urgent"
-
-            [[gates.levels]]
-            key = "idle"
-            score = 0
-            description = "the moment is quiet"
-
-            [[gates.levels]]
-            key = "ordinary"
-            score = 1
-            description = "the moment is ordinary"
-        "#;
-        let set = GateSet::parse(text).expect("the gates parse");
-        let questions = set.to_questions(&menu());
-        let criteria = questions["intention"]["criteria"]
-            .as_array()
-            .expect("the score criteria are an array");
-        assert_eq!(
-            criteria,
-            &vec![
-                json!("the moment is quiet"),
-                json!("the moment is ordinary"),
-                json!("the moment is urgent"),
-            ]
-        );
-
-        // And the index the model answers names the right level: the
-        // index is the level's score, so "level 2" is the urgent one.
-        assert_eq!(
-            set.level_for("intention", 0)
-                .map(|level| level.key.as_str()),
-            Some("idle")
-        );
-        assert_eq!(
-            set.level_for("intention", 1)
-                .map(|level| level.key.as_str()),
-            Some("ordinary")
-        );
-        assert_eq!(
-            set.level_for("intention", 2)
-                .map(|level| level.key.as_str()),
-            Some("urgent")
-        );
-        assert!(
-            set.level_for("intention", 3).is_none(),
-            "the scale has three levels"
-        );
-    }
-
-    #[test]
-    fn a_score_gate_that_does_not_fit_the_scale_is_refused() {
-        // Too few levels: the API takes 2 to 10, and the gates are read
-        // before anything is sent, so the broken scale is a typed error
-        // here and not a 400 on the Thor.
-        let text = r#"
-            [[gates]]
-            id = "intention"
-            type = "score"
-            options_from = "fixed"
-            instructions = "How urgent is this moment?"
-
-            [[gates.levels]]
-            key = "idle"
-            score = 0
-            description = "the moment is quiet"
-        "#;
-        let error = GateSet::parse(text).expect_err("the one-level scale is refused");
-        match error {
-            GateError::ScoreLevels { id, why } => {
-                assert_eq!(id, "intention");
-                assert!(why.contains("2 to 10"), "got {why}");
-            }
-            other => panic!("expected a score-level error, got {other:?}"),
-        }
-
-        // Too many levels.
-        let mut text = String::from(
-            "\n[[gates]]\nid = \"intention\"\ntype = \"score\"\noptions_from = \"fixed\"\ninstructions = \"How urgent is this moment?\"\n",
-        );
-        for level in 0..11 {
-            text.push_str(&format!(
-                "\n[[gates.levels]]\nkey = \"level{level}\"\nscore = {level}\ndescription = \"level {level}\"\n"
-            ));
-        }
-        let error = GateSet::parse(&text).expect_err("the eleven-level scale is refused");
-        assert!(
-            matches!(error, GateError::ScoreLevels { .. }),
-            "got {error:?}"
-        );
-    }
-
-    #[test]
-    fn a_score_gate_whose_scores_do_not_count_from_zero_is_refused() {
-        // The index the model answers is the level's score, so the
-        // scores have to count 0, 1, 2, … with no gap: a scale that
-        // skips one would make the model's answer name the wrong level.
-        let text = r#"
-            [[gates]]
-            id = "intention"
-            type = "score"
-            options_from = "fixed"
-            instructions = "How urgent is this moment?"
-
-            [[gates.levels]]
-            key = "idle"
-            score = 0
-            description = "the moment is quiet"
-
-            [[gates.levels]]
-            key = "urgent"
-            score = 2
-            description = "the moment is urgent"
-        "#;
-        let error = GateSet::parse(text).expect_err("the scale with a gap is refused");
-        match error {
-            GateError::ScoreLevels { id, why } => {
-                assert_eq!(id, "intention");
-                assert!(why.contains("count from zero"), "got {why}");
-            }
-            other => panic!("expected a score-level error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_score_gate_over_the_menu_is_refused() {
-        // The menu's options are named keys, not a scale: nothing says
-        // which of them is the lowest level.
-        let text = r#"
-            [[gates]]
-            id = "intention"
-            type = "score"
-            options_from = "menu"
-            instructions = "How urgent is this moment?"
-        "#;
-        let error = GateSet::parse(text).expect_err("the score gate over the menu is refused");
-        assert_eq!(error, GateError::ScoreOverMenu("intention".to_string()));
     }
 
     #[test]
@@ -1720,182 +929,5 @@ beacon = "walk to beacon {beacon}"
     fn a_file_without_gates_is_refused() {
         let error = GateSet::parse("think_hz = 4\n").expect_err("the file is refused");
         assert_eq!(error, GateError::MissingGates);
-    }
-
-    /// A gate with a two-step tree over three options.
-    const TREE_GATES: &str = r#"
-        [[gates]]
-        id = "attention"
-        type = "choice"
-        options_from = "fixed"
-        instructions = "Who the line is for?"
-
-        [gates.criteria]
-        squad = "your squad"
-        all = "everybody"
-        agent0 = "agent 0 in particular"
-
-        [gates.decompose]
-        instructions = "Who is it for, in coarse terms?"
-
-        [[gates.decompose.partitions]]
-        key = "squad"
-        description = "your squad as a whole"
-        instructions = "Your squad as a whole?"
-
-        [[gates.decompose.partitions.options]]
-        option = "squad"
-        description = "your squad"
-
-        [[gates.decompose.partitions]]
-        key = "agent"
-        description = "one agent in particular"
-        instructions = "Which agent?"
-
-        [[gates.decompose.partitions.options]]
-        option = "agent0"
-        description = "agent 0 in particular"
-
-        [[gates.decompose.partitions.options]]
-        option = "all"
-        description = "everybody"
-    "#;
-
-    #[test]
-    fn a_gate_with_a_tree_is_kept_and_found() {
-        let set = GateSet::parse(TREE_GATES).expect("the tree parses");
-        let tree = set
-            .decomposition_of("attention")
-            .expect("the attention gate has a tree");
-        assert_eq!(tree.partitions.len(), 2);
-        assert_eq!(tree.partitions[0].key, "squad");
-        assert_eq!(tree.partitions[0].options[0].option, "squad");
-        assert_eq!(tree.partitions[1].options.len(), 2);
-    }
-
-    #[test]
-    fn a_gate_without_a_tree_has_none() {
-        let set = GateSet::parse(TREE_GATES).expect("the tree parses");
-        assert!(set.decomposition_of("gesture").is_none());
-    }
-
-    #[test]
-    fn the_default_harness_has_a_tree_for_the_attention_gate() {
-        // The tree of the wide gate: your squad as a whole, one agent of
-        // squad 0, one agent of squad 1, and everybody. The two group
-        // branches are dead ends, so they ask nothing twice.
-        let set = default_set();
-        let tree = set
-            .decomposition_of("attention")
-            .expect("the attention gate has a tree");
-        let keys: Vec<&str> = tree.partitions.iter().map(|p| p.key.as_str()).collect();
-        assert_eq!(keys, ["your_squad", "squad_0", "squad_1", "everybody"]);
-        assert_eq!(tree.partitions[0].options.len(), 1, "your squad");
-        assert_eq!(tree.partitions[1].options.len(), 4, "squad 0");
-        assert_eq!(tree.partitions[2].options.len(), 4, "squad 1");
-        assert_eq!(tree.partitions[3].options.len(), 1, "everybody");
-    }
-
-    #[test]
-    fn the_tree_of_the_attention_gate_is_absolute_about_the_squads() {
-        // The tree is the same tree for every agent, so it cannot say
-        // "your own squad": half the roster is on each side, and a branch
-        // that meant "yours" would offer one squad's agents to the agents
-        // of the other squad. Squad 0 is agents 0-3 and squad 1 is agents
-        // 4-7, for whoever is asking.
-        let set = default_set();
-        let tree = set
-            .decomposition_of("attention")
-            .expect("the attention gate has a tree");
-        let options_of = |key: &str| -> Vec<String> {
-            tree.partitions
-                .iter()
-                .find(|partition| partition.key == key)
-                .expect("the partition is there")
-                .options
-                .iter()
-                .map(|leaf| leaf.option.clone())
-                .collect()
-        };
-        assert_eq!(
-            options_of("squad_0"),
-            ["agent0", "agent1", "agent2", "agent3"]
-        );
-        assert_eq!(
-            options_of("squad_1"),
-            ["agent4", "agent5", "agent6", "agent7"]
-        );
-        assert_eq!(options_of("your_squad"), ["squad"]);
-        assert_eq!(options_of("everybody"), ["all"]);
-    }
-
-    #[test]
-    fn a_tree_naming_an_unknown_option_is_refused() {
-        let text = TREE_GATES.replace(
-            "option = \"agent0\"\n        description = \"agent 0 in particular\"",
-            "option = \"agent9\"\n        description = \"agent 9 in particular\"",
-        );
-        let error = GateSet::parse(&text).expect_err("the unknown option is refused");
-        assert!(
-            matches!(&error, GateError::Decomposition { id, why } if id == "attention"
-                && why.contains("agent9")),
-            "the error names the option: {error:?}"
-        );
-    }
-
-    #[test]
-    fn a_tree_that_misses_an_option_is_refused() {
-        let text = TREE_GATES.replace(
-            "        [[gates.decompose.partitions.options]]\n        option = \"all\"\n        description = \"everybody\"\n",
-            "",
-        );
-        let error = GateSet::parse(&text).expect_err("the missing option is refused");
-        assert!(
-            matches!(&error, GateError::Decomposition { id, why } if id == "attention"
-                && why.contains("all")),
-            "the error names the option: {error:?}"
-        );
-    }
-
-    #[test]
-    fn a_tree_naming_an_option_twice_is_refused() {
-        let text = TREE_GATES.replace(
-            "        [[gates.decompose.partitions.options]]\n        option = \"all\"\n        description = \"everybody\"\n",
-            "        [[gates.decompose.partitions.options]]\n        option = \"squad\"\n        description = \"your squad again\"\n",
-        );
-        let error = GateSet::parse(&text).expect_err("the repeated option is refused");
-        assert!(
-            matches!(&error, GateError::Decomposition { id, why } if id == "attention"
-                && why.contains("squad")),
-            "the error names the option: {error:?}"
-        );
-    }
-
-    #[test]
-    fn a_tree_over_a_menu_gate_is_refused() {
-        let text = r#"
-            [[gates]]
-            id = "move"
-            type = "choice"
-            options_from = "menu"
-            instructions = "What should you do now?"
-
-            [gates.decompose]
-            instructions = "Who is it for, in coarse terms?"
-
-            [[gates.decompose.partitions]]
-            key = "a"
-            description = "a"
-            instructions = "A?"
-
-            [[gates.decompose.partitions.options]]
-            option = "hold"
-            description = "hold"
-        "#;
-        let error = GateSet::parse(text).expect_err("the tree over a menu is refused");
-        assert!(
-            matches!(&error, GateError::Decomposition { id, .. } if id == "move"),
-            "the error names the gate: {error:?}"
-        );
     }
 }

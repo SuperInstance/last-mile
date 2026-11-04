@@ -6,12 +6,11 @@
 //! answer would touch. Nothing here reaches the network: the reviewer is a
 //! stub and every file lives in a temporary directory.
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use lm_host_model::between::{Action, BetweenModel, PredictionView, Section};
+use lm_host_model::between::{Action, BetweenModel, Section};
 use lm_learn::deposits;
 use lm_learn::flow::{run_learning_round, Decision, FlowConfig, FlowRecord, StubReviewer};
 use lm_learn::ledger::{Direction, Entry, Ledger};
@@ -144,47 +143,6 @@ fn flow(dir: &Path, harness: &Path, seed: u64, ticks: u64, eval_seeds: usize) ->
 /// The screen the host would show for this record.
 fn screen(record: &FlowRecord) -> BetweenModel {
     BetweenModel::measured(record, None)
-}
-
-/// The held-out seeds fit on the screen.
-///
-/// The flow judges a proposal on sixteen held-out seeds now, and sixteen
-/// numbers do not fit on a line as a list: a run of consecutive seeds is
-/// written as a range, and the count is always there, because a reader has
-/// to know how many seeds the verdict was read from.
-#[test]
-fn the_held_out_seeds_are_one_line() {
-    let prediction = PredictionView {
-        seal: 1,
-        metric: "hold_ticks_squad0".into(),
-        direction: Direction::Up,
-        min_delta: 1,
-        eval_seeds: (1_001_000..1_001_016).collect(),
-        author: "test".into(),
-        text: String::new(),
-    };
-    assert_eq!(
-        prediction.seeds_text(),
-        "16 seeds (1001000..1001015)",
-        "sixteen seeds do not fit on the screen as a list"
-    );
-
-    // Seeds that are not a run are written as the list they are.
-    let scattered = PredictionView {
-        eval_seeds: vec![1_001_000, 1_001_002, 1_001_007],
-        ..prediction.clone()
-    };
-    assert_eq!(
-        scattered.seeds_text(),
-        "3 seeds (1001000, 1001002, 1001007)"
-    );
-
-    // And a round judged on no seeds says so.
-    let none = PredictionView {
-        eval_seeds: Vec::new(),
-        ..prediction
-    };
-    assert_eq!(none.seeds_text(), "none");
 }
 
 /// The promise comes before the measurement that judges it: the prediction was
@@ -329,15 +287,11 @@ fn request_box_writes_a_deposit() {
 /// Refusing a proposal does not move the next round's pin: the header the
 /// flow wrote stays as it is (D27).
 #[test]
-fn reject_override_repins_the_next_round_to_a_revert() {
+fn reject_leaves_the_header_pin_unchanged() {
     let dir = scratch("pin");
     let harness = harness_root(&dir);
     let mut reviewer = StubReviewer::new(hold_review(0));
-    // Sixteen held-out seeds: the count the flow ships with. At four the
-    // sign test refuses everything — the fairest possible sample at four
-    // seeds is p = 0.0625 — so the round this test needs (a proposal the
-    // evaluation backs) cannot happen there.
-    let record = run_learning_round(&flow(&dir, &harness, 7, 1_500, 16), &mut reviewer)
+    let record = run_learning_round(&flow(&dir, &harness, 7, 1_500, 4), &mut reviewer)
         .expect("the round runs");
     assert_eq!(
         record.decision,
@@ -357,107 +311,15 @@ fn reject_override_repins_the_next_round_to_a_revert() {
         .expect("the override is written");
     assert_eq!(next.decision, Decision::Reject);
 
-    // A refusal against the measurement is carried out: the change is
-    // reverted in a new commit, and the next round pins that revert, not the
-    // commit the flow adopted.
-    assert_ne!(
+    // The next round still pins what the flow wrote: refusing a proposal does
+    // not repin the header.
+    assert_eq!(
         next.next_header_pin, commit,
-        "the refusal left the next round on the adopted change"
+        "the refusal moved the next round's pin"
     );
-    assert_ne!(
+    assert_eq!(
         fs::read(&record.next_header_path).expect("the next header is there"),
         header_before,
-        "the next header was not repinned"
+        "the header the flow wrote was rewritten"
     );
-}
-
-/// The surprise the round's agents counted travels the whole chain: handed
-/// to the flow, kept by the record (its top entries only), and shown by the
-/// screen between the metrics and the proposal. A round without a table —
-/// a reflex-only round, which is what the flow plays alone — shows nothing.
-#[test]
-fn the_screen_shows_where_the_minds_struggled() {
-    use lm_agents::surprise::{EnemySpot, Margin, Phase, RoundSurprise, SituationKey, Standing};
-    use lm_agents::sysone::{Answers, Refusal};
-
-    let fight = SituationKey {
-        standing: Standing::Enemy,
-        enemy: EnemySpot::Seeing,
-        stunned: true,
-        margin: Margin::Behind,
-        phase: Phase::Mid,
-    };
-    let quiet = SituationKey {
-        standing: Standing::Off,
-        enemy: EnemySpot::None,
-        stunned: false,
-        margin: Margin::Level,
-        phase: Phase::Early,
-    };
-    let answered = Answers {
-        per_gate: Default::default(),
-        escalated: Default::default(),
-        decomposed: BTreeMap::new(),
-        unsure: [("attention".to_owned(), 0.2)].into_iter().collect(),
-        model: "d1-2b".to_owned(),
-        input_tokens: 0,
-        latency_ms: 1,
-    };
-    let mut table = RoundSurprise::default();
-    for _ in 0..9 {
-        table.record(fight, &Ok(answered.clone()));
-    }
-    table.record(fight, &Err(Refusal::Timeout));
-    // The quiet bucket never reaches the minimum-asks floor: counted, but
-    // not ranked.
-    table.record(quiet, &Ok(answered.clone()));
-
-    let dir = scratch("surprise");
-    let harness = harness_root(&dir);
-    let mut reviewer = StubReviewer::new(harmless_review());
-    let cfg = flow(&dir, &harness, 7, 300, 2).with_surprise(table);
-    let record = run_learning_round(&cfg, &mut reviewer).expect("the round runs");
-    assert_eq!(
-        record.surprise.len(),
-        1,
-        "only the ranked bucket is kept: {:?}",
-        record.surprise
-    );
-
-    let model = screen(&record);
-    assert_eq!(model.surprise.len(), 1);
-    let line = &model.surprise[0];
-    assert_eq!(line.asks, 10);
-    assert_eq!(line.unsure_asks, 9);
-    assert_eq!(line.refused, 1);
-    assert_eq!(line.escalated, 0);
-    assert_eq!(
-        line.text,
-        "mid round, behind on score, an enemy in sight, stunned, on an enemy beacon: \
-         9 of 10 asks unsure (attention: 9)"
-    );
-
-    // The surprise sits between the metrics and the proposal: it is the
-    // round's own answer to "where did they struggle", and the proposal is
-    // read against it.
-    let sections = model.sections();
-    let at = |section: Section| sections.iter().position(|s| *s == section).expect("there");
-    assert!(at(Section::Metrics) < at(Section::Surprise));
-    assert!(at(Section::Surprise) < at(Section::Proposal));
-
-    // The record on disk carries the counts the screen read: the files agree.
-    let text = fs::read_to_string(&record.record_path).expect("the record is on disk");
-    let on_disk: FlowRecord = serde_json::from_str(&text).expect("the record loads back");
-    assert_eq!(on_disk.surprise, record.surprise);
-    assert_eq!(on_disk.surprise[0].asks, 10);
-
-    // And a round the flow played alone — reflex only, no asks — shows no
-    // surprise section at all, and says nothing.
-    let dir = scratch("surprise-none");
-    let harness = harness_root(&dir);
-    let mut reviewer = StubReviewer::new(harmless_review());
-    let record = run_learning_round(&flow(&dir, &harness, 7, 300, 2), &mut reviewer)
-        .expect("the round runs");
-    assert!(record.surprise.is_empty());
-    assert!(!screen(&record).sections().contains(&Section::Surprise));
 }

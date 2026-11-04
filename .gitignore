@@ -12,6 +12,3 @@ secrets/
 /cache/
 *.safetensors
 *.gguf
-
-# python bytecode
-__pycache__/

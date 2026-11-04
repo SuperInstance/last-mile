@@ -1,39 +1,27 @@
-//! The voice service: text to speech, speech to text, and the caches that
-//! keep the same line from being spoken twice.
+//! The voice service: text to speech, speech to text, and the cache that
+//! keeps the same line from being spoken twice.
 //!
 //! The round's score is the truth; the audio is for the human. A line is
 //! synthesized **only** when the human's ear can hear it, and the sim never
 //! depends on whether the human heard anything.
 //!
-//! The backends come in two kinds:
+//! The backends are stubs and placeholders on purpose:
 //!
 //! - [`StubTts`] and [`StubAsr`] are deterministic: no network, no clock,
 //!   the same request always gives the same clip, byte for byte. They are
-//!   what the tests and the headless runner use — and [`StubTts`] is also
-//!   the **tone** of the fallback contract: a line the bank did not have
-//!   ready plays as it;
-//! - the **skald sidecar** (D67, the real service on this Thor) is the
-//!   live path: [`skald::VoiceClient`] renders a line to a WAV over HTTP
-//!   under a deadline, [`bank::VoiceBank`] files the WAV on disk under a
-//!   hash of its ask, [`prefetch::PrefetchQueue`] renders upcoming lines
-//!   on a worker thread so a lookup is hit, pending or miss and never a
-//!   wait, and [`asr::Gate`] is the intelligibility round trip — audio
-//!   "works" only when a recognizer agrees with what was asked for.
-//!   [`voicemap::VoiceMap`] is `voice.toml`, the harness's own word on
-//!   who says what and how it sounds;
-//! - [`RivaTts`] and [`RivaAsr`] are the older adapters for a direct
-//!   Riva port, still waiting on the spec sheet (spec §12): the ports are
-//!   **configuration** and no port is ever guessed;
-//! - [`ProsodyPort`] measures a voice: the tracks Task 6 captures from
-//!   the human's microphone.
+//!   what the tests and the headless runner use;
+//! - [`RivaTts`] and [`RivaAsr`] are the adapters for the real service, and
+//!   the Riva ports are still unknown (spec §12): the ports are
+//!   **configuration** and no port is ever guessed. Until the spec sheet
+//!   lands, an adapter builds its request and answers
+//!   [`VoiceError::NotConfigured`];
+//! - [`ProsodyPort`] measures a voice: the tracks Task 6 captures from the
+//!   human's microphone.
 //!
 //! The prosody of a request is the score's prosody as SSML-style
 //! parameters -- the rate, the pitch and the emphasis -- and never a
 //! latent-space injection (research/03: the real levers are SSML, the
-//! voice and the text). On the skald path, where the service takes no
-//! such parameters, the prosody travels as the **choice of voice id**:
-//! the speaker and the emotion style, folded into the one string the
-//! daemon knows.
+//! voice and the text).
 
 use lm_core::fixed::Pos;
 use lm_core::hash::Fnv64;
@@ -44,32 +32,9 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
 
-pub mod asr_http;
 pub mod bark;
-pub mod human;
-pub mod prosody;
 
-pub use asr_http::{CallCost, HttpAsr};
 pub use bark::{bark_key, BarkCache, DEFAULT_BARK_CAP};
-pub use human::{
-    build_human_utterance, build_human_utterance_at, check_mic, mic_health, Capture, MicHealth,
-    DEFAULT_ASR_SAMPLE_RATE, DEFAULT_TICK_HZ, DEFAULT_ZERO_FRACTION_MAX_Q16, PROSODY_FRAME_MS,
-};
-pub use prosody::{ProsodyService, DEFAULT_TIMEOUT_MS as PROSODY_TIMEOUT_MS, SCORE_PATH};
-
-pub mod asr;
-pub mod bank;
-#[cfg(any(test, feature = "mocks"))]
-pub mod mockhttp;
-pub mod prefetch;
-pub mod skald;
-pub mod voicemap;
-
-pub use asr::{word_accuracy, Gate, GateOutcome, Heard};
-pub use bank::{bank_key, BankError, BankMeta, VoiceBank};
-pub use prefetch::{Due, Lookup, PrefetchQueue, QueueStats};
-pub use skald::{canonical_voice_id, skald_base, SpeechLine, VoiceClient, STYLES};
-pub use voicemap::{AsrBackend, AsrConfig, VoiceMap, SHIPPED_VOICE_TOML};
 
 /// The environment variable that names the Riva base URL.
 pub const ENV_RIVA_BASE: &str = "LM_RIVA_BASE";
@@ -77,30 +42,6 @@ pub const ENV_RIVA_BASE: &str = "LM_RIVA_BASE";
 pub const ENV_RIVA_TTS_PORT: &str = "LM_RIVA_TTS_PORT";
 /// The environment variable that names the Riva ASR port.
 pub const ENV_RIVA_ASR_PORT: &str = "LM_RIVA_ASR_PORT";
-/// The environment variable that names the voice daemon's base URL.
-///
-/// The daemon is on the Thor, and both the live lane and the host itself
-/// run from another box: the environment says where the daemon is, and
-/// the voice map's "localhost" is the default for a run on the daemon's
-/// own box. The harness file is doctrine pinned per round while the
-/// daemon's address is a fact of the machine the host runs on — the
-/// environment is the machine's own word, and it wins over the file, the
-/// same rule the Riva adapters follow. The base is named without the
-/// port: the port is `LM_SKALD_PORT`'s or the map's, and the map is the
-/// config.
-pub const ENV_SKALD_BASE: &str = "LM_SKALD_BASE";
-/// The environment variable that overrides the skald daemon's port.
-///
-/// The map names the port the Thor spells, and the machine the host runs
-/// on may reach the daemon at another one; this is the machine's own
-/// word for it, beside [`ENV_SKALD_BASE`].
-pub const ENV_SKALD_PORT: &str = "LM_SKALD_PORT";
-/// The environment variable that names the ears' base URL.
-///
-/// The ears are on the Thor too, and the same rule holds: the
-/// environment says where they are, and the voice map's address is the
-/// default.
-pub const ENV_EARS_BASE: &str = "LM_EARS_BASE";
 
 /// What the voice service can be asked for, and what it can be told.
 ///
@@ -235,20 +176,13 @@ impl fmt::Display for VoiceError {
 impl std::error::Error for VoiceError {}
 
 /// A text-to-speech backend.
-///
-/// The backends are `Send + Sync` because the host keeps one in an ECS
-/// resource: the voice service is a handle the world shares, not a
-/// thread's private state.
-pub trait Tts: Send + Sync {
+pub trait Tts {
     /// Speak a line.
     fn synthesize(&self, req: &TtsRequest) -> Result<TtsClip, VoiceError>;
 }
 
 /// A speech-to-text backend.
-///
-/// The backend is `Send + Sync` because the host keeps one in an ECS
-/// resource.
-pub trait Asr: Send + Sync {
+pub trait Asr {
     /// Listen to a capture and write down what was said.
     fn transcribe(&self, pcm: &[i16], sample_rate: u32) -> Result<Transcript, VoiceError>;
 }
@@ -294,10 +228,7 @@ impl Default for MeasuredProsody {
 /// as a local HTTP sidecar on the ProArt (Task 6), because a Rust port
 /// would freeze one snapshot of that science into a second implementation
 /// and drift from it.
-///
-/// The port is `Send + Sync` because the host keeps one in an ECS
-/// resource.
-pub trait ProsodyPort: Send + Sync {
+pub trait ProsodyPort {
     /// Measure a capture.
     fn measure(&self, pcm: &[i16], sample_rate: u32) -> Result<MeasuredProsody, VoiceError>;
 }
@@ -757,8 +688,8 @@ mod tests {
     use lm_core::header::Header;
     use lm_core::sim::Sim;
     use lm_core::utterance::{Addressee, Intent, Prosody, Word};
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Arc;
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     /// The shipped reflex, so the round in the test really plays.
     const DEFAULT_REFLEX: &str = include_str!("../../../assets/reflexes/default.rhai");
@@ -769,19 +700,19 @@ mod tests {
     /// has taken the backend by value.
     #[derive(Clone, Default)]
     pub(crate) struct CountingTts {
-        calls: Arc<AtomicU32>,
+        calls: Rc<Cell<u32>>,
     }
 
     impl CountingTts {
         /// How many times the backend was asked to speak.
         pub(crate) fn calls(&self) -> u32 {
-            self.calls.load(Ordering::Relaxed)
+            self.calls.get()
         }
     }
 
     impl Tts for CountingTts {
         fn synthesize(&self, _req: &TtsRequest) -> Result<TtsClip, VoiceError> {
-            self.calls.fetch_add(1, Ordering::Relaxed);
+            self.calls.set(self.calls.get() + 1);
             Ok(TtsClip {
                 pcm: vec![0; 16],
                 sample_rate: 16_000,
@@ -884,11 +815,7 @@ mod tests {
             .speak(&req, &line, speaker_place, far, sim.world(), &h.talk)
             .expect("no error");
         assert!(clip.is_none(), "an inaudible line is not spoken");
-        assert_eq!(
-            calls.load(Ordering::Relaxed),
-            0,
-            "an inaudible line costs no TTS call"
-        );
+        assert_eq!(calls.get(), 0, "an inaudible line costs no TTS call");
 
         // And the utterance still happened in the sim: the audio is for
         // the human, and the sim never depends on it.
@@ -909,11 +836,7 @@ mod tests {
             .speak(&req, &line, speaker_place, near, sim.world(), &h.talk)
             .expect("no error");
         assert!(clip.is_some(), "a line in earshot is spoken");
-        assert_eq!(
-            calls.load(Ordering::Relaxed),
-            1,
-            "the line reached the TTS once"
-        );
+        assert_eq!(calls.get(), 1, "the line reached the TTS once");
     }
 
     #[test]
