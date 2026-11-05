@@ -12,3 +12,8 @@ echo "$out" | grep -q 'all checks passed' || { echo "CHECK FAILED $B"; echo "$ou
 win=$(bash scripts/win-build.sh build -p lm-host --release 2>&1); echo "$win" | grep -qE '^error' && { echo "WINDOWS BUILD FAILED $B"; echo "$win" | grep -E -A6 '^error' | head -20; exit 4; }
 echo "windows lm-host builds"
 cd $R && git fetch -q && git branch -f m1-integration origin/m1-integration && (cd $W && git rebase -q m1-integration) && git checkout -q m1-integration && git merge -q --ff-only mb-tmp && git push -q && git push -q origin --delete $B && git log --oneline -1 && git checkout -q phase1-core && git worktree remove --force $W && git branch -qD mb-tmp && echo "MERGED $B"
+# Reclaim the mirrors of seats that have finished. Each one keeps a multi-
+# gigabyte cargo target/ on the C: drive, and a finished seat's mirror used
+# to stay there forever. The merge mirror is kept: its worktree only exists
+# during a merge, and the next merge wants its target/ warm.
+bash scripts/win-build.sh prune --keep merge

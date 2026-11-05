@@ -405,6 +405,30 @@ bash scripts/win-build.sh run -p lm-host --release -- \
     --screenshot 'C:\Users\casey\src\shot1.png' --frames 30
 ```
 
+### The mirrors are per worktree, and they outlive it
+
+One mirror per worktree, because concurrent worktrees sharing one mirror
+compiled each other's trees (and one seat's uncommitted file was lost that
+way). The suffix is the worktree's directory name.
+
+The cost of that is a per-worktree cargo `target/`, and Bevy's `target/` is
+several gigabytes. A mirror outlived its worktree: on 2026-10-30 twenty-three
+of them had taken the C: drive to 96% full (71 GB), with nothing in the
+script able to remove one. The mirror now records the worktree it came from
+in `.win-mirror`, and three commands deal with the rest:
+
+```bash
+bash scripts/win-build.sh list             # each mirror, its worktree, live or DEAD
+bash scripts/win-build.sh prune --dry-run  # what would go (fast: no sizes)
+bash scripts/win-build.sh prune            # remove the mirrors whose worktree is gone
+bash scripts/win-build.sh sweep            # drop every mirror's target/, keep the source
+```
+
+`prune` only removes a mirror whose worktree is no longer on disk, so a
+running seat's mirror is never touched. `merge-branch.sh` runs
+`prune --keep merge` after every merge: the merge worktree only exists
+during a merge, but its mirror is meant to stay warm for the next one.
+
 Toolchain note: both sides are cargo 1.99.x (Windows 1.99.1), matching
 `rust-toolchain.toml`.
 

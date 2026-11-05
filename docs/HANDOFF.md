@@ -32,6 +32,7 @@ The game today: two squads of four AI agents fight over four beacons in a genera
 ## 3. The machines
 
 - **ProArt** (Windows + WSL, 15 GB for WSL, RTX 4050 6 GB): the only machine that builds and runs `lm-host` (Windows-only Bevy), via `scripts/win-build.sh` (one mirror per worktree under `C:\Users\casey\src\last-mile-build-<dir>`). Memory is tight: run at most **2 seats here**. It ran out tonight with 5 seats + Windows builds + Ollama. Ollama (`gemma2:2b`, `llama3.2:1b`, `qwen3:0.6b`, `qwen2.5-coder:7b`) is available for a local pi provider `proart`.
+  - **Disk:** each mirror keeps its own cargo `target/`, and Bevy's is several GB. A finished seat's mirror used to stay on the C: drive forever; on 2026-10-30 twenty-three of them had filled it to 96% (71 GB). `bash scripts/win-build.sh list` shows which mirrors are still live, `prune` removes the ones whose worktree is gone, `sweep` drops every mirror's `target/`. `merge-branch.sh` now runs `prune --keep merge` after each merge.
 - **Thor** (`ssh thor-lan`, 192.168.0.78, aarch64, 122 GiB unified, JetPack 7.2.1): **last-mile is now its only user**; Casey's other agents signed off. Services (`~/lm-services/last-mile.sh status|start|stop`; the index at :8100 shows the truth):
   - d1-2B :8094 (System One); clef-flash :8096 (second opinion); d1-3B :8093 (judge);
   - LFM2-1.2B :8092 (realizer, unit `lm-realizer`, disabled at boot);
