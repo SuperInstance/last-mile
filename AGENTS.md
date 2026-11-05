@@ -23,7 +23,7 @@ You are probably a **seat**: a coding agent given a BRIEF.md in your own git wor
 What you built or found; the numbers, with how they were measured; what you changed beyond the brief and why; proposed decisions; and what's next. Be honest about misses: an honest negative is worth more than a soft positive.
 
 ## Machines and services
-- ProArt: WSL + Windows; `scripts/win-build.sh` keeps one Windows mirror per worktree directory name. Memory is tight.
+- ProArt: WSL + Windows; `scripts/win-build.sh` keeps one Windows mirror per worktree directory name. Memory is tight. Each mirror keeps its own cargo `target/` (Bevy's is multiple GB), so a finished seat leaves a dead mirror on the C: drive — `bash scripts/win-build.sh prune` removes the mirrors whose worktree is gone, and `sweep` drops every mirror's `target/`. Run `list` to see which are still live.
 - Thor (`ssh thor-lan` from the ProArt, or local if you're running there): d1-2B :8094, clef-flash :8096, d1-3B :8093, batched System One :8104, realizer :8092, ears :8102, skald :8000, Qwen3-Coder :8001, Glimmer :8005; the index at :8100; status via `~/lm-services/last-mile.sh status`. Don't stop, restart or reconfigure services unless your brief says so; log any change with its undo in `~/last-mile-ops.md`.
 
 ## Gotchas that have bitten agents here
