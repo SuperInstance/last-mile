@@ -32,7 +32,7 @@ use lm_render::palette::MaterialClass;
 
 use crate::sim_plugin::Round;
 use crate::view3d::agents::{self, FigureMesh};
-use crate::view3d::chunks::ChunkStore;
+use crate::view3d::chunks::{self, ChunkStore};
 use crate::view3d::upscale;
 use crate::view3d::{View3dMaterials, View3dSettings, ViewStage};
 
@@ -258,23 +258,24 @@ pub fn setup(
             ..default()
         })
     });
-    let mut beacon_of = |class: lm_render::palette::MaterialClass| {
-        let color = settings.palette.class_color(class);
-        materials.add(StandardMaterial {
-            base_color: Color::linear_rgba(color.r, color.g, color.b, color.a),
-            unlit: true,
-            // A beacon is the round's common knowledge — the 2D map draws
-            // every one of them for every viewer — so the 3D view does not
-            // fog its markers: a tower seen across the field, the way the
-            // map's diamond is. (Task 8's acceptance asks for a beacon
-            // tower in the opening frame, and the round's beacons stand a
-            // hundred metres and more from the squads.)
-            fog_enabled: false,
-            ..default()
-        })
-    };
-    let beacon_free = beacon_of(lm_render::palette::MaterialClass::BeaconFree);
-    let beacon_held = beacon_of(lm_render::palette::MaterialClass::BeaconHeld);
+    // The beacon's marker: one material for both of the beacon's states.
+    //
+    // The colour rides in the mesh's vertex colours — the plinth a shade
+    // darker than the gem — so a beacon is one material and two meshes,
+    // and a beacon that changes hands swaps its mesh rather than its
+    // material: nothing is compiled in the middle of a round.
+    let beacon = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        unlit: true,
+        // A beacon is the round's common knowledge — the 2D map draws
+        // every one of them for every viewer — so the 3D view does not fog
+        // its markers: a marker seen across the field, the way the map's
+        // diamond is. (Task 8's acceptance asks for a beacon in the opening
+        // frame, and the round's beacons stand a hundred metres and more
+        // from the squads.)
+        fog_enabled: false,
+        ..default()
+    });
     // The plate a piece stands on, and the hat the leader wears. Both are
     // made here, at start-up, so the pipelines that draw them exist before
     // the round does: nothing is compiled mid-round.
@@ -324,8 +325,7 @@ pub fn setup(
     commands.insert_resource(View3dMaterials {
         chunk: chunk.clone(),
         squads: squads.clone(),
-        beacon_free: beacon_free.clone(),
-        beacon_held: beacon_held.clone(),
+        beacon: beacon.clone(),
         outline: outline.clone(),
         leader_hat: leader_hat.clone(),
         shadow: shadow.clone(),
@@ -334,14 +334,29 @@ pub fn setup(
     });
 
     // The one figure mesh every agent shares, instanced by the engine, and
-    // the one marker mesh every beacon shares: a slim tower, taller than
-    // the walls, in the beacon class's colour — a beacon is the thing the
-    // round plays toward, and it reads from across the field.
+    // the beacon's markers: a plinth with a gem on it, in the beacon's own
+    // colour. A beacon is the thing the round plays toward and it reads
+    // from across the field — but it is a piece on the board, not a tower:
+    // it stands no taller than a wall, and the colour is a cool slate that
+    // does not fight the paints the squads wear.
     let figure = meshes.add(agents::figure_mesh(&lm_render::figure::Figure::new()));
     commands.insert_resource(FigureMesh(figure.clone()));
-    let marker = meshes.add(Cuboid::new(1.2, 7.2, 1.2).mesh().build());
+    let beacon_look = settings.look.0.world;
+    let marker_free = meshes.add(chunks::chunk_mesh(&lm_render::mesh::beacon_mesh(
+        beacon_look.beacon_free.to_linear(),
+        beacon_look.beacon_height_m,
+        beacon_look.beacon_span_m,
+    )));
+    let marker_held = meshes.add(chunks::chunk_mesh(&lm_render::mesh::beacon_mesh(
+        beacon_look.beacon_held.to_linear(),
+        beacon_look.beacon_height_m,
+        beacon_look.beacon_span_m,
+    )));
     let void_ground = settings.look.0.world.void.to_linear();
-    commands.insert_resource(agents::BeaconMesh(marker.clone()));
+    commands.insert_resource(agents::BeaconMeshes {
+        free: marker_free.clone(),
+        held: marker_held.clone(),
+    });
 
     // The ground under the world, out past its edges: the world floats on
     // the void, and the camera never sees sky below the horizon.
@@ -392,17 +407,17 @@ pub fn setup(
         ));
     }
 
-    // The beacons' own materials ride the card too, so a beacon changing
+    // The beacons' own marker rides the card too, so a beacon changing
     // hands mid-round compiles nothing.
-    for (index, material) in [beacon_free.clone(), beacon_held.clone()]
+    for (index, marker) in [marker_free.clone(), marker_held.clone()]
         .into_iter()
         .enumerate()
     {
         let east = (index as f32 - 0.5) * 2.2;
         commands.spawn((
-            Mesh3d(marker.clone()),
-            MeshMaterial3d(material),
-            Transform::from_translation(centre + Vec3::new(east, 3.6, -6.0)),
+            Mesh3d(marker),
+            MeshMaterial3d(beacon.clone()),
+            Transform::from_translation(centre + Vec3::new(east, 0.0, -6.0)),
             WarmupCard,
         ));
     }
@@ -506,7 +521,10 @@ pub fn advance(
         .map(lm_render::scene::beacons)
         .unwrap_or_default();
     rig.focus_m = focus;
-    rig.distance_m = lm_render::scene::overview_distance(radius);
+    // The distance is the look's: the diorama distance, unless the squad
+    // has spread out so far that it needs more room than the look gives.
+    rig.distance_m =
+        lm_render::scene::overview_distance(radius, settings.look.0.camera.default_distance_m);
     // The tilt is the look's: a diorama is looked at from above, and how
     // far above is a thing a file says, not a thing the code knows.
     rig.pitch_rad = settings.look.0.camera.pitch_rad;

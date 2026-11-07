@@ -195,9 +195,9 @@ pub struct SplatBlob;
 
 /// How many dabs of paint the map can show at once.
 ///
-/// A hit is five dabs, so this is a handful of hits: more than a child
-/// needs to read, and few enough that the board never turns to mud.
-pub const SPLAT_POOL: usize = 40;
+/// A hit is a ring of dabs, so this is a handful of hits: more than a
+/// child needs to read, and few enough that the board never turns to mud.
+pub const SPLAT_POOL: usize = 64;
 
 /// The layout of the window: what the panels take and what is left for the
 /// map.
@@ -798,19 +798,20 @@ fn draw_effects(
 ) {
     // The dabs of paint: the pool is filled from the effects, and the dabs
     // that are left over are put away.
+    let hit = &look.0.hit;
     let mut pool = blobs.iter_mut();
     for splat in effects.splats.iter() {
         let Some((mut sprite, mut transform, mut visibility, _)) = pool.next() else {
             break;
         };
         *visibility = Visibility::Visible;
-        // The paint spreads as it dries, and it fades as it goes: the
-        // model says how big and how strong, so the map and the 3D view
-        // paint the same dab.
-        let radius = splat.radius();
+        // The paint bursts around the piece that was hit and settles beside
+        // it: the model says where the dab is, how big it is and how
+        // strong, so the map and the 3D view paint the same hit.
+        let radius = splat.radius(hit);
         sprite.custom_size = Some(Vec2::splat(radius * 2.0));
-        sprite.color = look.bevy(splat.paint).with_alpha(splat.opacity());
-        let point = bevy_point(splat.pos_m);
+        sprite.color = look.bevy(splat.paint).with_alpha(splat.opacity(hit));
+        let point = bevy_point(splat.pos(hit));
         transform.translation = Vec3::new(point.x, point.y, SPLAT_Z);
     }
     for (_, _, mut visibility, _) in pool {

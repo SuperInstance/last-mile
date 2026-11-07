@@ -175,6 +175,169 @@ fn class_color(palette: &Palette, material: u8) -> Color {
     palette.class_color(class)
 }
 
+/// The mesh of a beacon's marker, as plain vertex data.
+///
+/// A beacon is an objective, not a landmark. The marker it replaces was a
+/// seven-metre tower — taller than every building on the board, and the
+/// loudest thing on it. This one is a piece: a low plinth with a
+/// four-sided gem on it. It reads from every angle the camera can be at
+/// (a gem is a shape, not a face), and it stands no taller than a wall.
+///
+/// The colour rides in the vertex colours — the plinth a shade darker than
+/// the gem — so a beacon is one mesh and one material, and a beacon that
+/// changes hands is a different mesh rather than a different material:
+/// nothing is compiled in the middle of a round.
+///
+/// The lattice is the scene's own: x east, y south, z up.
+pub fn beacon_mesh(colour: Color, height_m: f32, span_m: f32) -> ChunkMesh {
+    // The plinth: a low slab, and the gem on it.
+    let plinth_h = height_m * 0.18;
+    let half = span_m * 0.5;
+    let gem = span_m * 0.3;
+    // The plinth's shade: the gem's own colour, darker, so the gem stands
+    // on something without a second material.
+    let base = Color {
+        r: colour.r * 0.45,
+        g: colour.g * 0.45,
+        b: colour.b * 0.45,
+        a: colour.a,
+    };
+
+    let mut mesh = ChunkMesh {
+        positions: Vec::new(),
+        normals: Vec::new(),
+        colors: Vec::new(),
+        indices: Vec::new(),
+    };
+    box_into(
+        &mut mesh,
+        (0.0, 0.0, plinth_h * 0.5),
+        (half, half, plinth_h * 0.5),
+        base,
+    );
+    pyramid_into(&mut mesh, gem, plinth_h, height_m, colour);
+    mesh
+}
+
+/// The four corners of a face, wound so that the face's normal points out
+/// of the solid it belongs to.
+type Face = [[f32; 3]; 4];
+
+/// A box into a mesh: six faces, four vertices each, a flat normal a face.
+fn box_into(mesh: &mut ChunkMesh, centre: (f32, f32, f32), half: (f32, f32, f32), colour: Color) {
+    let (cx, cy, cz) = centre;
+    let (hx, hy, hz) = half;
+    // The six faces, each four corners wound so that the face's normal
+    // points out of the box.
+    let faces: [Face; 6] = [
+        // the top (+z is up)
+        [
+            [cx - hx, cy - hy, cz + hz],
+            [cx + hx, cy - hy, cz + hz],
+            [cx + hx, cy + hy, cz + hz],
+            [cx - hx, cy + hy, cz + hz],
+        ],
+        // the bottom
+        [
+            [cx - hx, cy - hy, cz - hz],
+            [cx - hx, cy + hy, cz - hz],
+            [cx + hx, cy + hy, cz - hz],
+            [cx + hx, cy - hy, cz - hz],
+        ],
+        // the +x face
+        [
+            [cx + hx, cy - hy, cz - hz],
+            [cx + hx, cy + hy, cz - hz],
+            [cx + hx, cy + hy, cz + hz],
+            [cx + hx, cy - hy, cz + hz],
+        ],
+        // the -x face
+        [
+            [cx - hx, cy - hy, cz - hz],
+            [cx - hx, cy - hy, cz + hz],
+            [cx - hx, cy + hy, cz + hz],
+            [cx - hx, cy + hy, cz - hz],
+        ],
+        // the +y face
+        [
+            [cx - hx, cy + hy, cz - hz],
+            [cx - hx, cy + hy, cz + hz],
+            [cx + hx, cy + hy, cz + hz],
+            [cx + hx, cy + hy, cz - hz],
+        ],
+        // the -y face
+        [
+            [cx - hx, cy - hy, cz - hz],
+            [cx + hx, cy - hy, cz - hz],
+            [cx + hx, cy - hy, cz + hz],
+            [cx - hx, cy - hy, cz + hz],
+        ],
+    ];
+    for face in faces {
+        quad_into(mesh, face, colour);
+    }
+}
+
+/// A four-sided pyramid into a mesh: four sides and a base.
+fn pyramid_into(mesh: &mut ChunkMesh, gem: f32, base_z: f32, top_z: f32, colour: Color) {
+    // The base's corners, counter-clockwise seen from above.
+    let base = [
+        [-gem, -gem, base_z],
+        [gem, -gem, base_z],
+        [gem, gem, base_z],
+        [-gem, gem, base_z],
+    ];
+    let apex = [0.0, 0.0, top_z];
+    for index in 0..4 {
+        let next = (index + 1) % 4;
+        triangle_into(mesh, base[index], base[next], apex, colour);
+    }
+    // The base, facing down.
+    quad_into(mesh, [base[0], base[3], base[2], base[1]], colour);
+}
+
+/// A quad into a mesh: four vertices, one flat normal, two triangles.
+fn quad_into(mesh: &mut ChunkMesh, corners: [[f32; 3]; 4], colour: Color) {
+    let normal = face_normal(&corners[0], &corners[1], &corners[2]);
+    let base = mesh.positions.len() as u32;
+    for corner in corners {
+        mesh.positions.push(corner);
+        mesh.normals.push(normal);
+        mesh.colors.push([colour.r, colour.g, colour.b, colour.a]);
+    }
+    mesh.indices
+        .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+/// A triangle into a mesh: three vertices, one flat normal.
+fn triangle_into(mesh: &mut ChunkMesh, a: [f32; 3], b: [f32; 3], c: [f32; 3], colour: Color) {
+    let normal = face_normal(&a, &b, &c);
+    let base = mesh.positions.len() as u32;
+    for corner in [a, b, c] {
+        mesh.positions.push(corner);
+        mesh.normals.push(normal);
+        mesh.colors.push([colour.r, colour.g, colour.b, colour.a]);
+    }
+    mesh.indices.extend_from_slice(&[base, base + 1, base + 2]);
+}
+
+/// The normal of a face, from its corners wound counter-clockwise.
+fn face_normal(a: &[f32; 3], b: &[f32; 3], c: &[f32; 3]) -> [f32; 3] {
+    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let normal = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    if length <= f32::EPSILON {
+        [0.0, 0.0, 1.0]
+    } else {
+        [normal[0] / length, normal[1] / length, normal[2] / length]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +415,69 @@ mod tests {
         }
         let (z_min, z_max) = extent(&mesh, 2);
         assert_eq!((z_min, z_max), (0.0, 0.0), "the floor lies on the ground");
+    }
+
+    #[test]
+    fn a_beacon_is_a_piece_and_not_a_tower() {
+        // The beacon is an objective, not a landmark: it stands no taller
+        // than the look says, it is wider than it is tall, and the plinth
+        // under the gem is a shade darker than the gem itself.
+        let height = 2.0;
+        let span = 2.2;
+        let colour = Color {
+            r: 0.2,
+            g: 0.4,
+            b: 0.6,
+            a: 1.0,
+        };
+        let mesh = beacon_mesh(colour, height, span);
+
+        // It stands on the ground and reaches the height it was given.
+        let (z_min, z_max) = extent(&mesh, 2);
+        assert_eq!(z_min, 0.0, "the plinth sits on the ground");
+        assert!(
+            (z_max - height).abs() < 1e-4,
+            "the gem reaches the height it was given: {z_max}"
+        );
+
+        // It is wider than it is tall: a piece on the board, not a pillar.
+        let (x_min, x_max) = extent(&mesh, 0);
+        assert!(
+            (x_max - x_min - span).abs() < 1e-4,
+            "the plinth is the span"
+        );
+        assert!(
+            span > height,
+            "the beacon is wider than it is tall, so it cannot tower"
+        );
+
+        // The plinth is a shade of the gem, and the gem is the colour.
+        let darkest = mesh
+            .colors
+            .iter()
+            .map(|c| c[0].min(c[1]).min(c[2]))
+            .fold(f32::INFINITY, f32::min);
+        let brightest = mesh
+            .colors
+            .iter()
+            .map(|c| c[0].max(c[1]).max(c[2]))
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(
+            (darkest - colour.r * 0.45).abs() < 1e-4,
+            "the plinth is the gem's colour, darker"
+        );
+        assert!(
+            (brightest - colour.b).abs() < 1e-4,
+            "the gem is the beacon's own colour"
+        );
+
+        // Every face has a normal, and it points out of the piece.
+        assert_eq!(mesh.normals.len(), mesh.positions.len());
+        assert!(
+            mesh.indices.len().is_multiple_of(3),
+            "the mesh is triangles"
+        );
+        assert!(mesh.triangle_count() >= 9, "a plinth and a gem");
     }
 
     #[test]

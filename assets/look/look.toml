@@ -38,9 +38,19 @@ sky = "#a9c9e0"
 # darker than the board and lighter than a hole, so the edge of the world
 # reads as an edge and not as a drop.
 void = "#b3ac9d"
-# A beacon nobody holds, and a beacon a squad holds.
-beacon_free = "#f0e2a8"
-beacon_held = "#f5c518"
+# A beacon nobody holds, and a beacon a squad holds. A beacon is an
+# objective, not a landmark: it is a cool slate against the warm board, so
+# it reads from across the city without shouting over the paints the
+# squads wear. The held one is deeper, so a change of hands is a change of
+# shade and not a change of hue.
+beacon_free = "#8fb0c6"
+beacon_held = "#2f6690"
+# How tall a beacon stands, in metres: a low plinth with a gem on it. It is
+# a little taller than a figure and lower than a wall — an objective you
+# can see over the rooftops, not a tower.
+beacon_height_m = 2.0
+# How wide the beacon's plinth is, in metres.
+beacon_span_m = 2.2
 # The fog over a cell that has been seen and forgotten, and over a cell
 # nobody has seen. The alpha says how much of what is behind shows through.
 fog_explored = "#2c2a2440"
@@ -145,3 +155,37 @@ tiny = 12.0
 # How far the 3D camera tilts above the ground, in radians. A diorama is
 # looked at from above, not from the street.
 pitch_rad = 0.45
+# The diorama distance: how far the camera sits from the thing it looks
+# at, in metres. A toy diorama is looked at from close by — a figure has
+# to read as a figure, and two or three of them have to fit in the frame.
+# At 17 m a figure is about ninety pixels tall on a 1080p screen.
+default_distance_m = 17.0
+# How far the camera sits when it is on an agent: the one being played, or
+# the one being watched. A shade closer than the free camera — the piece
+# you are here for is the piece you are close to.
+follow_distance_m = 13.0
+
+# --- the tag moment --------------------------------------------------------
+# The recipe of a hit: the paint that erupts around the piece that was hit,
+# and where it settles. It was a constant in the code; now it is a token,
+# with the rest of the vocabulary.
+[hit]
+# How long the paint of a hit lives, in seconds: the burst, and the stain
+# it settles into.
+life_s = 0.6
+# How long the burst lasts before the paint falls, in seconds.
+burst_s = 0.26
+# How many dabs of paint a hit is made of.
+dabs = 8
+# How far the burst throws the paint from the piece that was hit, in
+# metres. The ring of paint erupts around it, so the hit is seen from any
+# angle and the piece it hit is never covered by it.
+burst_radius_m = 1.1
+# How high the burst hangs, in metres: about the height of the piece's
+# head, so it is above the ground and above the paint it settles into.
+burst_height_m = 0.9
+# How far the paint lands from the piece that was hit, in metres: beside
+# it, so the piece does not stand on its own paint and hide it.
+land_m = 1.4
+# How big a dab of paint is, in metres.
+dab_radius_m = 0.38

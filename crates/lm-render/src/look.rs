@@ -198,6 +198,14 @@ pub struct WorldLook {
     pub beacon_free: Rgb,
     /// A beacon a squad holds.
     pub beacon_held: Rgb,
+    /// How tall a beacon stands, in metres.
+    ///
+    /// A beacon is an objective, not a landmark: it is a little taller
+    /// than a figure and lower than a wall, so it can be seen over the
+    /// rooftops without towering over the board.
+    pub beacon_height_m: f32,
+    /// How wide a beacon's plinth is, in metres.
+    pub beacon_span_m: f32,
     /// The fog over a cell that has been seen and forgotten.
     pub fog_explored: Rgb,
     /// The fog over a cell nobody has seen.
@@ -215,8 +223,10 @@ impl Default for WorldLook {
             cover_top: hex("#97a37c"),
             sky: hex("#a9c9e0"),
             void: hex("#b3ac9d"),
-            beacon_free: hex("#f0e2a8"),
-            beacon_held: hex("#f5c518"),
+            beacon_free: hex("#8fb0c6"),
+            beacon_held: hex("#2f6690"),
+            beacon_height_m: 2.0,
+            beacon_span_m: 2.2,
             fog_explored: hex("#2c2a24").alpha(0.45),
             fog_unknown: hex("#191813").alpha(0.92),
         }
@@ -469,11 +479,69 @@ pub struct CameraLook {
     /// How far the 3D camera tilts above the ground, in radians. A diorama
     /// is looked at from above, not from the street.
     pub pitch_rad: f32,
+    /// The **diorama distance**: how far the camera sits from the thing it
+    /// looks at, in metres, when it is free.
+    ///
+    /// A toy diorama is looked at from close by. A figure has to read as a
+    /// figure, and two or three of them have to fit in the frame: at
+    /// seventeen metres a figure is about ninety pixels tall on a 1080p
+    /// screen, and a squad fills a third of the picture.
+    pub default_distance_m: f32,
+    /// How far the camera sits from an agent it is on — the one being
+    /// played, or the one being watched. A shade closer than the free
+    /// camera: the piece you are here for is the piece you are close to.
+    pub follow_distance_m: f32,
 }
 
 impl Default for CameraLook {
     fn default() -> Self {
-        Self { pitch_rad: 0.45 }
+        Self {
+            pitch_rad: 0.45,
+            default_distance_m: 17.0,
+            follow_distance_m: 13.0,
+        }
+    }
+}
+
+/// The recipe of a hit: the paint that erupts around the piece that was
+/// hit, and where that paint settles.
+///
+/// It was a constant in the code — five dabs at a fixed spread — and the
+/// open question in the design document was where the paint of a hit
+/// should land. The answer is a token, with the rest of the vocabulary: a
+/// burst that erupts around the target, and a stain that settles beside
+/// it, so the piece that was hit never stands on its own paint.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HitLook {
+    /// How long the paint of a hit lives, in seconds.
+    pub life_s: f32,
+    /// How long the burst lasts before the paint falls, in seconds.
+    pub burst_s: f32,
+    /// How many dabs of paint a hit is made of.
+    pub dabs: u32,
+    /// How far the burst throws the paint from the piece that was hit, in
+    /// metres.
+    pub burst_radius_m: f32,
+    /// How high the burst hangs, in metres.
+    pub burst_height_m: f32,
+    /// How far the paint lands from the piece that was hit, in metres.
+    pub land_m: f32,
+    /// How big a dab of paint is, in metres.
+    pub dab_radius_m: f32,
+}
+
+impl Default for HitLook {
+    fn default() -> Self {
+        Self {
+            life_s: 0.6,
+            burst_s: 0.26,
+            dabs: 8,
+            burst_radius_m: 1.1,
+            burst_height_m: 0.9,
+            land_m: 1.4,
+            dab_radius_m: 0.38,
+        }
     }
 }
 
@@ -499,6 +567,8 @@ pub struct Look {
     pub type_scale: TypeScale,
     /// The camera.
     pub camera: CameraLook,
+    /// The recipe of a hit.
+    pub hit: HitLook,
 }
 
 impl Look {

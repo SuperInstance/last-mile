@@ -83,7 +83,8 @@ screen.
 | `[figure]` | how tall a piece stands, and the leader's hat |
 | `[outline]` | the dark edge: its width in the 2D map and in the 3D view, and its colour |
 | `[type_scale]` | five sizes, and no sixth |
-| `[camera]` | how far the 3D camera tilts above the ground |
+| `[camera]` | how far the 3D camera tilts above the ground, and the **diorama distances**: the free camera's zoom, and the distance it keeps from an agent it is on |
+| `[hit]` | the recipe of a hit: the burst of paint, and where that paint settles |
 
 Colours are sRGB hex — the space a colour picker, a screenshot and a
 colour-blindness test all speak. The 3D view consumes linear light, so the
@@ -131,6 +132,35 @@ The light is now the look's: a warm sun over the left shoulder (so the
 shadow falls to the right and the player can tell which way the light is),
 a weak ambient fill, and a flat shade on the sides of every box — the
 shadow of a box in a world with no other shadow.
+
+**The diorama distance.** The camera sits at a **distance that is a token**,
+not a constant in the code: `[camera] default_distance_m` for the free
+camera, and `[camera] follow_distance_m` for a camera that is on an agent
+(the one being played, or the one being watched). Seventeen metres and
+thirteen: at seventeen a piece is about **eighty-eight pixels** tall on a
+1080p screen, and at thirteen about a hundred and fifteen. That is the
+whole point of the number — a toy diorama is looked at from close by, and a
+piece that is four pixels tall is a speck, not a piece.
+
+**The camera watches the round.** The free camera is **anchored on the home
+squad's leader**: it keeps that piece in the middle of the frame and walks
+with it, so the default view is a diorama of the squad that is playing the
+round and not an empty corner of the board with two figures walking away
+from it. The player's own pan is an **offset** from that anchor, so the
+board can still be looked at from anywhere — and letting go of an agent
+comes back to the view the player had made.
+
+**The beacons are pieces now.** They were seven-metre towers, taller than
+every building on the board, in the loudest yellow on it — and they fought
+the paints the squads wear. A beacon is a **plinth with a four-sided gem
+on it**, two metres tall and two and a half wide: shorter than a wall, a
+little taller than a piece, and readable from every angle the camera can be
+at, because a gem is a shape and not a face. Its colour is a **cool slate**
+(`[world] beacon_free`, `beacon_held`) — calm against the warm board, and
+in no squad's paint. The plinth is a shade darker than the gem, the way the
+sides of a box are, and the whole marker is one mesh: a beacon that changes
+hands swaps its mesh and never its material, so nothing compiles in the
+middle of a round.
 
 ### The 2D map — `before-2d.png` → `after-2d.png`
 
@@ -183,11 +213,16 @@ This is the shot the direction is for. The possessed agent is followed;
 behind it is **the path it has walked**, in its own squad's paint, drawn
 by the host as it watched.
 
-* **The splat.** A tag throws five dabs of paint on the ground where the
-  target stood, in the paint of the squad that hit it. The paint spreads
-  and fades over half a second and the board is clean again. It is drawn
-  in **both** views — the 2D map and the 3D diorama — from one resource,
-  so a hit looks like the same hit in both.
+* **The splat.** A tag throws a **ring of paint around** the piece that was
+  hit, in the paint of the squad that hit it. The paint erupts at the
+  burst's radius and hangs in the air for a moment, so the hit is seen from
+  every angle the camera can be at — and the piece that was hit is never
+  covered by its own paint. Then the paint **falls**, and gathers into a
+  ring of stains on the ground around it. It is drawn in **both** views —
+  the 2D map and the 3D diorama — from one resource, so a hit looks like
+  the same hit in both. The recipe is the look's (`[hit]`): how long the
+  paint lives, how many dabs it is made of, how far the burst throws it,
+  how high it hangs, and how far from the piece it settles.
 * **The stun pips.** A ring of pips over the head of an agent that is out
   of the round, one for each tick of the stun that is left, in the paint
   that put them there. In the 3D view the ring is in the horizontal plane,
@@ -199,9 +234,9 @@ by the host as it watched.
 
 **What the stills show.** `after-tag.png` catches the **path** — the
 paint of the trail behind the followed piece, and the leader's white
-brim on its head. `after-splat.png` catches the **hit itself**: the
-teal ring of stun pips over the head of the piece that was hit, the
-teal paint at its feet, and the path it walked to get there.
+brim on its head. `after-splat.png` catches the **hit itself**: the ring
+of paint bursting around the piece that was hit, the stun pips over its
+head, and the path it walked to get there.
 
 **How the tag shot was taken.** The paint lives half a second and a
 still is one frame, so a blind sweep is a lottery: the squads only
@@ -210,28 +245,38 @@ tick 1845 — a minute into the round. So the tick was found first (the
 headless round, played at 30 ticks a second, says which tick the first
 hit lands on), and the shot was taken with a **temporary capture
 trigger**: a patched copy of the host that takes the picture when the
-round's events carry a `Tagged`, instead of at a frame count. The patch
-was reverted afterwards and the host rebuilt; the pixels in the picture
-are the ones the shipped host draws. The trigger was needed because
+paint of a hit is at the top of its burst, instead of at a frame count.
+The patch was reverted afterwards and the host rebuilt; the pixels in the
+picture are the ones the shipped host draws. The trigger was needed because
 Bevy writes a 1×1 PNG whenever the window's swapchain is momentarily
 1×1, and on this machine that happens whenever the window is
 minimised — so the trigger takes a burst of frames across the life of
 the paint and the shooter keeps the ones that are real.
 
-**An honest note about the paint.** The dabs land where the target
-stood, which means that from the 3/4 camera of the diorama the piece
-that was hit stands on top of them and hides most of the paint. What
-the still shows is its edge, at the feet. From the 2D map the same
-paint is fully visible. Whether the paint of a hit should be thrown
-under the piece that was hit, or at the piece that threw it, or over
-both, is a question for the director — it is listed below.
+**Where the paint lands.** The paint of a hit does not land *under* the
+piece that was hit any more: it settles in a **ring around** it, on the
+side the paint came from, so the piece that was hit cannot stand on its
+own paint and hide it. That was the open question in the last round of
+this work ("keep it under the target, throw it at the piece that threw
+it, or spread it over both"), and the answer is in the token file now,
+with the rest of the vocabulary.
+
+**The paint of a hit is the paint of the squad that threw it** — and that
+was not true before. The effects asked the look for the colour of
+**squad `by`**, where `by` is an *agent*, and the round's roster numbers
+its agents by squad (0–3 are the first squad, 4–7 the second). So the
+paint of a hit was the colour of whichever squad the tagger's *number*
+named, and a hit by the second squad was painted in the first squad's
+colour. The effects now ask the round's roster which squad the tagger
+belongs to. The same bug coloured the stun pips, and both are fixed by
+one change.
 
 The splat and the pips are also covered by the unit tests in
 `crates/lm-host/src/look_effects.rs` —
 `a_tag_is_seen_even_when_it_is_not_the_first_event_of_its_tick`,
 `a_tag_is_not_seen_twice`, `two_tags_on_one_tick_are_both_seen`,
 `the_paint_of_a_hit_is_the_paint_of_the_squad_that_threw_it` and
-`a_splat_spreads_and_goes`.
+`a_splat_bursts_around_the_target_and_settles_beside_it`.
 
 Those tests are also where the one real bug in this work was found: the
 effects remembered the **tick** of the last event they had seen, so a
@@ -276,10 +321,16 @@ Two honest notes on the method:
   ticks apart and the agents are not in quite the same places. The shots
   compare *looks*, and the look is what was measured.
 * **The capture is flaky.** Bevy writes a 1×1 PNG when the window's
-  swapchain is momentarily 1×1 — which happens while the between-round
-  flow's console subprocess runs. Every shot was checked and re-taken
-  until it was a real picture. This is pre-existing: the old binary does
-  it too.
+  swapchain is momentarily 1×1 — and on this machine the game window
+  sometimes comes up **0×0** instead, which makes the swapchain 1×1 and
+  the capture a 1×1 PNG. It is pre-existing: the old binary does it too.
+  Every shot was checked and re-taken until it was a real picture, and the
+  shots were taken with a **temporary patch** that puts the window back to
+  the size it was asked for when it comes up empty. The patch changes the
+  size of the window and nothing else — the pixels in the pictures are the
+  ones the shipped host draws — and it was reverted afterwards, with the
+  host rebuilt. The patch is worth a decision of its own: a window that
+  comes up 0×0 is a game nobody can play, and it is not the look's fault.
 
 ---
 
@@ -339,13 +390,15 @@ not cost the frame.
 | `assets/look/look.toml` | the tokens — the whole vocabulary |
 | `crates/lm-render/src/look.rs` | the tokens as types, and the sRGB → linear conversion |
 | `crates/lm-render/src/street.rs` | which cells are road: a floor cell that touches a building |
-| `crates/lm-render/src/palette.rs`, `greedy.rs`, `mesh.rs` | the road material class, the side shade from the look, the palette from the look |
-| `crates/lm-render/src/scene.rs` | the stun ticks on a figure, and where an agent stands |
+| `crates/lm-render/src/palette.rs`, `greedy.rs`, `mesh.rs` | the road material class, the side shade from the look, the palette from the look, and the **beacon's marker** as plain vertex data |
+| `crates/lm-render/src/scene.rs` | the stun ticks on a figure, where an agent stands, and the **diorama distance** the opening overview asks for |
 | `crates/lm-render/src/hash.rs` | the chunk hash covers the ring of cells around it and the palette's own colours |
 | `crates/lm-host/src/look.rs` | the host's half: the file, the theme, the colours as Bevy and egui want them |
-| `crates/lm-host/src/look_effects.rs` | the splat, the pips and the trail — one resource, both views |
+| `crates/lm-host/src/look_effects.rs` | the splat, the pips and the trail — one resource, both views — and the **paint of the squad that threw** a hit |
+| `crates/lm-host/src/view3d/mod.rs` | the camera: the **diorama distances**, and the **anchor** that keeps the home squad in the frame |
+| `crates/lm-host/src/view3d/warmup.rs` | the warm-up card, and the beacon's two markers |
 | `crates/lm-host/src/view3d/effects.rs` | the same effects as pieces of the diorama |
-| `crates/lm-host/src/view3d/agents.rs` | the outline shell, the contact shadow, the leader's brim |
+| `crates/lm-host/src/view3d/agents.rs` | the outline shell, the contact shadow, the leader's brim, and the beacon's marker |
 | `crates/lm-host/src/map_plugin.rs`, `hud_plugin.rs`, `score_plugin.rs`, `between_plugin.rs`, `roll_plugin.rs` | the panels and the map, in the look's colours and type |
 
 **Nothing in the sim changed.** `lm golden` is still OK 3/3, with no
@@ -356,22 +409,23 @@ never the world the rules play on.
 
 ## What is left open
 
-* **The camera's zoom is still the viewer's job.** The tilt is now the
-  look's, but how far back the camera sits when it follows a possessed
-  agent is still the old behaviour, and it is very close. A "diorama
-  distance" token would make the followed view as tunable as everything
-  else.
+* **The camera's zoom is the look's, and the anchor is not.** The **diorama
+  distance** is a token now — the free camera's zoom and the distance it
+  keeps from an agent it is on — and the free camera is anchored on the
+  home squad's leader, so the default view is a diorama of the squad
+  playing the round. What is still the viewer's job is *where* the anchor
+  should be: it watches the home squad whatever the viewer is doing, and a
+  round where the fight is elsewhere is a round the camera is not in.
 * **The fog is a colour, not a weather.** The fog over the unexplored map
   is a single flat wash. It reads, but a city that fades into the distance
   would read better.
 * **The paint layer is the other job's.** The splat here is the *hit* —
-  half a second of paint in the air. The marks that stay on the ground
-  are a separate piece of work, and the four paint colours are waiting in
-  `[paints]` for it.
-* **Where the paint of a hit lands is undecided.** It lands where the
-  target stood, so the piece that was hit hides it from the 3/4 camera
-  (see `after-splat.png`). Three answers: keep it under the target, throw
-  it at the piece that threw it, or spread it over both. The recipe — five
-  dabs, a fixed spread — is a constant in the code today; if the answer
-  changes, the recipe belongs in the token file next to the rest of the
-  vocabulary.
+  a ring of paint in the air, and the stains it leaves. The marks that
+  stay on the ground are a separate piece of work, and the four paint
+  colours are waiting in `[paints]` for it.
+* **The beacon's tone is a proposal.** A beacon is a cool slate against a
+  warm board, in no squad's paint. It reads, and it does not shout — but
+  the held beacon is a *shade* of the free one rather than a different
+  hue, so a change of hands is quieter than a change of colour would be.
+  Whether a change of hands should be *louder* is a question for the
+  director.

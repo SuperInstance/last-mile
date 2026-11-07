@@ -61,13 +61,24 @@ pub struct FigureMesh(pub Handle<Mesh>);
 #[derive(Resource, Default)]
 pub struct FigureEntities(pub BTreeMap<u16, Entity>);
 
-/// The one marker mesh every beacon shares (Task 8's reviewer finding 4).
+/// The marker meshes every beacon wears: one for a beacon nobody holds, one
+/// for a beacon a squad holds (Task 8's reviewer finding 4).
+///
+/// The two meshes are the same piece in two colours: the colour rides in
+/// the mesh's vertex colours, so the plinth under the gem can be a shade
+/// darker than the gem itself without a second material. A beacon that
+/// changes hands swaps its mesh, never its material, so nothing compiles
+/// mid-round.
 #[derive(Resource)]
-pub struct BeaconMesh(pub Handle<Mesh>);
+pub struct BeaconMeshes {
+    /// The marker of a beacon nobody holds.
+    pub free: Handle<Mesh>,
+    /// The marker of a beacon a squad holds.
+    pub held: Handle<Mesh>,
+}
 
-/// A beacon's marker: a slim pylon in the beacon class's colour — the
-/// palette's own `beacon_free` or `beacon_held`, the same colours the 2D
-/// map's diamonds wear.
+/// A beacon's marker: a plinth with a gem on it, in the beacon's own
+/// colour — the same colours the 2D map's diamonds wear.
 #[derive(Component)]
 pub struct BeaconMarker;
 
@@ -75,22 +86,22 @@ pub struct BeaconMarker;
 #[derive(Resource, Default)]
 pub struct BeaconEntities(pub Vec<Entity>);
 
-/// Draw the round's beacons: one marker each, in the class colour of its
-/// holder, at its cell (Task 8's reviewer finding 4: 3D shows the same
-/// game as 2D, beacons included).
+/// Draw the round's beacons: one marker each, in the colour of its holder,
+/// at its cell (Task 8's reviewer finding 4: 3D shows the same game as 2D,
+/// beacons included).
 ///
 /// The beacons are the round's common knowledge — pinned in the header,
 /// symmetric for both squads — so every viewer sees every one of them,
 /// exactly as the 2D map does; only the *colour* follows the holder, and a
-/// change of hands swaps a material, never a mesh, so nothing compiles
+/// change of hands swaps a mesh, never a material, so nothing compiles
 /// mid-round.
 pub fn update_beacons(
     mut commands: Commands,
     round: Res<Round>,
     materials: Res<View3dMaterials>,
-    mesh: Res<BeaconMesh>,
+    meshes: Res<BeaconMeshes>,
     mut entities: ResMut<BeaconEntities>,
-    mut markers: Query<(&mut Transform, &mut MeshMaterial3d<StandardMaterial>), With<BeaconMarker>>,
+    mut markers: Query<(&mut Transform, &mut Mesh3d), With<BeaconMarker>>,
 ) {
     let Some(sim) = round.sim() else {
         return;
@@ -102,8 +113,8 @@ pub fn update_beacons(
     while entities.0.len() < beacons.len() {
         let entity = commands
             .spawn((
-                Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(materials.beacon_free.clone()),
+                Mesh3d(meshes.free.clone()),
+                MeshMaterial3d(materials.beacon.clone()),
                 BeaconMarker,
             ))
             .id();
@@ -118,21 +129,20 @@ pub fn update_beacons(
         let Some(&entity) = entities.0.get(index) else {
             continue;
         };
-        let Ok((mut transform, mut material)) = markers.get_mut(entity) else {
+        let Ok((mut transform, mut mesh)) = markers.get_mut(entity) else {
             continue;
         };
-        // A marker stands at the centre of its cell, on the ground: a slim
-        // tower, taller than the walls, half of it either side of its own
-        // middle.
-        transform.translation = Vec3::new(beacon.pos_m.0, 3.6, -beacon.pos_m.1);
-        // The colour follows the holder: the held class for a squad, the
-        // free class for nobody.
+        // A marker stands at the centre of its cell, on the ground: a plinth
+        // with a gem on it, no taller than a wall.
+        transform.translation = Vec3::new(beacon.pos_m.0, 0.0, -beacon.pos_m.1);
+        // The colour follows the holder: the held marker for a squad, the
+        // free one for nobody.
         let wanted = match beacon.holder {
-            Some(_) => materials.beacon_held.clone(),
-            None => materials.beacon_free.clone(),
+            Some(_) => meshes.held.clone(),
+            None => meshes.free.clone(),
         };
-        if material.0 != wanted {
-            *material = MeshMaterial3d(wanted);
+        if mesh.0 != wanted {
+            *mesh = Mesh3d(wanted);
         }
     }
 }

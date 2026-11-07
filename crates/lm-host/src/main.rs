@@ -137,6 +137,19 @@ struct ShotRequest {
     path: PathBuf,
     frames: u32,
     spawned: bool,
+    /// TEMP (the look's screenshots only): take the picture when the paint
+    /// of a hit is at the top of its burst, instead of at a frame count.
+    /// The paint lives half a second and a still is one frame, so a blind
+    /// sweep is a lottery; this is the trigger that removes the lottery.
+    /// It changes *when* the picture is taken and nothing it draws.
+    burst: bool,
+}
+
+/// TEMP (the look's screenshots only): the size the window was asked for.
+#[derive(Resource)]
+struct ShotWindow {
+    width: f32,
+    height: f32,
 }
 
 /// What the command line asks for.
@@ -153,6 +166,9 @@ struct Options {
     replay: Option<PathBuf>,
     /// The screenshot to take, if any.
     shot: Option<ShotRequest>,
+    /// TEMP (the look's screenshots only): take the picture at the top of
+    /// the paint's burst, not at a frame count.
+    shot_burst: bool,
     /// Who is thinking: the reflex alone, a stub, or the Thor.
     agents: AgentChoice,
     /// Which voice backend the host talks through.
@@ -692,6 +708,14 @@ fn main() -> AppExit {
 
     app.add_systems(Update, count_frames);
 
+    // TEMP (the look's screenshots only): put the window back to the size it
+    // was asked for when it comes up empty.
+    app.insert_resource(ShotWindow {
+        width: options.window.0 as f32,
+        height: options.window.1 as f32,
+    })
+    .add_systems(Update, fix_empty_window);
+
     if let Some(request) = options.shot {
         app.insert_resource(request).add_systems(
             Update,
@@ -974,6 +998,8 @@ fn parse_args() -> Result<Options, String> {
     let mut voice_log = None;
     let mut look = look::default_path();
     let mut fps = false;
+    // TEMP (the look's screenshots only).
+    let mut shot_burst = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -1140,6 +1166,10 @@ fn parse_args() -> Result<Options, String> {
             "--fps" => {
                 fps = true;
             }
+            "--shot-burst" => {
+                // TEMP (the look's screenshots only).
+                shot_burst = true;
+            }
             "--look" => {
                 look = PathBuf::from(args.next().ok_or_else(|| {
                     String::from("`--look` needs a PATH, e.g. assets\\look\\look.toml")
@@ -1161,7 +1191,9 @@ fn parse_args() -> Result<Options, String> {
             path: PathBuf::from(path),
             frames,
             spawned: false,
+            burst: shot_burst,
         }),
+        shot_burst,
         agents,
         talk,
         harness,
@@ -1264,8 +1296,23 @@ fn shoot_and_exit(
     mut commands: Commands,
     mut request: ResMut<ShotRequest>,
     frame: Res<FrameCount>,
+    effects: Option<Res<look_effects::Effects>>,
 ) {
-    if request.spawned || frame.0 < request.frames {
+    if request.spawned {
+        return;
+    }
+    // TEMP (the look's screenshots only): the burst trigger. The paint of a
+    // hit lives half a second and a still is one frame, so a blind sweep is
+    // a lottery; this takes the picture when the paint is at the top of its
+    // burst. It changes *when* the picture is taken and nothing it draws.
+    let burst = request.burst
+        && effects.is_some_and(|effects| {
+            effects
+                .splats
+                .iter()
+                .any(|splat| (0.06..0.16).contains(&splat.age_s))
+        });
+    if !burst && frame.0 < request.frames {
         return;
     }
     request.spawned = true;
@@ -1273,6 +1320,21 @@ fn shoot_and_exit(
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(request.path.clone()))
         .observe(quit_after_capture);
+}
+
+/// TEMP (the look's screenshots only): the window sometimes comes up 0x0 on
+/// this machine, which makes the swapchain 1x1 and the capture a 1x1 PNG.
+/// Put the window back to the size it was asked for when it comes up empty.
+/// This changes the size of the window and nothing else.
+fn fix_empty_window(mut windows: Query<&mut Window>, shot: Res<ShotWindow>) {
+    for mut window in &mut windows {
+        if window.physical_width() < 2 || window.physical_height() < 2 {
+            let scale = window.resolution.scale_factor().max(1.0);
+            window
+                .resolution
+                .set_physical_resolution((shot.width * scale) as u32, (shot.height * scale) as u32);
+        }
+    }
 }
 
 /// The capture is asynchronous: this fires when the PNG bytes are ready, so

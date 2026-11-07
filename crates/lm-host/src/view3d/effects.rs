@@ -21,9 +21,9 @@ use crate::view3d::View3dSettings;
 
 /// How many dabs of paint the 3D view can show at once.
 ///
-/// A hit is five dabs, so this is a handful of hits: more than a child
-/// needs to read, and few enough that the board never turns to mud.
-pub const SPLAT_POOL: usize = 40;
+/// A hit is a ring of dabs, so this is a handful of hits: more than a
+/// child needs to read, and few enough that the board never turns to mud.
+pub const SPLAT_POOL: usize = 64;
 
 /// How many stun pips the 3D view can show at once: a ring of them over
 /// every agent of the roster.
@@ -92,10 +92,10 @@ fn setup(
     settings: Res<View3dSettings>,
     mut pools: ResMut<EffectPools>,
 ) {
-    // The dabs of paint: a flat disc on the ground, in the paint of the
-    // hit. The disc is a cylinder of radius one half, so scaling it by the
-    // radius of the dab gives the dab.
-    let splat_mesh = meshes.add(Cylinder::new(0.5, 0.02).mesh().build());
+    // The dabs of paint: a blob of it, in the paint of the hit. A blob in
+    // the air is round and a stain on the ground is flat, so the mesh is a
+    // sphere of radius one half and the view squashes it as it falls.
+    let splat_mesh = meshes.add(Sphere::new(0.5).mesh().build());
     // The pips: little cubes.
     let pip_mesh = meshes.add(
         Cuboid::new(PIP_SIZE_M, PIP_SIZE_M, PIP_SIZE_M)
@@ -176,8 +176,9 @@ fn draw(
 ) {
     let tokens = &settings.look.0;
 
-    // The paint of the hits: a dab on the ground, spreading and fading as
-    // it dries.
+    // The paint of the hits: a burst of dabs around the piece that was
+    // hit, and the stain they settle into.
+    let hit = &tokens.hit;
     for (slot, splat) in effects.splats.iter().enumerate() {
         let Some(&entity) = pools.splats.get(slot) else {
             break;
@@ -186,13 +187,18 @@ fn draw(
             continue;
         };
         *visibility = Visibility::Visible;
-        // The model says how big the dab is and how strong: the map and
-        // the diorama paint the same hit.
-        let radius = splat.radius();
-        transform.translation = Vec3::new(splat.pos_m.0, SPLAT_Y_M, -splat.pos_m.1);
-        transform.scale = Vec3::new(radius * 2.0, 1.0, radius * 2.0);
+        // The model says where the dab is, how high it hangs and how
+        // strong: the map and the diorama paint the same hit.
+        let radius = splat.radius(hit);
+        let flatten = splat.flatten(hit);
+        let (x, y) = splat.pos(hit);
+        transform.translation = Vec3::new(x, splat.height(hit) + radius * flatten + SPLAT_Y_M, -y);
+        transform.scale = Vec3::new(radius * 2.0, radius * 2.0 * flatten, radius * 2.0);
         if let Some(mut paint) = assets.get_mut(&material.0) {
-            paint.base_color = settings.look.bevy(splat.paint).with_alpha(splat.opacity());
+            paint.base_color = settings
+                .look
+                .bevy(splat.paint)
+                .with_alpha(splat.opacity(hit));
         }
     }
     for &entity in pools.splats.iter().skip(effects.splats.len()) {
