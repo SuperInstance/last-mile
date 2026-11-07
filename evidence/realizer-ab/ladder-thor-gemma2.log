@@ -1,0 +1,695 @@
+   Compiling lm-agents v0.1.0 (/home/proart/lm-wt/localwords/crates/lm-agents)
+   Compiling lm-learn v0.1.0 (/home/proart/lm-wt/localwords/crates/lm-learn)
+   Compiling lm-tools v0.1.0 (/home/proart/lm-wt/localwords/crates/lm-tools)
+   Compiling lm-host-model v0.1.0 (/home/proart/lm-wt/localwords/crates/lm-host-model)
+    Finished `release` profile [optimized] target(s) in 6.97s
+     Running tests/realizer_on_thor.rs (target/release/deps/realizer_on_thor-f83a24ef15ad56ba)
+
+running 1 test
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+test realizer_on_thor has been running for over 60 seconds
+round 1: 32 lines, 631 decisions, 23 refusals, 19 by the model, 13 by the phrasebook, 13 late
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+round 2: 28 lines, 483 decisions, 23 refusals, 18 by the model, 10 by the phrasebook, 10 late
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+lm-agents: utter: the ladder words the lines: LFM2-1.2B on http://192.168.0.78:8092 first, gemma2:2b on http://127.0.0.1:11434 second, the phrasebook for what neither answers in time
+round 3: 55 lines, 570 decisions, 21 refusals, 35 by the model, 20 by the phrasebook, 20 late
+
+# the realizer on the real Thor
+
+- the arm: LFM2-1.2B on http://192.168.0.78:8092 then gemma2:2b on http://127.0.0.1:11434
+- rounds: 3
+- lines: 115
+- words llm 72 / phrasebook 43 / late 43
+- the share that fell back: 37.4%
+- the wordings that never came: 0
+- the wording's latency: p50 287.391 ms, p95 415.988 ms (n=43)
+- the wording's latency: min 64.624 ms, max 921.817 ms
+- the game's wait for a line's wording: max 110 us over 115 lines
+- the distinct plans the rounds used: 10
+- lines checked against their plan: 72
+- lines off their plan: 0
+- lines naming another target: 0
+- the on-plan rate: 100.0%
+- lines the model answered in time and got wrong: 0
+
+## the samples
+
+### 0
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 1
+
+```text
+model:
+@agent6 call to=agent6 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  in p0 a. l1
+  range p0 a. l1
+phrasebook:
+@agent6 call to=agent6 intent=report affect=calm subject=beacon3
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+```
+
+- plan: Callout to agent 6, Report, calm, about beacon 3
+
+### 2
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 3
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 4
+
+```text
+model:
+@agent6 call to=agent6 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  in p0 a. l1
+  range p0 a. l1
+phrasebook:
+@agent6 call to=agent6 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to agent 6, Report, calm, about beacon 3
+
+### 5
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 6
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 7
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 8
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 9
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 10
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 11
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 12
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 13
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 14
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 15
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 16
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 17
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 18
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 19
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 3
+
+### 20
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 3
+
+### 21
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 22
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 3
+
+### 23
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 3
+
+### 24
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 25
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 3
+
+### 26
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  move p0 a. l1
+  to p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+  now p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 3
+
+### 27
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 28
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 29
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+- the dump: /tmp/ab/ladder-thor-gemma2.json
+test realizer_on_thor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 314.24s
+

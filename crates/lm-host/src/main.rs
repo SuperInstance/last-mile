@@ -94,6 +94,7 @@ use bevy::{
         view::screenshot::{save_to_disk, Screenshot, ScreenshotCaptured},
         RenderPlugin,
     },
+    time::Real,
 };
 use bevy_egui::{EguiContext, EguiGlobalSettings, EguiPlugin, PrimaryEguiContext};
 use lm_agents::config::AgentsConfig;
@@ -135,6 +136,31 @@ struct ShotRequest {
     frames: u32,
     spawned: bool,
 }
+
+/// The frame times of the round, in milliseconds.
+///
+/// The host does not report frame times by itself, and a measurement of
+/// what a small language model costs the game needs them: a model that
+/// shares the GPU with the renderer shows up as frames that take longer
+/// than the display's rate.
+#[derive(Resource, Default)]
+struct FrameTimes {
+    /// The time between the frames, in milliseconds.
+    samples: Vec<f32>,
+    /// The frames that are not counted: the start-up, while the window
+    /// and the pipelines settle.
+    skipped: u32,
+}
+
+/// How many frames are let go before the timing starts.
+///
+/// The first frames of a round pay for the window and the shaders, and
+/// they cost the same in every run: they are not what a measurement of
+/// the GPU's share is about.
+const WARMUP_FRAMES: u32 = 30;
+
+/// How many frames pass between the reports.
+const REPORT_FRAMES: u32 = 600;
 
 /// What the command line asks for.
 struct Options {
@@ -651,7 +677,19 @@ fn main() -> AppExit {
         }
     }
 
-    app.add_systems(Update, count_frames);
+    app.add_systems(Update, (count_frames, time_the_frames));
+
+    // The frame times are reported as the round goes on, and once more
+    // when the window closes: the report is the outside proof of what the
+    // renderer did, and a run that is stopped early still has one.
+    app.init_resource::<FrameTimes>()
+        .add_systems(Update, report_frame_times)
+        .add_systems(
+            Last,
+            say_frame_times_on_exit
+                .in_set(bevy::app::OnAppExitSystems)
+                .run_if(|messages: Res<Messages<AppExit>>| !messages.is_empty()),
+        );
 
     if let Some(request) = options.shot {
         app.insert_resource(request).add_systems(
@@ -1225,6 +1263,55 @@ fn count_frames(mut frame: ResMut<FrameCount>, wavs: Res<audio_plugin::MicWavs>)
     if wavs.finished {
         frame.0 += 1;
     }
+}
+
+/// Time the frames: how long each one took.
+///
+/// The time is the gap between the frames, which is what the display's
+/// rate allows. A GPU that is busy with something else shows up here as
+/// frames that take longer than the rate.
+fn time_the_frames(time: Res<Time<Real>>, mut times: ResMut<FrameTimes>) {
+    if times.samples.is_empty() && times.skipped < WARMUP_FRAMES {
+        times.skipped += 1;
+        return;
+    }
+    times.samples.push(time.delta_secs() * 1000.0);
+}
+
+/// Say how the frames have gone, every so many frames.
+fn report_frame_times(times: Res<FrameTimes>, frames: Res<FrameCount>) {
+    if frames.0 == 0 || frames.0 % REPORT_FRAMES != 0 {
+        return;
+    }
+    say_frame_times(&times, "so far");
+}
+
+/// Say how the frames went, when the window closes.
+fn say_frame_times_on_exit(world: &mut World) {
+    let times = world.resource::<FrameTimes>();
+    say_frame_times(times, "in all");
+}
+
+/// Say how the frames went: how many, and the middle and the tail.
+///
+/// The median is the frame the round mostly ran at, and the ninety-fifth
+/// is the frame the round was worst off by: a GPU shared with a language
+/// model shows in the tail.
+fn say_frame_times(times: &FrameTimes, when: &str) {
+    if times.samples.is_empty() {
+        return;
+    }
+    let mut sorted = times.samples.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let at = |q: f32| sorted[(((sorted.len() - 1) as f32) * q).round() as usize];
+    println!(
+        "lm-host: the frames {when}: {} drawn, p50 {:.1} ms, p95 {:.1} ms, \
+         max {:.1} ms",
+        sorted.len(),
+        at(0.50),
+        at(0.95),
+        sorted[sorted.len() - 1]
+    );
 }
 
 #[cfg(test)]

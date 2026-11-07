@@ -664,6 +664,12 @@ impl AutoRealizer {
     pub fn latencies(&self) -> Vec<u64> {
         self.bank.latencies()
     }
+
+    /// How many wordings never came: the model did not answer in time, it
+    /// was not there, or what it wrote was not a line.
+    pub fn misses(&self) -> u64 {
+        self.bank.misses()
+    }
 }
 
 impl Realizer for AutoRealizer {
@@ -775,6 +781,9 @@ struct BankInner {
     asked: BTreeSet<WordKey>,
     /// The jobs the thread has to do.
     queue: VecDeque<Job>,
+    /// The wordings that never came: the model did not answer in time, or
+    /// it was not there, or what it wrote was not a line.
+    misses: u64,
     /// Whether the thread is to stop.
     stop: bool,
 }
@@ -808,24 +817,29 @@ impl WordBank {
                     let started = Instant::now();
                     let written = llm.write(&job.prompt, started + deadline);
                     let mut bank = worker_inner.lock().expect("the word bank");
-                    if let Ok(reply) = written {
-                        let words = words_of(&reply);
-                        if !words.is_empty() {
-                            let banked = Banked {
-                                words,
-                                micros: started.elapsed().as_micros() as u64,
-                            };
-                            if bank.ready.insert(job.key, banked).is_none() {
-                                bank.order.push_back(job.key);
-                            }
-                            // The bank is a cache: the oldest wording goes
-                            // when it grows past its capacity.
-                            while bank.order.len() > BANK_CAPACITY {
-                                if let Some(oldest) = bank.order.pop_front() {
-                                    bank.ready.remove(&oldest);
+                    match written {
+                        Ok(reply) => {
+                            let words = words_of(&reply);
+                            if words.is_empty() {
+                                bank.misses += 1;
+                            } else {
+                                let banked = Banked {
+                                    words,
+                                    micros: started.elapsed().as_micros() as u64,
+                                };
+                                if bank.ready.insert(job.key, banked).is_none() {
+                                    bank.order.push_back(job.key);
+                                }
+                                // The bank is a cache: the oldest wording
+                                // goes when it grows past its capacity.
+                                while bank.order.len() > BANK_CAPACITY {
+                                    if let Some(oldest) = bank.order.pop_front() {
+                                        bank.ready.remove(&oldest);
+                                    }
                                 }
                             }
                         }
+                        Err(_) => bank.misses += 1,
                     }
                 }
             })
@@ -876,6 +890,16 @@ impl WordBank {
             .map(|banked| banked.micros)
             .collect()
     }
+
+    /// How many wordings never came: the model did not answer in time, it
+    /// was not there, or what it wrote was not a line.
+    ///
+    /// A miss is not a late line: a late line is a line the phrasebook
+    /// worded because the words were not in hand yet. A miss is a wording
+    /// that will never come, whatever the line does.
+    pub fn misses(&self) -> u64 {
+        self.inner.lock().expect("the word bank").misses
+    }
 }
 
 impl Drop for WordBank {
@@ -923,29 +947,47 @@ pub fn pick_realizer_with(cfg: &AgentsConfig, phrasebook: &Phrasebook) -> Box<dy
                 "the model {} words the lines (utter.realizer = llm)",
                 cfg.utter.llm_model
             ));
-            Box::new(thor_llm_realizer(cfg, deadline))
+            Box::new(llm_realizer(cfg, deadline))
         }
-        _ => match probe_llm(cfg) {
-            Ok(()) => {
+        _ => {
+            // Every stage of the ladder is probed on its own. The ladder is
+            // for a Thor that is busy, and a Thor too busy to answer a
+            // probe is exactly the stage the ladder must not depend on:
+            // one stage that does not answer is dropped, and the ones that
+            // do are asked in the order the configuration names them.
+            let (serving, refused) = serving_stages(cfg);
+            for why in &refused {
                 say(&format!(
-                    "the model {} on {}:{} is serving, so it words the lines and \
-                     the phrasebook words the ones it misses (utter.realizer = auto)",
-                    cfg.utter.llm_model, cfg.thor_base, cfg.utter.llm_port
+                    "the model {why}, so it is not asked (utter.realizer = auto)"
                 ));
+            }
+            if serving.is_empty() {
+                say(
+                    "no wording model answered the probe, so the phrasebook words \
+                     the lines (utter.realizer = auto)",
+                );
+                Box::new(template)
+            } else {
+                let labels: Vec<String> = serving.iter().map(Stage::label).collect();
+                if serving.len() == 1 {
+                    say(&format!(
+                        "the model {} is serving, so it words the lines and the \
+                         phrasebook words the ones it misses (utter.realizer = auto)",
+                        labels[0]
+                    ));
+                } else {
+                    say(&format!(
+                        "the ladder words the lines: {}, the phrasebook for what \
+                         neither answers in time (utter.realizer = auto)",
+                        labels.join(" then ")
+                    ));
+                }
                 Box::new(AutoRealizer::new(
                     template,
-                    thor_llm_realizer(cfg, deadline),
+                    LlmRealizer::new(llm_of(serving, deadline), deadline),
                 ))
             }
-            Err(why) => {
-                say(&format!(
-                    "the model {} on {}:{} did not answer the probe ({}), so the \
-                     phrasebook words the lines (utter.realizer = auto)",
-                    cfg.utter.llm_model, cfg.thor_base, cfg.utter.llm_port, why
-                ));
-                Box::new(template)
-            }
-        },
+        }
     }
 }
 
@@ -965,21 +1007,23 @@ fn say(message: &str) {
 /// model is not serving.
 static PROBES: OnceLock<Mutex<BTreeMap<String, Result<(), String>>>> = OnceLock::new();
 
-/// The probe of the model on the Thor: does it word a line?
+/// The probe of one stage of the ladder: does it word a line?
 ///
 /// The probe asks for a line, not for a health check: a server that
 /// answers `/health` may still not be able to word anything, and `auto`
 /// needs to know the second thing.
-fn probe_llm(cfg: &AgentsConfig) -> Result<(), String> {
-    let key = format!(
-        "{}:{}:{}",
-        cfg.thor_base, cfg.utter.llm_port, cfg.utter.llm_model
-    );
+///
+/// The answer is remembered per stage. A round has one mind per agent, and
+/// every mind picks its realizer when it is built: without this the model
+/// would be asked for a line eight times before the round's first tick,
+/// and eight times as long when the model is not serving.
+fn probe_stage(stage: &Stage, timeout: Duration) -> Result<(), String> {
+    let key = format!("{}:{}:{}", stage.base, stage.port, stage.model);
     let cache = PROBES.get_or_init(|| Mutex::new(BTreeMap::new()));
     if let Some(outcome) = cache.lock().expect("the probe cache").get(&key).cloned() {
         return outcome;
     }
-    let outcome = probe_llm_now(cfg);
+    let outcome = probe_stage_now(stage, timeout);
     cache
         .lock()
         .expect("the probe cache")
@@ -988,14 +1032,8 @@ fn probe_llm(cfg: &AgentsConfig) -> Result<(), String> {
 }
 
 /// The probe itself, without the cache.
-fn probe_llm_now(cfg: &AgentsConfig) -> Result<(), String> {
-    let timeout = Duration::from_millis(u64::from(cfg.utter.probe_ms));
-    let llm = ThorLlm::new(
-        &cfg.thor_base,
-        cfg.utter.llm_port,
-        &cfg.utter.llm_model,
-        timeout,
-    );
+fn probe_stage_now(stage: &Stage, timeout: Duration) -> Result<(), String> {
+    let llm = ChatLlm::new(&stage.base, stage.port, &stage.model, timeout);
     let reply = llm
         .write(PROBE_PROMPT, Instant::now() + timeout)
         .map_err(|refusal| refusal.to_string())?;
@@ -1005,6 +1043,29 @@ fn probe_llm_now(cfg: &AgentsConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// The stages of the ladder that are serving, and the ones that are not.
+///
+/// Each stage is probed on its own: a stage that answers is asked, and a
+/// stage that does not is dropped -- with it, the ladder does not spend a
+/// millisecond per line asking a server that is not there. The reason is
+/// carried with it, so the log can say which stage went and why.
+fn serving_stages(cfg: &AgentsConfig) -> (Vec<Stage>, Vec<String>) {
+    let timeout = Duration::from_millis(u64::from(cfg.utter.probe_ms));
+    let mut serving = Vec::new();
+    let mut refused = Vec::new();
+    for stage in stages_of(cfg) {
+        match probe_stage(&stage, timeout) {
+            Ok(()) => serving.push(stage),
+            Err(why) => refused.push(format!(
+                "{} did not answer the probe ({})",
+                stage.label(),
+                why
+            )),
+        }
+    }
+    (serving, refused)
+}
+
 /// The prompt of the probe: the smallest line there is.
 const PROBE_PROMPT: &str = "\
 You are the voice of an agent of a squad in a field game. Write ONE line in \
@@ -1012,17 +1073,10 @@ plain words: what the agent says on the radio. Write the words of the line \
 only: no quotes, no explanation, no trailing punctuation. Keep it under four \
 words.";
 
-/// The realizer of the model on the Thor.
-fn thor_llm_realizer(cfg: &AgentsConfig, deadline: Duration) -> LlmRealizer {
-    LlmRealizer::new(
-        Box::new(ThorLlm::new(
-            &cfg.thor_base,
-            cfg.utter.llm_port,
-            &cfg.utter.llm_model,
-            deadline,
-        )),
-        deadline,
-    )
+/// The realizer of the wording model the configuration names: the one
+/// model, or the ladder of it and its fallback.
+fn llm_realizer(cfg: &AgentsConfig, deadline: Duration) -> LlmRealizer {
+    LlmRealizer::new(wording_llm(cfg, deadline), deadline)
 }
 
 /// The score of a realized line.
@@ -1148,8 +1202,10 @@ fn prompt_for(plan: &UtterPlan) -> String {
 /// A model that writes text.
 ///
 /// The System One protocol asks typed questions and gets typed answers;
-/// the wording is free text, so it has its own small door.
-pub trait Llm: Send + Sync {
+/// the wording is free text, so it has its own small door. A model names
+/// itself (`Debug`) the way it names itself in the log: the ladder and
+/// the word bank are debugged through this trait.
+pub trait Llm: fmt::Debug + Send + Sync {
     /// The text the model wrote for `prompt`, before the deadline.
     fn write(&self, prompt: &str, deadline: Instant) -> Result<String, Refusal>;
 
@@ -1161,6 +1217,7 @@ pub trait Llm: Send + Sync {
 ///
 /// The stub is what the tests and the headless runner use: no network, no
 /// clock, and the same line every time.
+#[derive(Debug)]
 pub struct StubLlm {
     model: String,
     replies: VecDeque<Result<String, Refusal>>,
@@ -1204,22 +1261,24 @@ impl Llm for StubLlm {
 /// The path of the Thor's chat endpoint.
 pub const CHAT_PATH: &str = "/v1/chat/completions";
 
-/// The language model on the Thor that writes the wording.
+/// A language model on an OpenAI-shaped chat endpoint.
 ///
-/// The Thor serves one model per port; this one is LFM2-1.2B, the small
-/// model of D35. The endpoint is the usual chat completion shape, and the
-/// port is configuration, never a guess.
-pub struct ThorLlm {
+/// The Thor serves one model per port, and that is where the wording
+/// model has always lived: LFM2-1.2B on `:8092`. A second wording model
+/// may live on the box beside the game instead -- Ollama on `:11434`,
+/// which speaks the same shape -- so the client asks **a** chat endpoint
+/// and the address is configuration, never a guess.
+pub struct ChatLlm {
     agent: ureq::Agent,
     base: String,
     port: u16,
     model: String,
 }
 
-impl ThorLlm {
+impl ChatLlm {
     /// A model on `base:port`.
     pub fn new(base: &str, port: u16, model: &str, timeout: Duration) -> Self {
-        ThorLlm {
+        ChatLlm {
             agent: build_llm_agent(timeout),
             base: base.trim_end_matches('/').to_owned(),
             port,
@@ -1238,16 +1297,16 @@ impl ThorLlm {
     }
 }
 
-impl fmt::Debug for ThorLlm {
+impl fmt::Debug for ChatLlm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ThorLlm")
+        f.debug_struct("ChatLlm")
             .field("url", &self.url())
             .field("model", &self.model)
             .finish()
     }
 }
 
-impl Llm for ThorLlm {
+impl Llm for ChatLlm {
     fn write(&self, prompt: &str, deadline: Instant) -> Result<String, Refusal> {
         let body = json!({
             "model": self.model,
@@ -1256,6 +1315,17 @@ impl Llm for ThorLlm {
             "max_tokens": 64,
             // The shape of the reply is ours; the words are the model's.
             "grammar": WORD_GRAMMAR,
+            // A model that thinks before it answers spends the budget on
+            // the thinking, and the line never arrives: the reasoning
+            // models (qwen3) write their thoughts beside the answer, and
+            // the answer is what is wanted. The Thor's server does not
+            // know this field and ignores it.
+            "reasoning_effort": "none",
+            // The model stays resident while the round plays: a server
+            // that unloads it between the rounds would make every first
+            // line of every kind late, and the loading is not a wording.
+            // The Thor's server does not know this field either.
+            "keep_alive": "30m",
         })
         .to_string();
         let (text, _latency_ms) = post_pack(&self.agent, &self.url(), None, &body, deadline)?;
@@ -1274,6 +1344,156 @@ impl Llm for ThorLlm {
 
     fn model(&self) -> &str {
         &self.model
+    }
+}
+
+/// The ladder of wording models: the first model asked first, the second
+/// when the first does not answer in its share of the deadline.
+///
+/// This is how the wording survives a busy Thor. The stages are asked in
+/// order, each but the last for an equal share of what is left of the
+/// deadline, the last for all of it; a stage that refuses -- down, slow,
+/// or its words not a line -- hands the line to the next stage at once.
+/// A stage that is merely **gone** (connection refused) costs a
+/// millisecond, so the next stage keeps nearly the whole deadline; a
+/// stage that is **slow** costs its share and no more, which is the
+/// most the ladder ever pays for it.
+///
+/// The whole climb happens on the caller's own budget -- in a round that
+/// is the realizer's wording thread -- so the game never waits on any
+/// stage of it. The phrasebook takes what even the ladder misses, as it
+/// takes what the one model misses.
+pub struct LadderLlm {
+    stages: Vec<Box<dyn Llm>>,
+    /// The ladder's name for the log.
+    ///
+    /// The ladder does not say which stage wrote a line -- the words come
+    /// back without their author -- so the log names both stages and says
+    /// that it is one of them, rather than blaming the first.
+    name: String,
+}
+
+impl LadderLlm {
+    /// A ladder of the stages given, in the order they are asked.
+    pub fn new(stages: Vec<Box<dyn Llm>>) -> Self {
+        let name = stages
+            .iter()
+            .map(|stage| stage.model().to_owned())
+            .collect::<Vec<_>>()
+            .join(" or ");
+        LadderLlm { stages, name }
+    }
+}
+
+impl fmt::Debug for LadderLlm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LadderLlm")
+            .field(
+                "stages",
+                &self
+                    .stages
+                    .iter()
+                    .map(|stage| stage.model())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
+impl Llm for LadderLlm {
+    fn write(&self, prompt: &str, deadline: Instant) -> Result<String, Refusal> {
+        let mut left = self.stages.len();
+        let mut refused: Option<Refusal> = None;
+        for stage in &self.stages {
+            let now = Instant::now();
+            let remaining = deadline.checked_duration_since(now).unwrap_or_default();
+            if remaining.is_zero() {
+                break;
+            }
+            // The stages share what is left: this stage gets its slice,
+            // and the last gets all of it.
+            let slice = remaining / left as u32;
+            let stage_deadline = if left == 1 { deadline } else { now + slice };
+            left -= 1;
+            match stage.write(prompt, stage_deadline) {
+                Ok(words) => return Ok(words),
+                Err(why) => refused = Some(why),
+            }
+        }
+        Err(refused.unwrap_or(Refusal::Timeout))
+    }
+
+    fn model(&self) -> &str {
+        &self.name
+    }
+}
+
+/// One stage of the ladder: a model and the door it serves behind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stage {
+    /// The base URL of the server that serves the model.
+    pub base: String,
+    /// The port it serves on.
+    pub port: u16,
+    /// The model's name, as the server knows it.
+    pub model: String,
+}
+
+impl Stage {
+    /// The stage's name for the log: the model, and where it lives.
+    fn label(&self) -> String {
+        format!("{} on {}:{}", self.model, self.base, self.port)
+    }
+}
+
+/// The stages the configuration names, in the order the ladder asks them.
+///
+/// The first stage is the wording model itself. The second, when the
+/// configuration names a fallback, is the model the ladder falls through
+/// to -- the one on the box beside the game, where the Thor's own box is
+/// not.
+pub fn stages_of(cfg: &AgentsConfig) -> Vec<Stage> {
+    let mut stages = vec![Stage {
+        base: cfg.utter_base().to_owned(),
+        port: cfg.utter.llm_port,
+        model: cfg.utter.llm_model.clone(),
+    }];
+    if let Some(fallback_model) = cfg.utter.fallback_model.as_deref() {
+        stages.push(Stage {
+            base: cfg.utter_fallback_base().to_owned(),
+            port: cfg.utter.fallback_port,
+            model: fallback_model.to_owned(),
+        });
+    }
+    stages
+}
+
+/// The wording model the configuration asks for: the one model, or the
+/// ladder of it and its fallback.
+///
+/// This is the door both the realizers and the measurements walk through,
+/// so that a round played by hand and a round played by a test word
+/// through the same stages.
+pub fn wording_llm(cfg: &AgentsConfig, deadline: Duration) -> Box<dyn Llm> {
+    llm_of(stages_of(cfg), deadline)
+}
+
+/// The wording model of the stages given: the one model, or the ladder.
+fn llm_of(stages: Vec<Stage>, deadline: Duration) -> Box<dyn Llm> {
+    let mut llms: Vec<Box<dyn Llm>> = stages
+        .iter()
+        .map(|stage| {
+            Box::new(ChatLlm::new(
+                &stage.base,
+                stage.port,
+                &stage.model,
+                deadline,
+            )) as Box<dyn Llm>
+        })
+        .collect();
+    match llms.len() {
+        1 => llms.pop().expect("the one stage"),
+        _ => Box::new(LadderLlm::new(llms)),
     }
 }
 
@@ -1299,6 +1519,8 @@ mod tests {
     use crate::phrasebook::Phrasebook;
     use lm_core::utterance::{Addressee, Affect, Intent, SpeechAct, Subject};
     use std::collections::BTreeMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
 
     /// A menu of one beacon and the three other moves.
     fn menu() -> Menu {
@@ -1709,7 +1931,9 @@ mod tests {
             utter: AgentsConfig::default().utter.with_probe_ms(50),
             ..AgentsConfig::default()
         };
-        assert!(probe_llm(&cfg).is_err(), "the model is not there");
+        let (serving, refused) = serving_stages(&cfg);
+        assert!(serving.is_empty(), "the model is not there: {serving:?}");
+        assert_eq!(refused.len(), 1, "the stage said no: {refused:?}");
     }
 
     #[test]
@@ -1743,6 +1967,306 @@ mod tests {
             "move to beacon 2 now"
         );
         assert_eq!(words_of(""), "");
+    }
+
+    /// A chat server that answers every request with a line.
+    ///
+    /// The probe of a stage is a real HTTP call, so a test that wants a
+    /// stage that is serving needs a server that is serving: this one
+    /// answers every request with the words it was given, in the shape the
+    /// chat client reads.
+    struct MockChat {
+        /// The port it serves on.
+        port: u16,
+    }
+
+    impl MockChat {
+        /// A server that answers every request with `words`.
+        fn start(words: &'static str) -> MockChat {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("the mock chat binds");
+            let port = listener
+                .local_addr()
+                .expect("the mock chat's address")
+                .port();
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { continue };
+                    let body = json!({
+                        "choices": [{ "message": { "content": words } }]
+                    })
+                    .to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    // The request is read to its end before the answer is
+                    // written: a client that is still sending must not find
+                    // the connection closed under it.
+                    let mut request = Vec::new();
+                    let mut chunk = [0u8; 2048];
+                    while !request_ends(&request) {
+                        match stream.read(&mut chunk) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => request.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let _ = stream.write_all(response.as_bytes());
+                }
+            });
+            MockChat { port }
+        }
+
+        /// The base URL of the server -- the host, without the port: the
+        /// port is asked for on its own, as the configuration asks for it.
+        fn base(&self) -> String {
+            "http://127.0.0.1".to_owned()
+        }
+    }
+
+    /// Whether the request read so far is complete: the headers, and the
+    /// body they say is there.
+    fn request_ends(request: &[u8]) -> bool {
+        let text = String::from_utf8_lossy(request);
+        let Some(head) = text.find("\r\n\r\n") else {
+            return false;
+        };
+        let head = &text[..head];
+        let length = head
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                if name.trim().eq_ignore_ascii_case("content-length") {
+                    value.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+        request.len() >= head.len() + 4 + length
+    }
+
+    /// A model that answers from a script, and remembers the deadline it
+    /// was given: the spy the ladder's tests look at.
+    #[derive(Debug)]
+    struct SpyLlm {
+        name: String,
+        reply: Result<String, Refusal>,
+        /// The moments it was asked at, each with the deadline it was
+        /// given.
+        asked: Arc<Mutex<Vec<(Instant, Instant)>>>,
+    }
+
+    impl SpyLlm {
+        /// A spy that answers with `reply`.
+        fn answering(name: &str, reply: &str) -> Self {
+            SpyLlm {
+                name: name.to_owned(),
+                reply: Ok(reply.to_owned()),
+                asked: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        /// A spy that refuses.
+        fn refusing(name: &str) -> Self {
+            SpyLlm {
+                name: name.to_owned(),
+                reply: Err(Refusal::Timeout),
+                asked: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        /// The handle to its log, taken before the spy is boxed into a
+        /// ladder stage.
+        fn log(&self) -> Arc<Mutex<Vec<(Instant, Instant)>>> {
+            Arc::clone(&self.asked)
+        }
+    }
+
+    impl Llm for SpyLlm {
+        fn write(&self, _prompt: &str, deadline: Instant) -> Result<String, Refusal> {
+            self.asked
+                .lock()
+                .expect("the spy's log")
+                .push((Instant::now(), deadline));
+            self.reply.clone()
+        }
+
+        fn model(&self) -> &str {
+            &self.name
+        }
+    }
+
+    #[test]
+    fn the_ladder_words_from_the_first_stage_that_answers() {
+        let up = SpyLlm::answering("thor", "move to beacon 2 now");
+        let never_asked = SpyLlm::answering("ollama", "hold at beacon 0");
+        let never_log = never_asked.log();
+        let ladder = LadderLlm::new(vec![Box::new(up), Box::new(never_asked)]);
+
+        let deadline = Instant::now() + Duration::from_millis(1000);
+        let words = ladder
+            .write("say a line", deadline)
+            .expect("the first stage words the line");
+        assert_eq!(words, "move to beacon 2 now");
+        assert!(
+            never_log.lock().expect("the spy's log").is_empty(),
+            "the climb stops at the first stage that answers"
+        );
+    }
+
+    #[test]
+    fn the_ladder_falls_through_and_splits_the_deadline() {
+        let down = SpyLlm::refusing("thor");
+        let up = SpyLlm::answering("ollama", "hold at beacon 0");
+        let (down_log, up_log) = (down.log(), up.log());
+        let ladder = LadderLlm::new(vec![Box::new(down), Box::new(up)]);
+
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(1000);
+        let words = ladder
+            .write("say a line", deadline)
+            .expect("the second stage words the line");
+        assert_eq!(words, "hold at beacon 0");
+
+        let first = down_log.lock().expect("the spy's log").clone();
+        let second = up_log.lock().expect("the spy's log").clone();
+        assert_eq!(first.len(), 1, "the first stage was asked once");
+        assert_eq!(second.len(), 1, "the second stage was asked once");
+        let (first_called, first_deadline) = first[0];
+        let (_, second_deadline) = second[0];
+        // Two stages share the deadline: the first gets half of it. The
+        // refusal costs the stage no time of its own, so its budget is
+        // the half measured from the moment the ladder was entered.
+        let budget = first_deadline - first_called;
+        assert!(
+            budget >= Duration::from_millis(450) && budget <= Duration::from_millis(505),
+            "the first stage's budget is half the deadline, not {budget:?}"
+        );
+        assert!(
+            first_deadline < deadline,
+            "a stage that is not the last is given less than the deadline"
+        );
+        assert_eq!(
+            second_deadline, deadline,
+            "the last stage is given the deadline itself, however late it is asked"
+        );
+    }
+
+    #[test]
+    fn the_ladder_refuses_when_every_stage_refuses() {
+        let ladder = LadderLlm::new(vec![
+            Box::new(SpyLlm::refusing("thor")),
+            Box::new(SpyLlm::refusing("ollama")),
+        ]);
+        let deadline = Instant::now() + Duration::from_millis(1000);
+        assert!(
+            matches!(ladder.write("say a line", deadline), Err(Refusal::Timeout)),
+            "a ladder whose every stage refuses is a refusal"
+        );
+    }
+
+    #[test]
+    fn the_ladder_is_built_only_when_a_fallback_is_named() {
+        let cfg = AgentsConfig::default();
+        let deadline = Duration::from_millis(1000);
+        let single = wording_llm(&cfg, deadline);
+        assert!(
+            !format!("{single:?}").contains("LadderLlm"),
+            "no fallback named, no ladder: {single:?}"
+        );
+
+        let mut cfg = AgentsConfig::default();
+        cfg.utter.fallback_model = Some("gemma2:2b".to_owned());
+        let ladder = wording_llm(&cfg, deadline);
+        let text = format!("{ladder:?}");
+        assert!(text.contains("LadderLlm"), "a ladder is built: {text}");
+        assert!(
+            text.contains("LFM2-1.2B") && text.contains("gemma2:2b"),
+            "the ladder carries both models: {text}"
+        );
+    }
+
+    #[test]
+    fn the_stages_are_the_ones_the_configuration_names() {
+        let cfg = AgentsConfig::default();
+        let stages = stages_of(&cfg);
+        assert_eq!(stages.len(), 1, "no fallback named, one stage: {stages:?}");
+        assert_eq!(stages[0].model, "LFM2-1.2B");
+        assert_eq!(stages[0].port, 8092);
+        assert_eq!(stages[0].base, "http://192.168.0.78");
+
+        let mut cfg = AgentsConfig::default();
+        cfg.utter.fallback_model = Some("gemma2:2b".to_owned());
+        let stages = stages_of(&cfg);
+        assert_eq!(stages.len(), 2, "the ladder has two stages: {stages:?}");
+        assert_eq!(stages[1].model, "gemma2:2b");
+        assert_eq!(stages[1].port, 11_434);
+        assert_eq!(
+            stages[1].base, "http://127.0.0.1",
+            "the second stage is the one beside the game"
+        );
+    }
+
+    #[test]
+    fn a_stage_that_does_not_answer_is_dropped_from_the_ladder() {
+        // Nothing listens on port 9: the first stage is not there, and the
+        // second one is not either. Both are dropped, and the log says so.
+        let cfg = AgentsConfig {
+            thor_base: "http://127.0.0.1:9".to_owned(),
+            utter: AgentsConfig::default().utter.with_probe_ms(50),
+            ..AgentsConfig::default()
+        };
+        let (serving, refused) = serving_stages(&cfg);
+        assert!(serving.is_empty(), "no stage is serving: {serving:?}");
+        assert_eq!(refused.len(), 1, "one stage said no: {refused:?}");
+        assert!(
+            refused[0].contains("did not answer the probe"),
+            "the reason is carried with it: {refused:?}"
+        );
+    }
+
+    #[test]
+    fn the_ladder_survives_the_thor_being_down() {
+        // The Thor's stage is not there; the stage beside the game is. The
+        // ladder is the one stage that answers, and `auto` uses it -- the
+        // game does not fall back to the phrasebook while a model is
+        // serving a few metres away.
+        let mock = MockChat::start("beacon 3 in range");
+        let mut cfg = AgentsConfig::default();
+        cfg.utter.llm_base = Some("http://127.0.0.1:9".to_owned());
+        cfg.utter.probe_ms = 2_000;
+        cfg.utter.fallback_model = Some("gemma2:2b".to_owned());
+        cfg.utter.fallback_port = mock.port;
+        cfg.utter.fallback_base = Some(mock.base());
+        let (serving, refused) = serving_stages(&cfg);
+        assert_eq!(serving.len(), 1, "one stage answers: {serving:?}");
+        assert_eq!(serving[0].model, "gemma2:2b");
+        assert_eq!(refused.len(), 1, "the Thor's stage said no: {refused:?}");
+        assert!(
+            refused[0].contains("LFM2-1.2B"),
+            "the log names the stage that went: {refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_stage_that_serves_is_kept_and_asked() {
+        // Both stages answer: both are in the ladder, in the order the
+        // configuration names them.
+        let mock = MockChat::start("beacon 3 in range");
+        let mut cfg = AgentsConfig::default();
+        cfg.utter.llm_base = Some(mock.base());
+        cfg.utter.llm_port = mock.port;
+        cfg.utter.probe_ms = 2_000;
+        cfg.utter.fallback_model = Some("gemma2:2b".to_owned());
+        cfg.utter.fallback_port = mock.port;
+        cfg.utter.fallback_base = Some(mock.base());
+        let (serving, refused) = serving_stages(&cfg);
+        assert_eq!(serving.len(), 2, "both stages answer: {serving:?}");
+        assert!(refused.is_empty(), "nothing said no: {refused:?}");
+        assert_eq!(serving[0].model, "LFM2-1.2B", "the first stage is first");
+        assert_eq!(serving[1].model, "gemma2:2b", "the second stage is second");
     }
 
     #[test]

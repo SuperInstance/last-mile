@@ -133,6 +133,13 @@ pub struct UterConfig {
     pub llm_model: String,
     /// The port that model serves on.
     pub llm_port: u16,
+    /// The base URL of the model that writes the lines.
+    ///
+    /// `None` means the Thor's base: the Thor serves the wording model on
+    /// its own port, and that is where it has always lived. A wording
+    /// model may live anywhere else -- the ProArt beside the game, with
+    /// Ollama on :11434 -- so the base is configuration, never a guess.
+    pub llm_base: Option<String>,
     /// The deadline of one line's wording, in milliseconds.
     ///
     /// This is how long the model may take to write a line: the wording
@@ -151,6 +158,29 @@ pub struct UterConfig {
     /// The probe asks the model for a line before the round starts, so
     /// that `auto` can say which realizer it chose and why.
     pub probe_ms: u32,
+    /// The model the ladder falls through to, when the first model does
+    /// not word the line inside its share of the deadline.
+    ///
+    /// `None` is no ladder: `auto` asks the one model and the phrasebook
+    /// takes what it misses. `Some` builds the ladder -- the model on
+    /// `llm_base:llm_port` first, this one second, each but the last for
+    /// its share of the deadline -- and the phrasebook still takes what
+    /// even the ladder misses. The game never waits on any of it: the
+    /// ladder is climbed on the realizer's own thread.
+    ///
+    /// This is where the wording goes when the Thor is busy: a second
+    /// model on the box beside the game answers in the deadline the
+    /// overloaded first model would have missed.
+    pub fallback_model: Option<String>,
+    /// The port the ladder's second model serves on.
+    pub fallback_port: u16,
+    /// The base URL of the ladder's second model.
+    ///
+    /// `None` means this machine: the second model of the ladder is the
+    /// one beside the game -- Ollama on the game's own box -- which is
+    /// the point of the ladder. A second model that lived on the Thor
+    /// would share the Thor's bad night, not rescue it.
+    pub fallback_base: Option<String>,
 }
 
 impl Default for UterConfig {
@@ -159,8 +189,12 @@ impl Default for UterConfig {
             realizer: "auto".to_owned(),
             llm_model: "LFM2-1.2B".to_owned(),
             llm_port: 8092,
+            llm_base: None,
             deadline_ms: 1_000,
             probe_ms: 2_000,
+            fallback_model: None,
+            fallback_port: 11_434,
+            fallback_base: None,
         }
     }
 }
@@ -232,6 +266,31 @@ impl Default for AgentsConfig {
 }
 
 impl AgentsConfig {
+    /// The base URL of the model that writes the lines.
+    ///
+    /// The Thor's base, unless the wording's own configuration names
+    /// another one: a wording model may live on the box beside the game
+    /// rather than on the Thor, and the port alone does not say which
+    /// server that port belongs to.
+    pub fn utter_base(&self) -> &str {
+        self.utter
+            .llm_base
+            .as_deref()
+            .unwrap_or(self.thor_base.as_str())
+    }
+
+    /// The base URL of the ladder's second model.
+    ///
+    /// The game's own machine, unless the configuration names another:
+    /// the second model is the one beside the game, and the game's own
+    /// loopback is where Ollama serves it.
+    pub fn utter_fallback_base(&self) -> &str {
+        self.utter
+            .fallback_base
+            .as_deref()
+            .unwrap_or("http://127.0.0.1")
+    }
+
     /// Parse an `agents.toml`'s text; missing fields fall back to the
     /// defaults.
     pub fn from_toml(text: &str) -> Result<Self, ConfigError> {
@@ -312,6 +371,13 @@ mod tests {
                 c.utter.llm_port
             ),
             ("auto", "LFM2-1.2B", 8092)
+        );
+        // The ladder is off by default: the one model, and the phrasebook
+        // for what it misses.
+        assert_eq!(c.utter.fallback_model, None);
+        assert_eq!(
+            (c.utter.fallback_port, c.utter_fallback_base()),
+            (11_434, "http://127.0.0.1")
         );
     }
 

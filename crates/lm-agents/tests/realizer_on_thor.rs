@@ -22,6 +22,21 @@
 //! - how long the wording took;
 //! - the line the phrasebook would have worded for the same plan.
 //!
+//! ## The arm
+//!
+//! The **arm** -- which model words the lines, and where it lives -- comes
+//! from the environment, so the A/B is the same harness four times over
+//! and only the door changes:
+//!
+//! ```text
+//! UTTER_LLM_MODEL  the model's name, as the server knows it
+//! UTTER_LLM_PORT   the port it serves on
+//! UTTER_LLM_BASE   the base URL of the server (default: the Thor's)
+//! UTTER_DUMP       where the report is written, as JSON
+//! ```
+//!
+//! With none of them set the arm is the Thor's own: LFM2-1.2B on `:8092`.
+//!
 //! ## What is checked
 //!
 //! - the model's line stays within the plan: the same intent, the same
@@ -37,6 +52,7 @@
 //! The write-up of the numbers is `tests/realizer_on_thor.md`.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -44,7 +60,7 @@ use lm_agents::config::AgentsConfig;
 use lm_agents::harness::Harness;
 use lm_agents::sysone::{Refusal, SysOne, ThorBackend};
 use lm_agents::utter::{
-    other_target, AutoRealizer, LlmRealizer, TemplateRealizer, ThorLlm, UtterPlan, WordSource,
+    other_target, wording_llm, AutoRealizer, LlmRealizer, TemplateRealizer, UtterPlan, WordSource,
     Worded,
 };
 use lm_agents::Agents;
@@ -52,6 +68,7 @@ use lm_core::header::Header;
 use lm_core::opal::{self, TalkContext};
 use lm_core::utterance::Subject;
 use lm_host_model::HostLoop;
+use serde_json::json;
 
 /// The shipped harness: the gates, the policy and the phrasebook the default
 /// round thinks with.
@@ -70,6 +87,95 @@ const SEEDS: [u64; 3] = [1, 2, 3];
 
 /// How many lines the report shows side by side.
 const SAMPLES: usize = 30;
+
+/// The arm the measurement plays: the model, and the door it lives behind.
+#[derive(Clone, Debug)]
+struct Arm {
+    /// The model's name, as the server knows it.
+    model: String,
+    /// The port it serves on.
+    port: u16,
+    /// The base URL of the server.
+    base: String,
+    /// The model the ladder falls through to, if the environment names
+    /// one.
+    fallback: Option<Fallback>,
+    /// Where the report is written, if the environment says where.
+    dump: Option<PathBuf>,
+}
+
+/// The ladder's second model, as the environment spells it.
+#[derive(Clone, Debug)]
+struct Fallback {
+    model: String,
+    port: u16,
+    base: Option<String>,
+}
+
+impl Arm {
+    /// The arm the environment asks for.
+    ///
+    /// With nothing set it is the Thor's own arm: LFM2-1.2B on `:8092`,
+    /// the door the realizer has always lived behind. A variable that is
+    /// set but **empty** is unset: the sweep exports every arm's
+    /// variables to every arm, and the plain arms' fallback spells out
+    /// to nothing.
+    fn from_env() -> Arm {
+        let default = AgentsConfig::default();
+        let named = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .filter(|text| !text.trim().is_empty())
+        };
+        let fallback = named("UTTER_FALLBACK_MODEL").map(|model| Fallback {
+            port: named("UTTER_FALLBACK_PORT")
+                .and_then(|text| text.parse::<u16>().ok())
+                .unwrap_or(default.utter.fallback_port),
+            base: named("UTTER_FALLBACK_BASE"),
+            model,
+        });
+        Arm {
+            model: named("UTTER_LLM_MODEL").unwrap_or(default.utter.llm_model.clone()),
+            port: named("UTTER_LLM_PORT")
+                .and_then(|text| text.parse::<u16>().ok())
+                .unwrap_or(default.utter.llm_port),
+            base: named("UTTER_LLM_BASE").unwrap_or(default.thor_base.clone()),
+            fallback,
+            dump: std::env::var_os("UTTER_DUMP").map(PathBuf::from),
+        }
+    }
+
+    /// The configuration this arm plays with.
+    fn config(&self) -> AgentsConfig {
+        let mut cfg = AgentsConfig::default();
+        cfg.utter.llm_model = self.model.clone();
+        cfg.utter.llm_port = self.port;
+        cfg.utter.llm_base = Some(self.base.clone());
+        if let Some(fallback) = &self.fallback {
+            cfg.utter.fallback_model = Some(fallback.model.clone());
+            cfg.utter.fallback_port = fallback.port;
+            cfg.utter.fallback_base = fallback.base.clone();
+        }
+        cfg
+    }
+
+    /// The arm's name, for the report: the model, and the ladder if there
+    /// is one.
+    fn name(&self) -> String {
+        match &self.fallback {
+            None => format!("{} on {}:{}", self.model, self.base, self.port),
+            Some(fallback) => format!(
+                "{} on {}:{} then {} on {}:{}",
+                self.model,
+                self.base,
+                self.port,
+                fallback.model,
+                fallback.base.as_deref().unwrap_or("http://127.0.0.1"),
+                fallback.port
+            ),
+        }
+    }
+}
 
 /// One line the agents spoke, and what it cost.
 #[derive(Clone, Debug)]
@@ -105,15 +211,7 @@ impl Watcher {
         let deadline = Duration::from_millis(u64::from(cfg.utter.deadline_ms));
         let auto = Arc::new(AutoRealizer::new(
             template.clone(),
-            LlmRealizer::new(
-                Box::new(ThorLlm::new(
-                    &cfg.thor_base,
-                    cfg.utter.llm_port,
-                    &cfg.utter.llm_model,
-                    deadline,
-                )),
-                deadline,
-            ),
+            LlmRealizer::new(wording_llm(cfg, deadline), deadline),
         ));
         Watcher {
             inner: Box::new(AutoRealizerProxy(Arc::clone(&auto))),
@@ -191,10 +289,14 @@ struct Round {
 }
 
 /// Play one round on the Thor, at the round's own rate, and measure it.
-fn play(seed: u64) -> (Round, Vec<Line>, Vec<u64>) {
+///
+/// The round is the same whatever the arm is: the same seed, the same
+/// harness, the same decision tier on the Thor. Only the door the wording
+/// comes through is the arm's.
+fn play(seed: u64, arm: &Arm) -> (Round, Vec<Line>, Vec<u64>, u64) {
     let header = Header::default_round(seed, DEFAULT_REFLEX);
     let harness = default_harness();
-    let cfg = AgentsConfig::default();
+    let cfg = arm.config();
 
     let backend = ThorBackend::new(&cfg.thor_base, cfg.ports["d1-2b"], "d1-2b")
         .with_min_confidence(0.30)
@@ -242,14 +344,11 @@ fn play(seed: u64) -> (Round, Vec<Line>, Vec<u64>) {
         late: stats.words.late,
     };
     let log = log.lock().expect("the watcher's log").clone();
-    let mut latencies: Vec<u64> = banks
-        .lock()
-        .expect("the banks")
-        .iter()
-        .flat_map(|bank| bank.latencies())
-        .collect();
+    let banks = banks.lock().expect("the banks").clone();
+    let mut latencies: Vec<u64> = banks.iter().flat_map(|bank| bank.latencies()).collect();
     latencies.sort_unstable();
-    (round, log, latencies)
+    let misses: u64 = banks.iter().map(|bank| bank.misses()).sum();
+    (round, log, latencies, misses)
 }
 
 /// The percentile of a sorted slice, by rank.
@@ -265,12 +364,15 @@ fn percentile(sorted: &[u64], q: f64) -> u64 {
 #[test]
 #[ignore = "needs the Thor at 192.168.0.78; run with --release --ignored --nocapture"]
 fn realizer_on_thor() {
+    let arm = Arm::from_env();
     let mut rounds = Vec::new();
     let mut lines: Vec<Line> = Vec::new();
     let mut latencies: Vec<u64> = Vec::new();
+    let mut misses: u64 = 0;
     for seed in SEEDS {
-        let (round, log, measured) = play(seed);
+        let (round, log, measured, missed) = play(seed, &arm);
         latencies.extend(measured);
+        misses += missed;
         println!(
             "round {seed}: {} lines, {} decisions, {} refusals, {} by the model, \
              {} by the phrasebook, {} late",
@@ -306,10 +408,12 @@ fn realizer_on_thor() {
     println!();
     println!("# the realizer on the real Thor");
     println!();
+    println!("- the arm: {}", arm.name());
     println!("- rounds: {}", rounds.len());
     println!("- lines: {utterances}");
     println!("- words llm {llm} / phrasebook {phrasebook} / late {late}");
     println!("- the share that fell back: {share:.1}%");
+    println!("- the wordings that never came: {misses}");
     println!(
         "- the wording's latency: p50 {} ms, p95 {} ms (n={})",
         percentile(&llm_micros, 0.50) as f64 / 1000.0,
@@ -356,6 +460,15 @@ fn realizer_on_thor() {
             wrong_target.push(format!("{other} in {}", line.text.replace('\n', " / ")));
         }
     }
+    // The on-plan rate: the share of the model's own lines that stayed on
+    // the plan -- the tags it was given, and the target it did not name
+    // against the plan.
+    let on_plan = checked - off_plan.len() - wrong_target.len();
+    let on_plan_rate = if checked == 0 {
+        0.0
+    } else {
+        100.0 * on_plan as f64 / checked as f64
+    };
     // The game's own wait for the wording: the bank makes it zero.
     let waits: Vec<u64> = lines.iter().map(|line| line.micros).collect();
     println!(
@@ -375,6 +488,7 @@ fn realizer_on_thor() {
     println!("- lines checked against their plan: {checked}");
     println!("- lines off their plan: {}", off_plan.len());
     println!("- lines naming another target: {}", wrong_target.len());
+    println!("- the on-plan rate: {on_plan_rate:.1}%");
     // The lines the phrasebook worded that were not late: the model
     // answered in time, and what it wrote was refused.
     let wrong = lines
@@ -429,9 +543,59 @@ fn realizer_on_thor() {
         println!();
     }
 
+    // The dump: the arm's numbers, as JSON, for the sweep that runs the
+    // arms one after another.
+    if let Some(path) = arm.dump.as_ref() {
+        let dump = json!({
+            "arm": {
+                "model": arm.model,
+                "base": arm.base,
+                "port": arm.port,
+                "ladder": arm.name(),
+            },
+            "rounds": rounds.iter().map(|round| json!({
+                "utterances": round.utterances,
+                "decisions": round.decisions,
+                "refusals": round.refusals,
+                "llm": round.llm,
+                "phrasebook": round.phrasebook,
+                "late": round.late,
+            })).collect::<Vec<_>>(),
+            "lines": utterances,
+            "llm": llm,
+            "phrasebook": phrasebook,
+            "late": late,
+            "misses": misses,
+            "fallback_pct": share,
+            "latency": {
+                "n": llm_micros.len(),
+                "p50_ms": percentile(&llm_micros, 0.50) as f64 / 1000.0,
+                "p95_ms": percentile(&llm_micros, 0.95) as f64 / 1000.0,
+                "min_ms": llm_micros.first().copied().unwrap_or(0) as f64 / 1000.0,
+                "max_ms": llm_micros.last().copied().unwrap_or(0) as f64 / 1000.0,
+            },
+            "on_plan": {
+                "checked": checked,
+                "off_plan": off_plan.len(),
+                "wrong_target": wrong_target.len(),
+                "rate_pct": on_plan_rate,
+            },
+            "wait_max_us": waits.iter().copied().max().unwrap_or(0),
+            "distinct_plans": plans.len(),
+            "wrong_in_time": wrong,
+            "samples": samples.iter().map(|line| json!({
+                "plan": format!("{:?}", line.plan),
+                "model": line.text,
+                "phrasebook": line.phrasebook,
+            })).collect::<Vec<_>>(),
+        });
+        std::fs::write(path, dump.to_string()).expect("the dump is written");
+        println!("- the dump: {}", path.display());
+    }
+
     // The acceptance: the model was asked, and the rounds say so.
     assert!(utterances > 0, "the agents spoke");
-    assert!(llm > 0, "the model on the Thor worded some lines");
+    assert!(llm > 0, "the model worded some lines");
     assert_eq!(llm + phrasebook, utterances, "every line was worded");
     assert!(late <= phrasebook, "a late line is a phrasebook line");
     assert!(
