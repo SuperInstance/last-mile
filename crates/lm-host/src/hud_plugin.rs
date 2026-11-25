@@ -15,9 +15,14 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lm_host_model::input::{InputState, Viewer};
 
+use std::collections::BTreeMap;
+
+use lm_core::utterance::Channel;
+
 use crate::audio_plugin::{Playback, VoiceState};
 use crate::input_plugin::{Input, Status};
-use crate::map_plugin::{egui_color, squad_color, Layout};
+use crate::look::Look;
+use crate::map_plugin::{egui_color, squad_color, CurrentMap, Layout};
 use crate::sim_plugin::Round;
 
 /// The HUD plugin: the bar at the top of the window.
@@ -30,6 +35,7 @@ impl Plugin for HudPlugin {
 }
 
 /// The bar itself.
+#[allow(clippy::too_many_arguments)]
 fn hud_bar(
     mut contexts: EguiContexts,
     round: Res<Round>,
@@ -38,8 +44,13 @@ fn hud_bar(
     voice: Res<VoiceState>,
     playback: Res<Playback>,
     layout: Res<Layout>,
+    look: Res<Look>,
+    map: Option<Res<CurrentMap>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?.clone();
+    // The theme: one type scale and one set of colours for every panel, so
+    // the bar, the roll and the score are one picture and not three.
+    look.apply_theme(&ctx);
     // egui 0.36 panels show into a `&mut Ui`, not a `&Context`: build the
     // background ui the panel docks against.
     let mut root = egui::Ui::new(
@@ -55,19 +66,19 @@ fn hud_bar(
         .resizable(false)
         .exact_size(layout.bar)
         .show(&mut root, |ui| {
-            draw_hud(ui, &round, &input.0, &status);
+            draw_hud(ui, &round, &input.0, &status, &look);
         });
     egui::Panel::top("hud_talk")
         .resizable(false)
         .exact_size(layout.talk)
         .show(&mut root, |ui| {
-            draw_talk(ui, &round, &voice, &playback);
+            draw_talk(ui, &round, &voice, &playback, &look, map.as_deref());
         });
     Ok(())
 }
 
 /// The numbers of the round.
-fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Status) {
+fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Status, look: &Look) {
     // A file that could not be opened: the error is the whole bar, because
     // there is no round to count.
     if let Some(err) = &round.error {
@@ -90,16 +101,29 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
     let seconds = left as f32 / f32::from(params.tick_hz);
     let stats = sim.stats();
 
+    let scale = &look.0.type_scale;
+    let dim = look.egui(look.0.ui.text_dim);
     ui.horizontal_wrapped(|ui| {
-        ui.label(format!("tick {tick}"));
-        ui.label(format!("time {seconds:.0}s"));
+        // The clock: small and quiet, the way a clock is.
+        ui.add(egui::Label::new(
+            egui::RichText::new(format!("tick {tick}"))
+                .size(scale.small)
+                .color(dim),
+        ));
+        ui.add(egui::Label::new(
+            egui::RichText::new(format!("time {seconds:.0}s"))
+                .size(scale.small)
+                .color(dim),
+        ));
 
-        // The score of every squad, in the colour of the squad.
+        // The score of every squad: the number the round is played for, in
+        // the colour of the squad that has it.
         for (squad, score) in round.scores().iter().enumerate() {
-            ui.colored_label(
-                egui_color(squad_color(squad as u8)),
-                format!("s{squad} {score}"),
-            );
+            ui.add(egui::Label::new(
+                egui::RichText::new(format!("s{squad} {score}"))
+                    .size(scale.big)
+                    .color(egui_color(squad_color(look, squad as u8))),
+            ));
         }
 
         ui.separator();
@@ -108,9 +132,13 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
         // played: a replay has no sequencer, it has a log.
         if let Some(host) = &round.live {
             let sched = host.sched_stats();
-            ui.label(format!(
-                "sched on-time {} late {} stale {}",
-                sched.on_time, sched.late, sched.stale
+            ui.add(egui::Label::new(
+                egui::RichText::new(format!(
+                    "sched on-time {} late {} stale {}",
+                    sched.on_time, sched.late, sched.stale
+                ))
+                .size(scale.small)
+                .color(dim),
             ));
 
             // The agents' counters: what they asked, what they refused, what
@@ -141,9 +169,13 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
         }
 
         ui.separator();
-        ui.label(format!(
-            "reflex fuel {} err {} refused {}",
-            stats.reflex_out_of_fuel, stats.reflex_error, stats.reflex_refused
+        ui.add(egui::Label::new(
+            egui::RichText::new(format!(
+                "reflex fuel {} err {} refused {}",
+                stats.reflex_out_of_fuel, stats.reflex_error, stats.reflex_refused
+            ))
+            .size(scale.small)
+            .color(dim),
         ));
 
         ui.separator();
@@ -153,7 +185,7 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
         if let Some(outcome) = round.outcome() {
             match outcome.winner {
                 Some(squad) => {
-                    ui.colored_label(egui_color(squad_color(squad)), "round over");
+                    ui.colored_label(egui_color(squad_color(look, squad)), "round over");
                 }
                 None => {
                     ui.label("round over: a tie");
@@ -173,7 +205,14 @@ fn draw_hud(ui: &mut egui::Ui, round: &Round, input: &InputState, status: &Statu
 /// The talk is read together: the lines the round has spoken, the airtime
 /// they took, the orders and how many of them were taken up, the
 /// microphone, the prosody service and the half-duplex gate.
-fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Playback) {
+fn draw_talk(
+    ui: &mut egui::Ui,
+    round: &Round,
+    voice: &VoiceState,
+    playback: &Playback,
+    look: &Look,
+    map: Option<&CurrentMap>,
+) {
     // A round being replayed is watched, not played: it has no talk of its
     // own to count.
     let Some(host) = round.live.as_ref() else {
@@ -183,6 +222,11 @@ fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Pl
     let talk = host.talk_counters();
 
     ui.horizontal_wrapped(|ui| {
+        // Who is talking: the agents with a word in this frame, each in the
+        // colour of their own squad. A line that is heard is a line whose
+        // squad is named.
+        draw_speakers(ui, look, map);
+        ui.separator();
         // The lines the round has spoken, and the airtime they took.
         ui.label(format!(
             "talk {} air {}",
@@ -223,7 +267,7 @@ fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Pl
             // colour, so a reader knows whose line they are hearing.
             for (squad, voices) in &talk.squad_voices {
                 ui.colored_label(
-                    egui_color(squad_color(*squad)),
+                    egui_color(squad_color(look, *squad)),
                     format!("s{squad} {voices}"),
                 );
             }
@@ -290,6 +334,47 @@ fn draw_talk(ui: &mut egui::Ui, round: &Round, voice: &VoiceState, playback: &Pl
             ui.colored_label(egui::Color32::from_rgb(255, 190, 110), said.clone());
         }
     });
+}
+
+/// Who is talking: the agents with a word in this frame.
+///
+/// Each speaker is named in the colour of their own squad, and the channel
+/// they speak on is named beside them: a line that is heard is a line whose
+/// squad is known, and a whisper is a whisper wherever it is heard.
+fn draw_speakers(ui: &mut egui::Ui, look: &Look, map: Option<&CurrentMap>) {
+    let Some(model) = map.and_then(|map| map.0.as_ref()) else {
+        return;
+    };
+    // The first word an agent says in this frame names the channel they
+    // are on: one agent, one line, one channel.
+    let mut speakers: BTreeMap<u16, Channel> = BTreeMap::new();
+    for tick in &model.speech {
+        speakers.entry(tick.speaker).or_insert(tick.channel);
+    }
+    if speakers.is_empty() {
+        return;
+    }
+    for (agent, channel) in speakers {
+        let squad = model
+            .agents
+            .iter()
+            .find(|draw| draw.id == agent)
+            .map_or(0, |draw| draw.squad);
+        ui.colored_label(
+            egui_color(squad_color(look, squad)),
+            format!("a{agent} {}", channel_name(channel)),
+        );
+    }
+}
+
+/// The name of a channel, in words.
+fn channel_name(channel: Channel) -> &'static str {
+    match channel {
+        Channel::Shout => "shouting",
+        Channel::Voice => "speaking",
+        Channel::Whisper => "whispering",
+        Channel::Radio => "on the radio",
+    }
 }
 
 /// Who is looking at the round.

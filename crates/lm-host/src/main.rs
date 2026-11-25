@@ -75,15 +75,17 @@ mod between_plugin;
 mod hud_plugin;
 mod input_plugin;
 mod keys;
+mod look;
+mod look_effects;
 mod map_plugin;
 mod roll_plugin;
 mod score_plugin;
 mod sim_plugin;
 mod view3d;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::{
     app::AppExit,
@@ -95,6 +97,7 @@ use bevy::{
         RenderPlugin,
     },
     time::Real,
+    window::PresentMode,
 };
 use bevy_egui::{EguiContext, EguiGlobalSettings, EguiPlugin, PrimaryEguiContext};
 use lm_agents::config::AgentsConfig;
@@ -137,6 +140,19 @@ struct ShotRequest {
     path: PathBuf,
     frames: u32,
     spawned: bool,
+    /// TEMP (the look's screenshots only): take the picture when the paint
+    /// of a hit is at the top of its burst, instead of at a frame count.
+    /// The paint lives half a second and a still is one frame, so a blind
+    /// sweep is a lottery; this is the trigger that removes the lottery.
+    /// It changes *when* the picture is taken and nothing it draws.
+    burst: bool,
+}
+
+/// TEMP (the look's screenshots only): the size the window was asked for.
+#[derive(Resource)]
+struct ShotWindow {
+    width: f32,
+    height: f32,
 }
 
 /// The frame times of the round, in milliseconds.
@@ -178,6 +194,9 @@ struct Options {
     replay: Option<PathBuf>,
     /// The screenshot to take, if any.
     shot: Option<ShotRequest>,
+    /// TEMP (the look's screenshots only): take the picture at the top of
+    /// the paint's burst, not at a frame count.
+    shot_burst: bool,
     /// Who is thinking: the reflex alone, a stub, or the Thor.
     agents: AgentChoice,
     /// Which voice backend the host talks through.
@@ -215,6 +234,10 @@ struct Options {
     /// Where the played-clip log is written, when it is asked for: one
     /// line a clip, with its samples — the outside proof of playback.
     voice_log: Option<PathBuf>,
+    /// The look file: the colours, sizes and shadows every view reads.
+    look: PathBuf,
+    /// Whether to measure the frame rate and print it.
+    fps: bool,
 }
 
 /// The host's view switch, as a resource: which view draws, and the `B`
@@ -336,7 +359,8 @@ fn main() -> AppExit {
                  [--agents-config FILE] [--reviewer stub|router] [--harness-root DIR] \
                  [--runs DIR] [--learn-ticks N] [--ticks N] [--voice-toml FILE] \
                  [--mic-wav FILE] [--bottom roll|score] [--score-seconds N] [--scrub N] \
-                 [--voice-bank DIR] [--voice-bank-cap-mb N] [--voice-log FILE]"
+                 [--voice-bank DIR] [--voice-bank-cap-mb N] [--voice-log FILE] \
+                 [--look FILE] [--fps]"
             );
             return AppExit::Error(NonZeroU8::MIN);
         }
@@ -514,6 +538,18 @@ fn main() -> AppExit {
         harness: options.harness.clone(),
         harness_root: options.harness_root.clone(),
     };
+    // The look: the colours, sizes and shadows every view of the game
+    // reads. It is a file, so a different look is a different file and not
+    // a different build. A file that cannot be read is a start-up error,
+    // not a silent default: a renderer running on defaults nobody asked
+    // for is a lie about what is on screen.
+    let look = match look::Look::load(&options.look) {
+        Ok(look) => look,
+        Err(err) => {
+            eprintln!("lm-host: {err}");
+            return AppExit::Error(NonZeroU8::MIN);
+        }
+    };
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -521,6 +557,15 @@ fn main() -> AppExit {
                 primary_window: Some(Window {
                     title: "last-mile".to_owned(),
                     resolution: options.window.into(),
+                    // The frame rate is measured with the waiting turned
+                    // off: with the display's own pace the number says how
+                    // fast the screen refreshes, not how fast the scene
+                    // draws.
+                    present_mode: if options.fps {
+                        PresentMode::Immediate
+                    } else {
+                        PresentMode::AutoVsync
+                    },
                     ..default()
                 }),
                 ..default()
@@ -566,6 +611,7 @@ fn main() -> AppExit {
     }
 
     app.insert_resource(round)
+        .insert_resource(look.clone())
         .insert_resource(recording)
         .insert_resource(input_plugin::Input(input))
         .insert_resource(audio_plugin::MicWavs::new(waves))
@@ -575,7 +621,12 @@ fn main() -> AppExit {
         // as it asks for, and a replay can open on a named tick.
         .insert_resource(map_plugin::Bottom(BottomSwitch::new(options.bottom)))
         .insert_resource(sim_plugin::ScoreZoom(options.score_seconds))
-        .add_plugins(sim_plugin::SimPlugin::new(tick_hz));
+        .add_plugins(sim_plugin::SimPlugin::new(tick_hz))
+        // The tag moment: the hits of the round and the path of the agent
+        // being watched. The effects belong to the round and not to a view,
+        // so the plugin is added to every view — and only once, so that a
+        // tag is seen once.
+        .add_plugins(look_effects::EffectsPlugin);
     if let Some(tick) = options.scrub {
         app.insert_resource(sim_plugin::Replay {
             playing: false,
@@ -607,13 +658,15 @@ fn main() -> AppExit {
             // The 3D view's settings: `render.toml`, or the defaults the
             // plan pins. A file that cannot be read is a start-up error, not
             // a silent default.
-            let settings = match view3d::View3dSettings::load(std::path::Path::new(RENDER_TOML)) {
-                Ok(settings) => settings,
-                Err(err) => {
-                    eprintln!("lm-host: {err}");
-                    return AppExit::Error(NonZeroU8::MIN);
-                }
-            };
+            let settings =
+                match view3d::View3dSettings::load(std::path::Path::new(RENDER_TOML), look.clone())
+                {
+                    Ok(settings) => settings,
+                    Err(err) => {
+                        eprintln!("lm-host: {err}");
+                        return AppExit::Error(NonZeroU8::MIN);
+                    }
+                };
             app.add_plugins(view3d::View3dPlugin { settings });
         }
         ViewMode::Both => {
@@ -621,13 +674,15 @@ fn main() -> AppExit {
             // the piano roll over it (the piano roll is the M1 debugger
             // and keeps working in 3D), and the 2D map one `B` away. Both
             // views are installed; the switch says which draws.
-            let settings = match view3d::View3dSettings::load(std::path::Path::new(RENDER_TOML)) {
-                Ok(settings) => settings,
-                Err(err) => {
-                    eprintln!("lm-host: {err}");
-                    return AppExit::Error(NonZeroU8::MIN);
-                }
-            };
+            let settings =
+                match view3d::View3dSettings::load(std::path::Path::new(RENDER_TOML), look.clone())
+                {
+                    Ok(settings) => settings,
+                    Err(err) => {
+                        eprintln!("lm-host: {err}");
+                        return AppExit::Error(NonZeroU8::MIN);
+                    }
+                };
             app.insert_resource(Views(ViewSwitch::new(ViewMode::Both)))
                 .add_plugins((
                     view3d::View3dPlugin { settings },
@@ -693,11 +748,24 @@ fn main() -> AppExit {
                 .run_if(|messages: Res<Messages<AppExit>>| !messages.is_empty()),
         );
 
+    // TEMP (the look's screenshots only): put the window back to the size it
+    // was asked for when it comes up empty.
+    app.insert_resource(ShotWindow {
+        width: options.window.0 as f32,
+        height: options.window.1 as f32,
+    })
+    .add_systems(Update, fix_empty_window);
+
     if let Some(request) = options.shot {
         app.insert_resource(request).add_systems(
             Update,
             shoot_and_exit.run_if(resource_exists::<ShotRequest>),
         );
+    }
+    // The frame rate, when it is asked for: the waiting of the display is
+    // turned off, and the frames are timed.
+    if options.fps {
+        app.init_resource::<Fps>().add_systems(Update, measure_fps);
     }
 
     app.run()
@@ -970,6 +1038,10 @@ fn parse_args() -> Result<Options, String> {
     let mut voice_bank = None;
     let mut voice_bank_cap_mb = None;
     let mut voice_log = None;
+    let mut look = look::default_path();
+    let mut fps = false;
+    // TEMP (the look's screenshots only).
+    let mut shot_burst = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -1133,6 +1205,18 @@ fn parse_args() -> Result<Options, String> {
                     String::from("`--voice-log` needs a PATH, e.g. runs\\voice-log.txt")
                 })?));
             }
+            "--fps" => {
+                fps = true;
+            }
+            "--shot-burst" => {
+                // TEMP (the look's screenshots only).
+                shot_burst = true;
+            }
+            "--look" => {
+                look = PathBuf::from(args.next().ok_or_else(|| {
+                    String::from("`--look` needs a PATH, e.g. assets\\look\\look.toml")
+                })?);
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -1149,7 +1233,9 @@ fn parse_args() -> Result<Options, String> {
             path: PathBuf::from(path),
             frames,
             spawned: false,
+            burst: shot_burst,
         }),
+        shot_burst,
         agents,
         talk,
         harness,
@@ -1167,6 +1253,8 @@ fn parse_args() -> Result<Options, String> {
         voice_bank,
         voice_bank_cap_mb,
         voice_log,
+        look,
+        fps,
     })
 }
 
@@ -1250,8 +1338,23 @@ fn shoot_and_exit(
     mut commands: Commands,
     mut request: ResMut<ShotRequest>,
     frame: Res<FrameCount>,
+    effects: Option<Res<look_effects::Effects>>,
 ) {
-    if request.spawned || frame.0 < request.frames {
+    if request.spawned {
+        return;
+    }
+    // TEMP (the look's screenshots only): the burst trigger. The paint of a
+    // hit lives half a second and a still is one frame, so a blind sweep is
+    // a lottery; this takes the picture when the paint is at the top of its
+    // burst. It changes *when* the picture is taken and nothing it draws.
+    let burst = request.burst
+        && effects.is_some_and(|effects| {
+            effects
+                .splats
+                .iter()
+                .any(|splat| (0.06..0.16).contains(&splat.age_s))
+        });
+    if !burst && frame.0 < request.frames {
         return;
     }
     request.spawned = true;
@@ -1261,10 +1364,88 @@ fn shoot_and_exit(
         .observe(quit_after_capture);
 }
 
+/// TEMP (the look's screenshots only): the window sometimes comes up 0x0 on
+/// this machine, which makes the swapchain 1x1 and the capture a 1x1 PNG.
+/// Put the window back to the size it was asked for when it comes up empty.
+/// This changes the size of the window and nothing else.
+fn fix_empty_window(mut windows: Query<&mut Window>, shot: Res<ShotWindow>) {
+    for mut window in &mut windows {
+        if window.physical_width() < 2 || window.physical_height() < 2 {
+            let scale = window.resolution.scale_factor().max(1.0);
+            window
+                .resolution
+                .set_physical_resolution((shot.width * scale) as u32, (shot.height * scale) as u32);
+        }
+    }
+}
+
 /// The capture is asynchronous: this fires when the PNG bytes are ready, so
 /// the app never exits before the file is written.
-fn quit_after_capture(_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>) {
+fn quit_after_capture(
+    _: On<ScreenshotCaptured>,
+    mut exit: MessageWriter<AppExit>,
+    fps: Option<Res<Fps>>,
+) {
+    if let Some(fps) = fps {
+        report_fps(&fps);
+    }
     exit.write(AppExit::Success);
+}
+
+/// Print the frame rate, when the command line asked for it.
+fn report_fps(fps: &Fps) {
+    let Some(rate) = fps_of(fps) else {
+        println!("lm-host: no frames were measured");
+        return;
+    };
+    println!(
+        "lm-host: {rate:.1} fps over the last {} frames",
+        fps.times.len()
+    );
+}
+
+/// The frame times of the last seconds, when the command line asks for the
+/// frame rate.
+///
+/// The first frames of a round are the slow ones — the pipelines compile
+/// and the world is built — so the measurement starts after them and reads
+/// the frames that come last.
+#[derive(Resource, Default)]
+struct Fps {
+    /// The time of each of the last frames.
+    times: VecDeque<Instant>,
+    /// How many frames to skip before the measurement starts.
+    warmup: u32,
+}
+
+/// How many frames the measurement skips before it starts: the warmup
+/// card, the pipeline compilation and the first frames of the round.
+const FPS_WARMUP_FRAMES: u32 = 60;
+
+/// How many frames the measurement keeps: two seconds at sixty.
+const FPS_WINDOW: usize = 120;
+
+/// Count the frames and time them, when the command line asks for it.
+fn measure_fps(mut fps: ResMut<Fps>) {
+    fps.warmup += 1;
+    if fps.warmup <= FPS_WARMUP_FRAMES {
+        return;
+    }
+    fps.times.push_back(Instant::now());
+    while fps.times.len() > FPS_WINDOW {
+        fps.times.pop_front();
+    }
+}
+
+/// The frame rate of the last frames, in frames a second.
+fn fps_of(fps: &Fps) -> Option<f32> {
+    let first = fps.times.front()?;
+    let last = fps.times.back()?;
+    let seconds = last.duration_since(*first).as_secs_f32();
+    if seconds <= 0.0 {
+        return None;
+    }
+    Some((fps.times.len() - 1) as f32 / seconds)
 }
 
 /// How many frames have rendered.

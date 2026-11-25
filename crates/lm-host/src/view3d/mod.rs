@@ -31,6 +31,7 @@
 
 pub mod agents;
 pub mod chunks;
+pub mod effects;
 pub mod upscale;
 pub mod warmup;
 
@@ -47,16 +48,6 @@ use lm_render::palette::{Palette, UpscaleMode};
 
 use crate::keys::{FOLLOW, LET_GO, LET_GO_ESCAPE, PAN_BACK, PAN_FORWARD, PAN_LEFT, PAN_RIGHT};
 use crate::sim_plugin::Round;
-
-/// The sky: the world camera's clear colour, and the colour its distance
-/// fog ramps the far ground into.
-///
-/// The floor is a blue-grey navy (`Palette`'s floor class), so the sky
-/// **may not be** — Task 6's reviewer finding 1 was a navy sky over a navy
-/// floor, in which the world's edge and the ground were one surface. The
-/// dusk violet sits a hue away from the floor while staying the quiet
-/// background the retro-modern look wants.
-pub const SKY: Color = Color::srgb(0.30, 0.24, 0.38);
 
 /// The stage of the 3D view: the warmup card, then the round.
 ///
@@ -96,6 +87,10 @@ pub struct View3dSettings {
     pub render: RenderConfig,
     /// The palette the configuration names.
     pub palette: Palette,
+    /// The look: the colours, sizes and shadows every view of the game
+    /// reads. The 3D view takes its sky, its light and its figures from it,
+    /// so the diorama and the 2D map are the same world drawn twice.
+    pub look: crate::look::Look,
 }
 
 impl View3dSettings {
@@ -105,7 +100,7 @@ impl View3dSettings {
     /// A configuration the view cannot honour — DLSS without its project
     /// id, DLSS in a build without the feature — is an error here, at
     /// start-up, not a panic at the first frame.
-    pub fn load(path: &std::path::Path) -> Result<Self, String> {
+    pub fn load(path: &std::path::Path, look: crate::look::Look) -> Result<Self, String> {
         let render = RenderConfig::load(path)?;
         lm_render::upscale::validate(&render)?;
         if render.upscale == UpscaleMode::Dlss && !cfg!(feature = "dlss") {
@@ -116,9 +111,19 @@ impl View3dSettings {
             ));
         }
         Ok(View3dSettings {
-            palette: Palette::for_mode(&render.palette),
+            palette: look.0.palette(),
             render,
+            look,
         })
+    }
+
+    /// The sky: the world camera's clear colour, and the colour its
+    /// distance fog ramps the far ground into.
+    ///
+    /// The sky is the look's own, so the far ground melts into a colour the
+    /// file chose — not into a constant in the code.
+    pub fn sky(&self) -> Color {
+        self.look.bevy(self.look.0.world.sky)
     }
 }
 
@@ -127,20 +132,35 @@ impl View3dSettings {
 /// Chunk quads are `unlit` and white — every surface's identity rides in the
 /// mesh's vertex colours, so a future neural renderer can read the same
 /// buffer and no texture is ever sampled. The figures are lit, in the
-/// squads' own colours, so they read as solid bodies. The beacons are the
-/// palette's own two beacon classes, unlit and flat like the terrain (Task
-/// 8's reviewer finding 4: 3D shows the same game as 2D, beacons included).
-/// Nothing here is created after startup, so nothing is compiled mid-round.
+/// squads' own colours, so they read as solid bodies. The beacons are
+/// unlit and flat like the terrain, and their colour rides in their own
+/// vertex colours (Task 8's reviewer finding 4: 3D shows the same game as
+/// 2D, beacons included). Nothing here is created after startup, so nothing
+/// is compiled mid-round.
 #[derive(Resource)]
 pub struct View3dMaterials {
     /// The material every chunk quad wears: white, unlit.
     pub chunk: Handle<StandardMaterial>,
     /// The figure material of each squad.
     pub squads: [Handle<StandardMaterial>; 4],
-    /// The marker of a beacon nobody holds: the palette's `beacon_free`.
-    pub beacon_free: Handle<StandardMaterial>,
-    /// The marker of a held beacon: the palette's `beacon_held`.
-    pub beacon_held: Handle<StandardMaterial>,
+    /// The material every beacon's marker wears: white and unlit, with the
+    /// beacon's own colour in its mesh.
+    pub beacon: Handle<StandardMaterial>,
+    /// The dark shell that draws the outline around a figure.
+    ///
+    /// It is drawn with its back faces only, so the figure itself covers
+    /// the middle of the shell and only the rim shows: the outline is the
+    /// figure's own silhouette, drawn a little larger.
+    pub outline: Handle<StandardMaterial>,
+    /// The hat of the leader: the mark that tells a leader apart from the
+    /// rest of the squad at a glance.
+    pub leader_hat: Handle<StandardMaterial>,
+    /// The shadow a figure drops on the ground.
+    pub shadow: Handle<StandardMaterial>,
+    /// The plate a figure stands on.
+    pub base: Handle<Mesh>,
+    /// The hat of the leader.
+    pub hat: Handle<Mesh>,
 }
 
 /// The 3D camera rig: where it looks, from how far, at what angle, and
@@ -168,6 +188,16 @@ pub struct CameraRig3d {
     pub follow: Option<u16>,
     /// Where the pointer went down, and whether it has become a drag.
     pub pointer: Pointer3d,
+    /// Where the player has pushed the camera away from the round's
+    /// anchor, in metres.
+    ///
+    /// The camera does not lose the round: it watches the home squad, and
+    /// the player's own pan is an offset from it. The offset is kept, so
+    /// letting go of an agent comes back to the view the player had made.
+    pub pan_offset_m: (f32, f32),
+    /// The agent the camera was on last frame, so a change of follow is
+    /// seen.
+    pub following: Option<u16>,
 }
 
 /// The pointer, as the 3D camera sees it.
@@ -181,16 +211,28 @@ pub struct Pointer3d {
     pub last: Option<Vec2>,
 }
 
-impl Default for CameraRig3d {
-    fn default() -> Self {
+impl CameraRig3d {
+    /// The rig of a look: the camera's distances are the look's.
+    ///
+    /// The diorama distance is how far back the camera sits from what it
+    /// looks at, and it is a token like every other size a person can see.
+    pub fn new(camera: &lm_render::look::CameraLook) -> Self {
         CameraRig3d {
             focus_m: (128.0, 128.0),
-            distance_m: 120.0,
+            distance_m: camera.default_distance_m,
             pitch_rad: warmup::OVERVIEW_PITCH_RAD,
             yaw_rad: 0.0,
             follow: None,
             pointer: Pointer3d::default(),
+            pan_offset_m: (0.0, 0.0),
+            following: None,
         }
+    }
+}
+
+impl Default for CameraRig3d {
+    fn default() -> Self {
+        CameraRig3d::new(&lm_render::look::CameraLook::default())
     }
 }
 
@@ -264,10 +306,14 @@ impl Plugin for View3dPlugin {
             .init_resource::<chunks::ChunkStore>()
             .init_resource::<agents::FigureEntities>()
             .init_resource::<agents::BeaconEntities>()
-            .init_resource::<CameraRig3d>()
+            .init_resource::<agents::Figures>()
+            .insert_resource(CameraRig3d::new(&self.settings.look.0.camera))
+            // The tag moment: the paint of the hits, the pips of the
+            // stunned, and the path of the agent being watched.
+            .add_plugins(effects::Effects3dPlugin)
             // The retro-modern look starts in the sky's colour; the fog
             // ramps the far ground into it, and the letterbox shows it.
-            .insert_resource(ClearColor(SKY))
+            .insert_resource(ClearColor(self.settings.sky()))
             .add_systems(
                 Startup,
                 // The upscale makes the picture before the camera that
@@ -351,6 +397,7 @@ pub fn update_camera(
     cameras: Query<(&Camera, &GlobalTransform), With<warmup::ViewCamera>>,
     mut transforms: Query<&mut Transform, With<warmup::ViewCamera>>,
     mut fogs: Query<&mut DistanceFog, With<warmup::ViewCamera>>,
+    figures: Res<agents::Figures>,
 ) {
     let Some(window) = windows.single().ok() else {
         return;
@@ -398,6 +445,7 @@ pub fn update_camera(
     // world's extents, the agent `F` picks, the follow. The click's order
     // below needs the round *mutably*, so the borrow ends here.
     let mut followed_focus = None;
+    let mut follow = rig.follow;
     let click_cell;
     let world_m;
     {
@@ -414,7 +462,6 @@ pub fn update_camera(
         // Who the camera follows: the agent being played or watched, when
         // the host's input knows one, and otherwise whoever `F` last
         // picked.
-        let mut follow = rig.follow;
         if let Some(agent) = input.0.viewer.possessing().or(input.0.viewer.following()) {
             follow = Some(agent);
         }
@@ -487,6 +534,18 @@ pub fn update_camera(
         }
     }
 
+    // The camera's distance is the look's: the diorama distance when it
+    // is free, and the follow distance when it is on an agent. A change of
+    // follow is the moment the distance changes — the wheel's own zoom
+    // stays until then.
+    if follow != rig.following {
+        rig.distance_m = match follow {
+            Some(_) => settings.look.0.camera.follow_distance_m,
+            None => settings.look.0.camera.default_distance_m,
+        };
+        rig.following = follow;
+    }
+
     // Follow: the camera sits on the agent. Free: WASD, the drag, the wheel.
     match followed_focus {
         Some(focus) => {
@@ -515,8 +574,8 @@ pub fn update_camera(
             }
             let speed = rig.distance_m * PAN_PER_DISTANCE;
             if pan != Vec2::ZERO {
-                rig.focus_m.0 += pan.x * speed * time.delta_secs();
-                rig.focus_m.1 += pan.y * speed * time.delta_secs();
+                rig.pan_offset_m.0 += pan.x * speed * time.delta_secs();
+                rig.pan_offset_m.1 += pan.y * speed * time.delta_secs();
             }
 
             // The drag pans, the world following the pointer.
@@ -524,8 +583,8 @@ pub fn update_camera(
                 if let (Some(now), Some(previous)) = (cursor, rig.pointer.last) {
                     let delta = now - previous;
                     let metres = rig.distance_m * DRAG_METRES_PER_PX;
-                    rig.focus_m.0 += (-right.x * delta.x + forward.x * delta.y) * metres;
-                    rig.focus_m.1 += (-right.y * delta.x + forward.y * delta.y) * metres;
+                    rig.pan_offset_m.0 += (-right.x * delta.x + forward.x * delta.y) * metres;
+                    rig.pan_offset_m.1 += (-right.y * delta.x + forward.y * delta.y) * metres;
                 }
             }
             rig.pointer.last = cursor;
@@ -538,6 +597,22 @@ pub fn update_camera(
             }
         }
     }
+
+    // Where the camera looks: the agent it is on, or the round's anchor
+    // with the player's own offset on top of it.
+    //
+    // The anchor is the home squad — the round's anchor. A diorama of the
+    // round is a diorama of the squad that is playing it, and not an empty
+    // corner of the board with two figures walking away from it.
+    let anchor = anchor_m(&figures);
+    let focus = match followed_focus {
+        Some(focus) => focus,
+        None => match anchor {
+            Some((x, y)) => (x + rig.pan_offset_m.0, y + rig.pan_offset_m.1),
+            None => rig.focus_m,
+        },
+    };
+    rig.focus_m = focus;
 
     // The focus stays inside the world, and the visible set grows around
     // wherever it is.
@@ -564,6 +639,38 @@ pub fn update_camera(
             end: rig.distance_m + settings.render.fog_far_m,
         };
     }
+}
+
+/// The anchor of the camera: the home squad's leader, or the middle of the
+/// home squad when it has no leader to follow.
+///
+/// The camera watches the round, and the round's home squad is what it
+/// watches. A diorama of the round is a diorama of the squad that is playing
+/// it, and not an empty corner of the board with two figures walking away
+/// from it.
+///
+/// The **leader** is the anchor, and not the squad's middle: the middle of
+/// a squad that has spread out is a point of empty ground between its
+/// pieces, and a camera that looks at it frames the gap.
+fn anchor_m(figures: &agents::Figures) -> Option<(f32, f32)> {
+    let home = figures.0.iter().map(|figure| figure.squad).min()?;
+    let mut x = 0.0f32;
+    let mut y = 0.0f32;
+    let mut count = 0usize;
+    for figure in figures.0.iter().filter(|figure| figure.squad == home) {
+        x += figure.pos_m.0;
+        y += figure.pos_m.1;
+        count += 1;
+    }
+    if count == 0 {
+        return None;
+    }
+    let leader = figures
+        .0
+        .iter()
+        .find(|figure| figure.squad == home && figure.leader)
+        .map(|figure| figure.pos_m);
+    Some(leader.unwrap_or((x / count as f32, y / count as f32)))
 }
 
 /// The cell a point of the world sits in, when it sits in one.

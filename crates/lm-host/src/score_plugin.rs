@@ -30,6 +30,7 @@ use lm_core::view::MenuOption;
 use lm_host_model::score::{GestureKind, HollowKind, System};
 use lm_host_model::view::BottomMode;
 
+use crate::look::Look;
 use crate::map_plugin::{egui_color, squad_color};
 use crate::roll_plugin::{mark_color, speaking_color};
 use crate::sim_plugin::{CurrentScore, Round, ScoreZoom};
@@ -91,14 +92,19 @@ fn target_word(target: MenuOption) -> String {
 
 /// The colour of an address: the speaker's squad for its own squad, white
 /// for everybody, the spoken-to agent's squad for one agent.
-fn addressee_color(score: &CurrentScore, system: &System, addressee: Addressee) -> egui::Color32 {
+fn addressee_color(
+    look: &Look,
+    score: &CurrentScore,
+    system: &System,
+    addressee: Addressee,
+) -> egui::Color32 {
     match addressee {
-        Addressee::Squad => egui_color(squad_color(system.squad)),
+        Addressee::Squad => egui_color(squad_color(look, system.squad)),
         Addressee::All => egui::Color32::WHITE,
         Addressee::Agent(agent) => score
             .model
             .system(agent)
-            .map(|spoken_to| egui_color(squad_color(spoken_to.squad)))
+            .map(|spoken_to| egui_color(squad_color(look, spoken_to.squad)))
             .unwrap_or_else(|| egui::Color32::WHITE),
     }
 }
@@ -107,7 +113,7 @@ fn addressee_color(score: &CurrentScore, system: &System, addressee: Addressee) 
 /// walks back to the roll.
 fn score_header(ui: &mut egui::Ui, score: &CurrentScore, zoom: &ScoreZoom, mode: BottomMode) {
     ui.horizontal(|ui| {
-        ui.label(format!(
+        ui.strong(format!(
             "score — ticks {}..{} — last {}s",
             score.window.start,
             score.window.end.saturating_sub(1),
@@ -130,6 +136,7 @@ pub fn draw_score(
     round: &Round,
     zoom: &ScoreZoom,
     mode: BottomMode,
+    look: &Look,
 ) {
     score_header(ui, score, zoom, mode);
 
@@ -178,7 +185,7 @@ pub fn draw_score(
     for (index, system) in systems.iter().enumerate() {
         let top = track.min.y + index as f32 * system_h;
         draw_system(
-            painter, score, system, top, system_h, &x_of, x0, width, label_w,
+            painter, score, system, top, system_h, &x_of, x0, width, label_w, look,
         );
     }
 
@@ -189,7 +196,7 @@ pub fn draw_score(
         let x = x_of(now);
         painter.line_segment(
             [egui::pos2(x, track.min.y), egui::pos2(x, track.max.y)],
-            egui::Stroke::new(1.0, egui::Color32::from_white_alpha(110)),
+            egui::Stroke::new(1.0, look.egui(look.0.ui.accent)),
         );
     }
 }
@@ -206,8 +213,9 @@ fn draw_system(
     x0: f32,
     width: f32,
     label_w: f32,
+    look: &Look,
 ) {
-    let squad = egui_color(squad_color(system.squad));
+    let squad = egui_color(squad_color(look, system.squad));
 
     // Whose system this is: the squad's colour down the left edge, and the
     // agent's name beside it, like the instrument names of an orchestral
@@ -256,7 +264,7 @@ fn draw_system(
 
     draw_voice(painter, system, &voice, x_of);
     draw_intent(painter, system, &intent, &tier, x_of);
-    draw_gaze(painter, score, system, &gaze, x_of);
+    draw_gaze(painter, score, system, &gaze, x_of, look);
     draw_tier(painter, system, &tier, x_of);
 }
 
@@ -465,6 +473,7 @@ fn draw_gaze(
     system: &System,
     band: &egui::Rect,
     x_of: &dyn Fn(u64) -> f32,
+    look: &Look,
 ) {
     // The attention runs: only the moves are drawn; the reflex's stretches
     // stay the staff's own dark, which is what makes them legible.
@@ -503,7 +512,7 @@ fn draw_gaze(
     // spoke. While the line runs, a hair of the same colour rides the top
     // of the staff.
     for note in &system.voice {
-        let color = addressee_color(score, system, note.addressee);
+        let color = addressee_color(look, score, system, note.addressee);
         let from = x_of(note.from);
         let to = x_of(note.to.saturating_add(1));
         painter.rect_filled(
