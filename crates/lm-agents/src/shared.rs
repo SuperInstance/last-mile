@@ -86,6 +86,112 @@ impl SharedRule {
     }
 }
 
+/// The order the hot zone walks the beacons in.
+///
+/// The map is point-symmetric (D61): the beacons come in 180°-rotated
+/// pairs, and squad 1's side of the map is squad 0's side turned around.
+/// The **beacon order** is not that symmetry — beacon 0 and beacon 1 are
+/// each other's mirror, and beacon 2 and beacon 3 are, so "in beacon
+/// order" visits the outer pair with squad 0's beacon first and squad 1's
+/// second. Measured over 100 seeds, the numbered walk decided 64 rounds
+/// to squad 0 and 36 to squad 1 — a gap of 28 over the fairness guard's
+/// bound of 20 (crates/lm-agents/tests/engagement.md, "The hot zone,
+/// judged").
+///
+/// | walk | the order | what it is for |
+/// |---|---|---|
+/// | `numbered` | the beacons no squad holds, in beacon order | the shipped walk |
+/// | `around` | **every** beacon, in the order of its angle around the map's centre | the fair walk |
+///
+/// The `around` walk is fair **by construction**, on two counts:
+///
+/// 1. **The order commutes with the map's symmetry.** The beacons are
+///    sorted by their angle about the centre, and the 180° rotation adds
+///    half a turn to every angle — so the sorted list of the rotated map
+///    is the rotated list of the map. The zone's schedule is therefore
+///    the same schedule in the mirrored world, and no side of the map is
+///    favoured by the order. The numbered walk does not have that
+///    property: the mirrored world walks it in the other order.
+/// 2. **The schedule does not depend on who holds what.** The `around`
+///    walk visits every beacon, taken or not, so the zone's position is
+///    a function of the tick and the beacons' places alone. The numbered
+///    walk drops a beacon from its list the moment a squad takes it,
+///    which shifts every later step: the round's own history feeds back
+///    into the zone, and the side that got there first changes the walk
+///    for everybody. That feedback is where the bias grew.
+///
+/// Both are integer-only and deterministic, and both are the same for
+/// both squads, because both read only what every agent can see.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Walk {
+    /// The shipped walk: the beacons no squad holds, in beacon order.
+    #[default]
+    Numbered,
+    /// The fair walk: every beacon, in the order of its angle around the
+    /// map's centre.
+    Around,
+}
+
+impl Walk {
+    /// The walk's name, as the harness file writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Walk::Numbered => "numbered",
+            Walk::Around => "around",
+        }
+    }
+}
+
+/// The second objective a squad that has lost the shared target is given.
+///
+/// The shared target is worth fighting over, and it is the only one: a
+/// squad that loses it has nothing to do, nothing to score and nowhere
+/// to go, and the round ends with one squad on the board and the other
+/// on zero points. The second objective gives the loser something to do.
+///
+/// | rule | the second objective |
+/// |---|---|
+/// | `off` | none: the shipped facts (the default) |
+/// | `fallback` | the nearest beacon **no squad holds** |
+/// | `next-stop` | the beacon the hot zone moves to next |
+///
+/// It is stated in one plain sentence, and only to the squad that has
+/// lost the target: the squad that does not hold the shared target while
+/// the other squad does. Until then both squads are sent to the target,
+/// which is the whole point of the shared target.
+///
+/// The `fallback` sends the loser to a beacon of its own, where it can
+/// hold and score, but it takes the squad out of the fight: measured over
+/// 100 seeds, a fallback took the contact from 5.45 tags a round to 0.06.
+///
+/// The `next-stop` keeps the loser in the fight: it walks to where the
+/// zone is going and is there when the zone arrives, so the fight
+/// continues where the zone is and the loser is in it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Second {
+    /// No second objective: the shipped facts, unchanged.
+    #[default]
+    Off,
+    /// The nearest beacon no squad holds.
+    Fallback,
+    /// The beacon the hot zone moves to next.
+    #[serde(rename = "next-stop")]
+    NextStop,
+}
+
+impl Second {
+    /// The rule's name, as the harness file writes it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Second::Off => "off",
+            Second::Fallback => "fallback",
+            Second::NextStop => "next-stop",
+        }
+    }
+}
+
 /// The kind of a ghost tile: an attractor pulls, a repulsor pushes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -147,6 +253,8 @@ pub struct GhostConfig {
     /// Zero means it never moves: the hot beacon is the lowest-numbered
     /// one no squad holds, for the whole round.
     pub rotation_ticks: u32,
+    /// The order the zone walks the beacons in.
+    pub walk: Walk,
 }
 
 impl Default for GhostConfig {
@@ -160,6 +268,7 @@ impl Default for GhostConfig {
             cycle_ticks: 900,
             max_age_ticks: 600,
             rotation_ticks: 600,
+            walk: Walk::Numbered,
         }
     }
 }
@@ -176,6 +285,9 @@ pub struct SharedConfig {
     pub rule: SharedRule,
     /// The ghost tile's knobs, read when the rule is `ghost`.
     pub ghost: GhostConfig,
+    /// The second objective a squad that has lost the shared target is
+    /// given. Off by default.
+    pub second: Second,
 }
 
 /// The root of a `facts.toml`: the shared target lives under `[shared]`.
@@ -243,7 +355,7 @@ impl SharedConfig {
             // way a field states it: a beacon the agent is pulled toward,
             // not a beacon nobody holds.
             SharedRule::Ghost => (
-                hot_beacon(view, self.ghost.rotation_ticks),
+                hot_beacon(view, self.ghost.rotation_ticks, self.ghost.walk),
                 "the beacon you are pulled toward",
             ),
             SharedRule::Centre => central_beacon(view),
@@ -285,6 +397,82 @@ impl SharedConfig {
                 max_age: self.ghost.max_age_ticks,
             }],
         }
+    }
+
+    /// The second objective for this squad, if it has lost the shared
+    /// target.
+    ///
+    /// The squad that has lost it is the one that does not hold the shared
+    /// target while the other squad does. Until then both squads are sent
+    /// to the shared target, which is the whole point of it, so there is
+    /// no second objective to state.
+    ///
+    /// `steps` is the length of the walk from the agent to each beacon, in
+    /// the order of `view.beacons`; a beacon with no walk to it cannot be
+    /// the objective, because there is no way to reach it.
+    pub fn second_objective(
+        &self,
+        view: &ScoreView,
+        target: &SharedTarget,
+        steps: &[Option<i64>],
+    ) -> Option<SecondObjective> {
+        if self.second == Second::Off {
+            return None;
+        }
+        let held = view.beacons.get(usize::from(target.beacon))?.holder?;
+        if held == view.squad_id {
+            return None;
+        }
+        match self.second {
+            Second::Off => None,
+            // The nearest beacon no squad holds: the one the loser can take
+            // and hold, and so can score on.
+            Second::Fallback => {
+                let mut best: Option<(u8, i64)> = None;
+                for (index, beacon) in view.beacons.iter().enumerate() {
+                    if beacon.holder.is_some() {
+                        continue;
+                    }
+                    let Some(walk) = steps.get(index).copied().flatten() else {
+                        continue;
+                    };
+                    if best.is_none_or(|(_, top)| walk < top) {
+                        best = Some((index as u8, walk));
+                    }
+                }
+                best.map(|(beacon, _)| SecondObjective {
+                    beacon,
+                    reason: "the nearest unheld beacon",
+                })
+            }
+            // Where the zone is going: the loser walks there and is there
+            // when the zone arrives, so the fight carries on there.
+            Second::NextStop => {
+                let beacon = self.next_stop(view)?;
+                Some(SecondObjective {
+                    beacon,
+                    reason: "the next stop of the zone",
+                })
+            }
+        }
+    }
+
+    /// The beacon the hot zone moves to next, or `None` when there is no
+    /// zone that walks.
+    ///
+    /// It is the beacon after the hot one in the same walk list, so it is
+    /// the same for every agent of every squad: the tick and the beacon
+    /// list are what every agent sees.
+    pub fn next_stop(&self, view: &ScoreView) -> Option<u8> {
+        if self.rule != SharedRule::Ghost || self.ghost.rotation_ticks == 0 {
+            return None;
+        }
+        let list = walk_list(view, self.ghost.walk);
+        if list.is_empty() {
+            return None;
+        }
+        let step = ((view.tick / u64::from(self.ghost.rotation_ticks)) + 1) as usize % list.len();
+        Some(list[step] as u8)
     }
 }
 
@@ -488,6 +676,43 @@ impl SharedTarget {
     }
 }
 
+/// The second objective: the beacon a squad that has lost the shared
+/// target is sent to instead.
+///
+/// The shared target is worth fighting over and it is the only target: a
+/// squad that loses it has nothing to do, nothing to score and nowhere to
+/// go, and the round ends with one squad on the board and the other on
+/// zero points. The second objective is the loser's way to keep playing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SecondObjective {
+    /// The beacon the squad is sent to.
+    pub beacon: u8,
+    /// What the beacon is, in the facts' own words.
+    pub reason: &'static str,
+}
+
+impl SecondObjective {
+    /// The one sentence that states it.
+    ///
+    /// The condition is in the same sentence as the objective, so the
+    /// model never has to guess whether the branch applies: the sentence
+    /// is there or it is not.
+    pub fn summary(&self) -> String {
+        format!(
+            "The other squad holds the shared target, so your second objective is beacon {}: {}.",
+            self.beacon, self.reason
+        )
+    }
+
+    /// The clause that marks the beacon, in the facts' own words.
+    pub fn marker(&self, beacon: u8) -> String {
+        if beacon != self.beacon {
+            return "; it is not your second objective".to_owned();
+        }
+        format!("; it is your second objective: {}", self.reason)
+    }
+}
+
 /// The lowest-numbered beacon no squad holds.
 ///
 /// When every beacon is held there is no free one, and the shared target
@@ -506,40 +731,173 @@ fn free_beacon(view: &ScoreView) -> (u8, &'static str) {
 
 /// The hot beacon: the one the ghost's attractor sits on this tick.
 ///
-/// The hot zone is on **one beacon at a time**. It walks the beacons no
-/// squad holds, in beacon order, and it moves on every `rotation_ticks`
-/// ticks; with `rotation_ticks` of zero it never moves and the hot beacon
-/// is the lowest-numbered free one for the whole round.
+/// The hot zone is on **one beacon at a time**. It walks the beacons and it
+/// moves on every `rotation_ticks` ticks; with `rotation_ticks` of zero it
+/// never moves and the hot beacon is the lowest-numbered free one for the
+/// whole round.
+///
+/// Which beacons it walks, and in what order, is the [`Walk`]:
+///
+/// * `numbered` walks the beacons **no squad holds**, in beacon order. The
+///   list depends on who holds what, so the round's own history feeds back
+///   into the zone, and the beacon order does not commute with the map's
+///   180-degree rotation. Measured over 100 seeds, that walk decided 64
+///   rounds to squad 0 and 36 to squad 1.
+/// * `around` walks **every** beacon, in the order of its angle about the
+///   map's centre. The order commutes with the map's rotation, so the
+///   schedule is the same schedule in the mirrored world, and the schedule
+///   does not depend on who holds what at all.
 ///
 /// The walk is a function of the tick and the beacon list, and both are
 /// the same for both squads — the tick is the round's, and the beacon list
 /// and its holders are what every agent sees. So both squads are pulled
 /// toward the same hot beacon at the same time, which is what makes them
 /// meet; and the hot beacon moves, so the meeting place moves too.
-fn hot_beacon(view: &ScoreView, rotation_ticks: u32) -> u8 {
+fn hot_beacon(view: &ScoreView, rotation_ticks: u32, walk: Walk) -> u8 {
     if view.beacons.is_empty() {
         return 0;
     }
-    // The beacons worth taking: the ones no squad holds. When they are all
-    // held there is none left to walk, and the hot zone falls back to the
-    // whole list, so it is never on nothing.
-    let free: Vec<usize> = view
-        .beacons
-        .iter()
-        .enumerate()
-        .filter(|(_, beacon)| beacon.holder.is_none())
-        .map(|(index, _)| index)
-        .collect();
-    let list = if free.is_empty() {
-        (0..view.beacons.len()).collect()
-    } else {
-        free
-    };
+    let list = walk_list(view, walk);
     if rotation_ticks == 0 {
         return list[0] as u8;
     }
     let step = (view.tick / u64::from(rotation_ticks)) as usize % list.len();
     list[step] as u8
+}
+
+/// The beacons the hot zone walks, in the order it walks them.
+fn walk_list(view: &ScoreView, walk: Walk) -> Vec<usize> {
+    match walk {
+        Walk::Numbered => {
+            // The beacons worth taking: the ones no squad holds. When they
+            // are all held there is none left to walk, and the hot zone
+            // falls back to the whole list, so it is never on nothing.
+            let free: Vec<usize> = view
+                .beacons
+                .iter()
+                .enumerate()
+                .filter(|(_, beacon)| beacon.holder.is_none())
+                .map(|(index, _)| index)
+                .collect();
+            if free.is_empty() {
+                (0..view.beacons.len()).collect()
+            } else {
+                free
+            }
+        }
+        Walk::Around => around_order(view),
+    }
+}
+
+/// The beacons in the order of their angle about the map's centre.
+///
+/// The centre is the middle of the beacons themselves, which on the round's
+/// point-symmetric map is the middle of the map: the beacons come in
+/// 180-degree rotated pairs (D61), so their middle is the map's own centre
+/// of symmetry. The offsets are scaled by the number of beacons so that the
+/// middle of an even number of cells is exact: no rounding, no floats.
+///
+/// Sorting by angle is what makes the walk fair: the 180-degree rotation
+/// adds half a turn to every angle, so the sorted list of a rotated map is
+/// the rotated list of the map. The zone's schedule in the mirrored world
+/// is therefore the mirror of its schedule here, and neither side of the
+/// map is favoured by the order. The beacon order does not have that
+/// property.
+fn around_order(view: &ScoreView) -> Vec<usize> {
+    let count = view.beacons.len();
+    if count < 2 {
+        return (0..count).collect();
+    }
+    let scale = count as i64;
+    let sum_x: i64 = view.beacons.iter().map(|b| i64::from(b.cell.x)).sum();
+    let sum_y: i64 = view.beacons.iter().map(|b| i64::from(b.cell.y)).sum();
+    let offsets: Vec<(i64, i64)> = view
+        .beacons
+        .iter()
+        .map(|beacon| offset(beacon.cell, scale, sum_x, sum_y))
+        .collect();
+    let mut order: Vec<usize> = (0..count).collect();
+    order.sort_by(|&a, &b| angle_order(offsets[a], offsets[b]));
+    // The walk starts at the beacon nearest the middle of the beacons,
+    // which on the round's symmetric map is the beacon at the middle of
+    // the map: the one place neither squad is nearer to.
+    //
+    // It has to start there. A beacon is held by the squad that has an
+    // agent inside it while no enemy is inside it, and a beacon two
+    // squads stand in is held by nobody, so whoever reaches the zone
+    // first holds it alone and scores alone until the other squad
+    // arrives. That lead is a lead at the next beacon too, and the round
+    // is decided by it. Starting the walk on the far side of the map
+    // therefore hands the round to one squad: over 100 seeds, the walk
+    // that started on the east side decided 88 rounds to squad 1 and 12
+    // to squad 0.
+    let middle = nearest_middle(&offsets);
+    let start = order.iter().position(|&index| index == middle).unwrap_or(0);
+    order.rotate_left(start);
+    order
+}
+
+/// The beacon nearest the middle of the beacons, the lowest number breaking
+/// a tie.
+///
+/// The lowest number is the same rule the facts builder uses for the
+/// doctrine's own nearest beacon ("the lowest index breaks a tie, so the
+/// same situation always names the same beacon"), so the walk's first stop
+/// is named the same way the rest of the facts are.
+fn nearest_middle(offsets: &[(i64, i64)]) -> usize {
+    let mut best = 0usize;
+    let mut best_distance = i64::MAX;
+    for (index, (x, y)) in offsets.iter().enumerate() {
+        let distance = x * x + y * y;
+        if distance < best_distance {
+            best_distance = distance;
+            best = index;
+        }
+    }
+    best
+}
+
+/// A beacon's offset from the middle of the beacons, scaled by `scale`.
+///
+/// The scaling keeps the middle of an even number of cells exact: the
+/// offsets are whole numbers whatever the beacons' columns and rows are.
+fn offset(cell: CellXY, scale: i64, sum_x: i64, sum_y: i64) -> (i64, i64) {
+    (
+        scale * i64::from(cell.x) - sum_x,
+        scale * i64::from(cell.y) - sum_y,
+    )
+}
+
+/// Which of two offsets comes first in the turn about the middle.
+///
+/// The turn starts at the east and runs anticlockwise: the offsets above
+/// the middle come first, then those below. Within a half, the cross
+/// product says which is anticlockwise of which. Two offsets on the same
+/// ray are ordered by their distance from the middle, which the rotation
+/// leaves alone; two on the same ray at the same distance are the same
+/// cell, so the order is total and the rotation's own order survives it.
+fn angle_order(left: (i64, i64), right: (i64, i64)) -> std::cmp::Ordering {
+    let half_left = half(left);
+    let half_right = half(right);
+    if half_left != half_right {
+        return half_left.cmp(&half_right);
+    }
+    let cross = left.0 * right.1 - left.1 * right.0;
+    if cross != 0 {
+        return cross.cmp(&0).reverse();
+    }
+    let left_d = left.0 * left.0 + left.1 * left.1;
+    let right_d = right.0 * right.0 + right.1 * right.1;
+    left_d.cmp(&right_d)
+}
+
+/// Which half of the turn an offset is in: above the middle, or below.
+fn half(offset: (i64, i64)) -> u8 {
+    if offset.1 > 0 || (offset.1 == 0 && offset.0 > 0) {
+        0
+    } else {
+        1
+    }
 }
 
 /// The most central beacon: the one whose total distance to the others is
@@ -705,6 +1063,7 @@ mod tests {
     #[test]
     fn the_ghost_pull_is_zero_outside_the_radius() {
         let cfg = SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ghost: GhostConfig {
                 radius_cells: 4,
@@ -778,6 +1137,7 @@ mod tests {
         // The field model knows a repulsor, but the target rule states an
         // attractor: a repulsor names no place to go to.
         let repulsor = SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ghost: GhostConfig {
                 kind: GhostKind::Repulsor,
@@ -787,6 +1147,7 @@ mod tests {
         assert!(repulsor.validate().is_err());
         // The attractor is fine, and so is every other rule.
         assert!(SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ..SharedConfig::default()
         }
@@ -828,6 +1189,7 @@ mod tests {
     #[test]
     fn the_hot_zone_walks_to_the_next_beacon() {
         let cfg = SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ghost: GhostConfig {
                 rotation_ticks: 100,
@@ -853,6 +1215,7 @@ mod tests {
     #[test]
     fn the_hot_zone_is_the_same_for_both_squads() {
         let cfg = SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ghost: GhostConfig {
                 rotation_ticks: 100,
@@ -878,6 +1241,7 @@ mod tests {
     #[test]
     fn a_hot_zone_that_never_turns_over_stays_on_the_free_beacon() {
         let cfg = SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ghost: GhostConfig {
                 rotation_ticks: 0,
@@ -893,6 +1257,7 @@ mod tests {
     #[test]
     fn the_hot_zone_skips_the_beacons_a_squad_holds() {
         let cfg = SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ghost: GhostConfig {
                 rotation_ticks: 100,
@@ -911,6 +1276,7 @@ mod tests {
     #[test]
     fn a_hot_zone_with_nothing_free_still_has_a_beacon() {
         let cfg = SharedConfig {
+            second: Second::Off,
             rule: SharedRule::Ghost,
             ghost: GhostConfig {
                 rotation_ticks: 100,
@@ -923,5 +1289,185 @@ mod tests {
         }
         view.tick = 0;
         assert_eq!(cfg.resolve(&view).expect("a target").beacon, 0);
+    }
+
+    fn ghost(walk: Walk) -> SharedConfig {
+        SharedConfig {
+            rule: SharedRule::Ghost,
+            ghost: GhostConfig {
+                rotation_ticks: 100,
+                walk,
+                ..GhostConfig::default()
+            },
+            second: Second::Off,
+        }
+    }
+
+    #[test]
+    fn the_around_walk_does_not_depend_on_who_holds_a_beacon() {
+        // The schedule is a function of the tick and the beacons' places,
+        // so the round's own history cannot feed back into the zone.
+        let cfg = ghost(Walk::Around);
+        let mut view = four_beacons();
+        view.beacons[0].holder = Some(1);
+        let mut taken = view.clone();
+        taken.beacons[0].holder = Some(0);
+        for tick in (0..400).step_by(100) {
+            view.tick = tick;
+            taken.tick = tick;
+            assert_eq!(
+                cfg.resolve(&view).expect("a target").beacon,
+                cfg.resolve(&taken).expect("a target").beacon,
+                "the zone moved because a squad took a beacon"
+            );
+        }
+    }
+
+    #[test]
+    fn the_numbered_walk_does_depend_on_who_holds_a_beacon() {
+        // The shipped walk drops a taken beacon from its list, which
+        // shifts every later step: the zone's place depends on what the
+        // squads have already done. That is the feedback the around walk
+        // does not have, and it is how the colour bias grew.
+        let cfg = ghost(Walk::Numbered);
+        let mut view = four_beacons();
+        let mut taken = view.clone();
+        taken.beacons[0].holder = Some(1);
+        for tick in (0..400).step_by(100) {
+            view.tick = tick;
+            taken.tick = tick;
+            assert_ne!(
+                cfg.resolve(&view).expect("a target").beacon,
+                cfg.resolve(&taken).expect("a target").beacon,
+                "the numbered walk no longer moves because a beacon was taken"
+            );
+        }
+    }
+
+    #[test]
+    fn the_around_walk_spends_half_its_time_on_each_side() {
+        // The map's centre is between the middle columns, so a beacon
+        // west of it is on squad 0's side of the map and one east of it is
+        // on squad 1's. A walk that spends half its time on each side
+        // gives neither squad the edge.
+        let cfg = ghost(Walk::Around);
+        let mut view = four_beacons();
+        let mut west = 0;
+        let mut east = 0;
+        for tick in (0..400).step_by(100) {
+            view.tick = tick;
+            let beacon = cfg.resolve(&view).expect("a target").beacon;
+            let cell = view.beacons[usize::from(beacon)].cell;
+            if cell.x <= 63 {
+                west += 1;
+            } else {
+                east += 1;
+            }
+        }
+        assert_eq!((west, east), (2, 2));
+    }
+
+    #[test]
+    fn the_around_walk_visits_every_beacon() {
+        let cfg = ghost(Walk::Around);
+        let mut view = four_beacons();
+        let mut seen = Vec::new();
+        for tick in (0..400).step_by(100) {
+            view.tick = tick;
+            seen.push(cfg.resolve(&view).expect("a target").beacon);
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn the_second_objective_is_off_by_default() {
+        let cfg = SharedConfig {
+            rule: SharedRule::Ghost,
+            ..SharedConfig::default()
+        };
+        let mut view = four_beacons();
+        view.beacons[0].holder = Some(1);
+        let steps = vec![Some(1i64); 4];
+        assert!(cfg
+            .second_objective(&view, &cfg.resolve(&view).expect("a target"), &steps)
+            .is_none());
+    }
+
+    #[test]
+    fn the_second_objective_is_the_losers_only() {
+        let cfg = SharedConfig {
+            rule: SharedRule::Ghost,
+            ghost: GhostConfig {
+                walk: Walk::Around,
+                ..GhostConfig::default()
+            },
+            second: Second::Fallback,
+        };
+        let mut view = four_beacons();
+        view.tick = 0;
+        let target = cfg.resolve(&view).expect("a target");
+        // The other squad holds the shared target: the squad that lost it
+        // is sent to the nearest beacon nobody holds.
+        view.beacons[usize::from(target.beacon)].holder = Some(1);
+        let steps = vec![Some(1i64), Some(2), Some(3), Some(4)];
+        let second = cfg
+            .second_objective(&view, &target, &steps)
+            .expect("a second objective");
+        // The nearest unheld beacon by the walk: beacon 0 is held by the
+        // other squad now, so beacon 1 is the nearest one nobody holds.
+        assert_eq!(second.beacon, 1);
+        // The squad that holds it has no second objective: it is the one
+        // that won the beacon.
+        let mut winner = view.clone();
+        winner.squad_id = 1;
+        assert!(cfg.second_objective(&winner, &target, &steps).is_none());
+    }
+
+    #[test]
+    fn the_next_stop_is_the_second_objective() {
+        let cfg = SharedConfig {
+            rule: SharedRule::Ghost,
+            ghost: GhostConfig {
+                rotation_ticks: 100,
+                walk: Walk::Around,
+                ..GhostConfig::default()
+            },
+            second: Second::NextStop,
+        };
+        let mut view = four_beacons();
+        view.tick = 0;
+        let target = cfg.resolve(&view).expect("a target");
+        // The zone is on the beacon nearest the middle of the beacons, and
+        // it turns over to the next one in the walk.
+        assert_eq!(target.beacon, 0);
+        assert_eq!(cfg.next_stop(&view), Some(3));
+        // The other squad holds the shared target, so the squad that lost
+        // it is sent to where the zone is going.
+        view.beacons[usize::from(target.beacon)].holder = Some(1);
+        let steps = vec![Some(1i64); 4];
+        let second = cfg
+            .second_objective(&view, &target, &steps)
+            .expect("a second objective");
+        assert_eq!(second.beacon, 3);
+        assert_eq!(second.reason, "the next stop of the zone");
+    }
+
+    #[test]
+    fn a_second_objective_waits_for_a_lost_beacon() {
+        // While nobody holds the shared target both squads are sent to
+        // it: that is the whole point of a shared target, and a second
+        // objective before the fight would split the squads again.
+        let cfg = SharedConfig {
+            rule: SharedRule::Ghost,
+            second: Second::Fallback,
+            ..SharedConfig::default()
+        };
+        let mut view = four_beacons();
+        view.tick = 0;
+        let target = cfg.resolve(&view).expect("a target");
+        let steps = vec![Some(1i64); 4];
+        assert!(cfg.second_objective(&view, &target, &steps).is_none());
     }
 }

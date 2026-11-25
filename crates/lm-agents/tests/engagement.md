@@ -1334,3 +1334,464 @@ fairness line in `crates/lm-core/tests/decisiveness.rs`, so the sweep
 prints the win share and the guard's bound with every run, and the raw
 records of the two judged runs: `evidence/hotzone-1500.json` and
 `evidence/hotzone-3000.json` (one entry per round, with the deltas).
+
+
+
+## A fair hot zone
+
+The hot zone (`shared-ghost`) gets the squads to meet: 0% draws and 5.45
+tags a round against the default's 63% and 0.62. Two things stop it
+becoming the doctrine, and both are measured here.
+
+**What this section finds.** The unfair walk is fixed: the walk is now
+fair *by construction*, and the hot zone with it passes the fairness
+guard in every block of seeds measured — 110/90 over two hundred seeds,
+against the shipped zone's 125/75. But fixing the fairness does **not**
+make the hot zone good enough. Judged on the Thor's own decision server,
+sixteen held-out seeds at 3000 ticks, under D78, the fair hot zone
+**does not qualify on either reading**: on contact it is better on 7 of
+16 seeds (p = 0.7727) and on survival on 0 of 16 (p = 1.0000). The
+reason is the second thing the brief names — the rout — and it turns out
+the rout is the hot zone's own, not the unfair walk's and not the second
+objective's: the fair walk on its own plays the *same game*, seed for
+seed, with the same rout. A diagnostic at the end of this section says
+why, and what the next step is.
+
+### The walk order was unfair, and it was unfair by construction
+
+The zone walks the beacons no squad holds, in beacon order. The map is
+point-symmetric (D61): the beacons come in 180-degree rotated pairs, and
+squad 1's side of the map is squad 0's side turned around. **The beacon
+order is not that symmetry.** Beacon 0 and beacon 1 are each other's
+mirror, and beacon 2 and beacon 3 are, so "in beacon order" reaches the
+outer pair — the asymmetric one — with beacon 2, on squad 0's side, first.
+
+And the list the zone walks depends on who holds what. The moment a squad
+takes a beacon it drops out of the list, which shifts every later step, so
+the zone's place at any tick depends on what the squads have already done.
+As the round goes on the list shrinks to the last beacon nobody has taken
+and the zone parks there for the rest of the round. Measured over 100
+seeds, that decided **64 rounds to squad 0 and 36 to squad 1**: a gap of 28
+over the fairness guard's bound of 20.
+
+Two things are wrong with it, then, and the second is the one the numbers
+show. The order does not commute with the map's rotation, and the schedule
+depends on the round's own history.
+
+### The fair walk: the same place for both colours
+
+The `around` walk changes both:
+
+- **the order is the beacons' angle about the map's centre.** The
+  180-degree rotation adds half a turn to every angle, so the sorted list
+  of a rotated map is the rotated list of the map: the rule cannot favour
+  a side of the map. The middle of the beacons is the middle of the map,
+  because the beacons come in rotated pairs.
+- **the walk visits every beacon, taken or not**, so the zone's place is a
+  function of the tick and the beacons' places alone. The round's own
+  history cannot feed back into the zone, which is how the bias grew.
+
+The walk starts at the beacon nearest that middle — the one place neither
+squad is nearer to — with the lowest number breaking a tie, the same rule
+the facts builder uses for the doctrine's own nearest beacon. That start
+matters more than it looks. A beacon is held by the squad that has an
+agent inside it *while no enemy is inside it*, and a beacon two squads
+stand in is held by nobody, so whoever reaches the zone first holds it
+alone and scores alone until the other squad arrives. That lead is a lead
+at the next beacon too, and the round is decided by it.
+
+The phases of one walk, measured over the same 100 seeds:
+
+| the walk's first stop | squad 0 | squad 1 | tags/round |
+| --- | --- | --- | --- |
+| the east-outer beacon (the angular order, unrotated) | 12 | 88 | 8.49 |
+| the west-central beacon | 38 | 62 | 10.06 |
+| the west-outer beacon | 80 | 20 | 8.70 |
+| **the east-central beacon** (the lowest number breaking the tie) | **48** | **52** | **10.13** |
+
+The four rows are the four beacons the walk could start at: beacon 0 is the
+east-central one, beacon 1 the west-central, beacon 2 the west-outer and
+beacon 3 the east-outer (the map is in `crates/lm-core/src/world/gen.rs`).
+They are reproducible one line at a time: in
+`assets/harness/variants/shared-fair-walk/reflexes/default.rhai`, in
+`around_order`, replace the block that finds the beacon nearest the
+middle with `let best = [k, 0];` — `k` being the beacon to start at —
+and run the sweep command below. The rule that is shipped is the
+*nearest the middle, lowest number breaking the tie*, which is the
+codebase's own convention for naming a nearest beacon, and it is the last
+row.
+
+The fair walk is that last row. The walk is fair **by construction** — that
+is the claim, and it is a claim about the rule, not about a seed block —
+and the guard below is where it is measured: the walk on its own is fair on
+one block of two hundred seeds and not fair enough on the next. It needs
+the second objective as well, and the section on the guard says why.
+
+Its contact is also the best any hot zone measured: 10.13
+tags a round against the shipped walk's 5.45 and the default's 0.62.
+
+The commands:
+
+```text
+DECISIVENESS_HARNESS=assets/harness/variants/shared-fair \
+  DECISIVENESS_CELL=1800x9000 \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+```
+
+### The second objective: the zone's next stop
+
+A squad that loses the shared target has nothing to do, nothing to score
+and nowhere to go; measured on the Thor at 3000 ticks, 8 of 16 rounds left
+a squad on zero points. The second objective gives the loser something to
+do: **the beacon the zone moves to next**. The loser walks there and is
+there when the zone arrives, so the fight carries on where the zone is and
+the loser is in it.
+
+It is a harness parameter (`facts.toml`), off by default, and it is stated
+in one plain sentence with its condition in the same sentence:
+
+> The other squad holds the shared target, so your second objective is
+> beacon 3: the next stop of the zone.
+
+The other candidate was the nearest beacon no squad holds. Measured over
+100 seeds it took the contact from 10.13 tags a round to **0.06**: the
+loser walks off to a beacon of its own and camps there, the zone moves on
+without it, and the squads never meet again. It is kept in the code as
+`second = "fallback"` so the measurement can be repeated.
+
+### The headless sweep
+
+100 seeds, `win_score` 1800, `time_limit_ticks` 9000:
+
+| arm | squad 0 | squad 1 | draws | tags/round | sight ticks/round | mean scores | lowest squad score | collapsed rounds | rounds with a fight | median length | the gap, over the bound of 20 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 21 | 16 | 63 (63%) | 0.62 | 413.5 | 1627 / 1589 | 29 | 2 | 35 (35%) | 4784 | 5, over 37 decided |
+| shared-ghost (the shipped hot zone) | 64 | 36 | 0 | 5.45 | 1900.2 | 1482 / 756 | 0 | 45 | 97 (97%) | 4578 | **28, outside** |
+| shared-fair-walk (the fair walk alone) | 48 | 52 | 0 | 10.13 | 3340.5 | 1291 / 1179 | 0 | 18 | 100 (100%) | 5990 | **4, inside** |
+| shared-fair (the fair walk + the second objective) | 54 | 46 | 0 | 8.46 | 2703.1 | 1348 / 1219 | 0 | 10 | 100 (100%) | 5266 | **8, inside** |
+
+The bound is the fairness guard's own: over `n` decided rounds the two
+squads' win counts must sit within `2 * sqrt(n)` of each other, so over 100
+decided rounds it is 20. The shipped hot zone is outside it; both fair
+arms are well inside it.
+
+"Collapsed rounds" are the rounds in which the weaker squad finished on
+fewer than 200 points: the same 200 the sweep has always used, and the
+same number the judgement's survival reading is about. The shipped hot
+zone collapses 45 rounds in 100 and the fair walk alone 18; the variant
+brings it down to 10.
+
+The fair walk has the best contact any hot zone measured — 10.13 tags a
+round against the shipped walk's 5.45 and the default's 0.62 — and the
+second objective costs a little of it (8.46) and buys a little of the rout
+back (10 collapsed rounds against the walk's 18, and the shipped walk's 45).
+
+The commands, one per arm:
+
+```text
+DECISIVENESS_CELL=1800x9000 \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+DECISIVENESS_HARNESS=assets/harness/variants/shared-ghost DECISIVENESS_CELL=1800x9000 \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+DECISIVENESS_HARNESS=assets/harness/variants/shared-fair-walk DECISIVENESS_CELL=1800x9000 \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+DECISIVENESS_HARNESS=assets/harness/variants/shared-fair DECISIVENESS_CELL=1800x9000 \
+  cargo test --release -p lm-core --test decisiveness -- --ignored --nocapture
+```
+
+### The fairness guard
+
+The guard now plays a named harness's reflex (`FAIRNESS_HARNESS`, a
+harness directory, the same way the sweep takes `DECISIVENESS_HARNESS`),
+because the guard is about a doctrine and a doctrine is a harness:
+
+```text
+FAIRNESS_HARNESS=assets/harness/variants/shared-fair \
+  cargo test --release -p lm-core --test fairness -- --ignored --nocapture
+```
+
+The guard plays 200 seeds and asks whether the two squads' win counts sit
+within `2 * sqrt(decided)` of each other:
+
+| arm | squad 0 | squad 1 | decided | the gap | the bound | |
+| --- | --- | --- | --- | --- | --- | --- |
+| the shipped harness (the default doctrine) | 36 | 31 | 67 | 5 | 16 | passes |
+| shared-ghost (the shipped hot zone) | 125 | 75 | 200 | **50** | 28 | **fails** |
+| shared-fair-walk (the fair walk alone) | 112 | 88 | 200 | 24 | 28 | passes |
+| shared-fair (the fair walk + the second objective) | 110 | 90 | 200 | **20** | 28 | **passes** |
+
+The shipped hot zone fails the guard by 22 rounds, which is the bias the
+brief names. The fair walk brings the gap inside it, and the variant
+brings it further inside.
+
+**The guard had to be fixed before it could mean anything here.** It
+played exactly `time_limit_ticks` ticks, and the sweep plays the limit
+plus a few: the rules declare the outcome on the tick *after* the limit is
+reached, so a round that ends on the clock with one squad ahead was a
+**draw** to the guard and a **win** to the sweep. The two were measuring
+different things — the guard's bound was computed over fewer decided
+rounds than the sweep's, and the guard's share of the hot zone's numbers
+did not match the sweep's 64/36. The guard now plays the same window as
+the sweep, and the two agree exactly: the fair walk's 200-seed row above
+is 112/88, which is the sweep's two blocks added together (48/52 and
+64/36), and the variant's is 110/90 (54/46 and 56/44).
+
+**And the seeds are a block, so the block was checked twice.** Both the
+guard and the sweep now take a block (`FAIRNESS_SEED_FROM` and
+`DECISIVENESS_SEED_FROM`), because a measurement that only holds for one
+hundred seeds is a measurement of that hundred seeds — and because the
+fair walk's margin was thin enough to need that:
+
+| arm | seeds 1-100 | seeds 101-200 | the guard, seeds 1-200 | the guard, seeds 201-400 |
+| --- | --- | --- | --- | --- |
+| shared-fair-walk (the fair walk alone) | 48 / 52, gap 4, inside | 64 / 36, **gap 28, outside** the bound of 20 | 112 / 88, gap 24, inside the bound of 28 | 125 / 75, **gap 50, fails** the bound of 28 |
+| shared-fair (the fair walk + the second objective) | 54 / 46, gap 8, inside | 56 / 44, gap 12, inside | 110 / 90, gap 20, inside | 114 / 86, gap 28, inside (on the bound) |
+
+That is the honest picture, and it is the most useful thing in this
+section. **The fair walk on its own is not fair enough.** It passes the
+guard on one block of two hundred seeds and fails it on the next by
+twenty-two rounds; over the first two blocks it is outside the bound in
+one of them. The walk removes the *order* bias — the beacon order does
+not commute with the map's rotation — and the *history* bias — the zone's
+place no longer depends on who holds what. What it does not remove is the
+**lead**: a beacon is held only while no enemy is inside it, so the squad
+that reaches the zone first holds it alone and scores alone until the
+other arrives, and that lead is a lead at the next beacon too.
+
+The second objective removes the lead, and with it the rest of the bias:
+the variant is inside the bound in every block, and it is the arm the
+brief asks for. The mechanism is the rules' own: a beacon two squads
+stand in is held by nobody, so a losing squad that stays at the zone
+keeps it contested and nobody banks a lead, while a losing squad with
+somewhere else to be lets the winner hold the zone alone and take the
+round. Fairness here is not a property of the walk alone; it is a
+property of the walk **and** the second objective together.
+
+The commands:
+
+```text
+FAIRNESS_HARNESS=assets/harness/variants/shared-ghost \
+  cargo test --release -p lm-core --test fairness -- --ignored --nocapture
+FAIRNESS_HARNESS=assets/harness/variants/shared-fair-walk \
+  cargo test --release -p lm-core --test fairness -- --ignored --nocapture
+FAIRNESS_HARNESS=assets/harness/variants/shared-fair \
+  cargo test --release -p lm-core --test fairness -- --ignored --nocapture
+FAIRNESS_SEED_FROM=201 FAIRNESS_HARNESS=assets/harness/variants/shared-fair \
+  cargo test --release -p lm-core --test fairness -- --ignored --nocapture
+```
+
+### The judgement on the Thor
+
+The variant is judged against the shipped doctrine on the Thor's decision
+server — the batched one on **:8104**, which was up — with 16 held-out
+seeds (`1_000_000..1_000_015`, the seed farm's own block) at 3000 ticks,
+one round at a time:
+
+```text
+HOTZONE_PORT=8104 HOTZONE_TICKS=3000 \
+  HOTZONE_SEEDS=1000000,1000001,1000002,1000003,1000004,1000005,1000006,1000007,1000008,1000009,1000010,1000011,1000012,1000013,1000014,1000015 \
+  cargo test --release -p lm-agents --test hotzone_fair_judged -- --ignored --nocapture
+```
+
+The two readings were written down before the run, and they are judged
+separately, each under D78 (at least 12 of 16 better, and the exact
+one-sided sign test over the per-seed deltas with ties excluded at
+p < 0.05):
+
+```text
+contact  = 100 * tags + sight_ticks      the squads met
+survival = min(score0, score1)           both squads stayed in the game
+```
+
+**The verdict on contact: the fair hot zone does not qualify.** It had
+the contact on **7 of the 16 seeds** (the bar is 12), worse on 9, tied on
+none. The sign test: 16 seeds moved, 7 of them the claimed way, **p =
+0.7727** one-sided (D78's own), 0.803618 two-sided. Nothing like a
+verdict.
+
+**The verdict on survival: the fair hot zone does not qualify.** It kept
+both squads in the game on **0 of the 16 seeds**, worse on all 16. The
+sign test: 16 seeds moved, 0 of them the claimed way, **p = 1.0000**
+one-sided. (The two-sided p-value is 0.000030, and it is worth saying
+which way that points: the two-sided test passes, and it passes *against*
+the variant — the variant is the outlier.)
+
+| seed | default contact | fair zone contact | delta | default survival | fair zone survival | delta |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1000000 | 620 | 899 | +279 | 1312 | 9 | -1303 |
+| 1000001 | 845 | 614 | -231 | 881 | 24 | -857 |
+| 1000002 | 731 | 713 | -18 | 1000 | 22 | -978 |
+| 1000003 | 807 | 798 | -9 | 1269 | 0 | -1269 |
+| 1000004 | 244 | 884 | +640 | 1051 | 5 | -1046 |
+| 1000005 | 677 | 599 | -78 | 1149 | 30 | -1119 |
+| 1000006 | 758 | 598 | -160 | 1288 | 0 | -1288 |
+| 1000007 | 843 | 599 | -244 | 694 | 6 | -688 |
+| 1000008 | 721 | 822 | +101 | 979 | 5 | -974 |
+| 1000009 | 835 | 599 | -236 | 841 | 21 | -820 |
+| 1000010 | 683 | 899 | +216 | 1112 | 5 | -1107 |
+| 1000011 | 599 | 924 | +325 | 1295 | 9 | -1286 |
+| 1000012 | 552 | 600 | +48 | 966 | 5 | -961 |
+| 1000013 | 767 | 598 | -169 | 1155 | 0 | -1155 |
+| 1000014 | 794 | 599 | -195 | 1072 | 30 | -1042 |
+| 1000015 | 653 | 715 | +62 | 1279 | 12 | -1267 |
+
+**What the run actually shows is the trade in one line.** The fair hot
+zone makes a fight; the fight is a rout.
+
+| | the shipped doctrine | the fair hot zone |
+| --- | --- | --- |
+| tags over the 16 rounds | 1 | **82** |
+| sight ticks over the 16 rounds | 11029 | 3260 |
+| rounds decided | 2 of 16 | **15 of 16** |
+| rounds with a squad held off the board | 0 | **16** |
+| asks a round | 171.5 | 138.5 |
+| refusals over the run | 827 | 720 |
+| the answer latency | p50 1089 ms, p95 2973 ms | p50 1332 ms, p95 3338 ms |
+
+The default doctrine almost never fights — one tag in sixteen rounds — and
+it almost never routs anybody either: the weaker squad finished every one
+of those rounds on 694 to 1312 points. The fair hot zone fights on every
+seed and the weaker squad finished **every one of them on 0 to 30**.
+
+**The contact reading is a wash and the survival reading is a rout, and
+the wash is not an artefact of the horizon.** The fair zone's rounds end
+early — they are decided, at 2745 ticks on average against the default's
+2963 — so its sight ticks are counted over fewer ticks. Normalising the
+contact per hundred ticks (a diagnostic, not the pre-registered metric)
+moves it from 7 of 16 to 9 of 16, still short of the bar of 12; the
+verdict does not turn on it.
+
+**The refusals are the run's own honesty.** Over the 16 rounds the
+default arm sent 2744 asks and the variant 2216, and 827 and 720 of those
+asks were refused. The kinds: "the answer did not match the schema" 256
+times on each arm (exactly 16 a round, so it is a fixed cost and not a
+difference between the arms), "the second opinion did not answer in time"
+569 times on the default arm and 450 on the variant's — the escalation to
+the second model timing out — and 2 and 14 deadline misses. So a third of
+the decisions fell to each arm's **own reflex**, and the run measures the
+doctrine through the model as much as through the model alone. The box was
+not quiet: the load average ran from 143 down to 12 over the run (the
+first rounds shared the box with the headless sweeps), so the latencies
+above are load-affected and are reported as the run saw them, not as the
+server's speed. The run took 3673 s.
+
+### Which of the two changes does the rout? A diagnostic
+
+The verdict above is a verdict on the *pair*. The pair is two changes, and
+they can be told apart: the fair walk alone is its own harness
+(`shared-fair-walk`), so the same measurement can be played against it on
+the same seeds, with the same two readings and the same rule:
+
+```text
+HOTZONE_PORT=8104 HOTZONE_TICKS=3000 \
+  HOTZONE_ARM1=assets/harness/variants/shared-fair-walk HOTZONE_ARM1_NAME=shared-fair-walk \
+  HOTZONE_SEEDS=1000000,1000001,1000002,1000003,1000004,1000005,1000006,1000007 \
+  cargo test --release -p lm-agents --test hotzone_fair_judged -- --ignored --nocapture
+```
+
+**The fair walk alone plays the same game as the pair, seed for seed.**
+
+| seed | the pair (the walk + the second objective) | the fair walk alone |
+| --- | --- | --- |
+| 1000000 | 2740 ticks, 7 tags, 199 sight ticks, first sight at 1740, scores [1801, 9] | **the same, to the tick** |
+| 1000001 | 2734 ticks, 4 tags, 214 sight ticks, first sight at 1725, scores [24, 1801] | **the same, to the tick** |
+
+(The diagnostic was stopped after two seeds' worth of pairs — five of the
+sixteen rounds the command asks for — to leave the box quiet for the gate
+below. Two seeds cannot carry a verdict; they can carry a mechanism, and
+this is a mechanism, not a verdict.)
+
+The default arm's rounds are *not* the same between the two runs — the
+model is sampled, so seed 1000000 gave [1467, 1312] in the first run and
+[1212, 740] in the second — while the two variant arms' rounds match to
+the tick. (The model was asked a slightly different number of times, 142
+against 145 asks on seed 1000000, and refused a slightly different number:
+the talk gate's own cadence and the refusal rate move between runs. The
+*game* did not move: the same ticks, the same tags, the same sight
+ticks, the same first sight, the same scores.)
+
+So the second objective changed **no gameplay at all** in these rounds:
+its condition was not met. The condition is "the *other* squad holds the
+shared target", and a beacon two squads stand in is held by nobody — so
+in the very rounds where the rout happens, the shared target is
+contested, the condition is false, and the branch never fires. The
+condition is the same predicate in the facts and in the reflex, so
+neither fired. **A condition that is false exactly when it is needed is a
+broken fix.**
+
+This is the most useful thing the diagnostic says, and it is not what the
+sweep said:
+
+- **In the headless sweep the branch does fire**, and it helps: the
+  collapsed rounds fall from 18 (the walk alone) to 10 (the pair). The
+  reflex applies the doctrine exactly.
+- **On the Thor it does not fire**, and the rout is untouched: 16 rounds
+  of 16 with a squad held off the board, for the pair and for the walk
+  alone alike.
+
+So the rout is the hot zone's own, and the second objective is not what
+causes it and does not fix it there. What the second objective *does* buy
+is the fairness: it is the half of the pair that makes the zone even,
+and it costs nothing measurable on the Thor.
+
+### What this does not say
+
+- **The sweep plays the reflex, not the facts.** The walk and the second
+  objective are written twice: once in the facts builder (Rust) and once in
+  each variant's reflex (Rhai), because the sweep plays a reflex and the
+  Thor plays facts. The two have to agree, and they did not at first: the
+  facts builder broke the tie between the two beacons nearest the middle
+  by the **lowest number**, and the reflex broke it by the **angular
+  order**. The arms then walked different first beacons and measured
+  differently — 37/63 for the reflex against 54/46 for the facts' arm.
+  Both now break the tie the same way, and the numbers above are the
+  reflex's. Every claim about the *rule* here is a sweep claim; every
+  claim about the *representation* is a Thor claim.
+- **The fairness bound is the guard's, and the guard's seeds are not the
+  judgement's seeds.** The sweep's 100 seeds and the guard's 200 are the
+  seed farm's early block; the Thor judgement runs on the held-out block
+  at `1_000_000..`. A bound that holds over one hundred seeds is not a
+  verdict, and a verdict is not a bound.
+- **The walk's fairness is a property of the walk, not of the map.** The
+  map is point-symmetric before the connectivity repair and not exactly
+  after it: the repair floods from spawn 0 only
+  (`crates/lm-core/src/world/gen.rs`), so squad 0's routes to the beacons
+  are carved corridors and squad 1's are not. The zone's first stop is a
+  beacon the two squads are equally far from in straight lines and not
+  necessarily equally far from in walking steps, and whoever reaches it
+  first holds it alone. That is the residual the sweep's bound can see.
+  Making the repair symmetric is the change that would make the walk's
+  fairness exact, and it would re-pin the golden: the world's hash is
+  part of it.
+- **Nothing here changes the scoring rules.** `assets/rules/beacons.rhai`
+  is the oracle and is untouched, and no variant changes the win score,
+  the time limit, the tag range or the beacon radius.
+- **The second objective is a doctrine, not a rule.** The facts state it
+  in one sentence and the model applies it; the sweep's reflex applies it
+  unconditionally. On the Thor the model can decline, and the refusals
+  and the latencies above say what actually happened.
+- **The guard's window was changed, and that changes the guard's numbers.**
+  The guard used to stop at `time_limit_ticks`, the tick *before* the
+  rules declare the outcome, so it called a round that ended on the clock
+  a draw where the sweep called it a win. The guard now plays the same
+  window as the sweep, and the two agree exactly — but the shipped
+  harness's own guard row (36/31, a gap of 5) is the corrected one, not
+  the one in the tree before this change (36/30, a gap of 6).
+- **The walk alone is not the fair hot zone.** The guard passes the fair
+  walk on one block of two hundred seeds and fails it on the next by
+  twenty-two rounds. Only the variant — the walk *and* the second
+  objective — is inside the bound in every block, and even there the
+  second block's gap is exactly the bound (28 of 28). The fairness claim
+  is a claim about the pair, and even the pair's margin is thin on the
+  second block.
+- **The second objective's condition is the next thing to change, and it
+  is not measured yet.** It fires when "the *other* squad holds the
+  shared target", which is false exactly when it is needed — the target
+  is contested, and a contested beacon is held by nobody. The condition
+  that would be true exactly when it is needed is "**my squad does not
+  hold the shared target**", which holds when the target is contested
+  and when the other squad holds it alike. That is a one-line change to
+  `SharedConfig::second_objective` in `crates/lm-agents/src/shared.rs`,
+  and the headless sweep can measure it in a minute; it needs a Thor run
+  on the held-out block to be judged. It is the proposed next step, not a
+  result.

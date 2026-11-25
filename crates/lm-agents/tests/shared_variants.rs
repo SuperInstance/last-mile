@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use lm_agents::facts::Facts;
 use lm_agents::gates::GateSet;
 use lm_agents::harness::Harness;
-use lm_agents::shared::{SharedConfig, SharedRule};
+use lm_agents::shared::{Second, SharedConfig, SharedRule, Walk};
 use lm_core::header::Role;
 use lm_core::view::{AgentSnap, BeaconSnap, ScoreView};
 use lm_core::world::{CellKind, CellXY, Grid, World};
@@ -112,6 +112,11 @@ fn each_variant_states_its_own_shared_target() {
         ),
         (
             "shared-ghost",
+            SharedRule::Ghost,
+            "the beacon you are pulled toward",
+        ),
+        (
+            "shared-fair",
             SharedRule::Ghost,
             "the beacon you are pulled toward",
         ),
@@ -246,4 +251,76 @@ fn the_centre_target_is_the_centre_beacon_of_the_round_map() {
     let target = shared.resolve(&view()).expect("a target");
     // Beacon 0 at (64, 63) is the beacon at the centre of the round's map.
     assert_eq!(target.beacon, 0);
+}
+
+#[test]
+fn the_fair_variant_asks_for_the_fair_walk_and_the_second_objective() {
+    let harness = Harness::open(&variants().join("shared-fair")).expect("the harness loads");
+    let shared = SharedConfig::parse(&harness.facts_toml).expect("the facts file loads");
+    assert_eq!(shared.rule, SharedRule::Ghost);
+    assert_eq!(shared.ghost.walk, Walk::Around);
+    assert_eq!(shared.second, Second::NextStop);
+}
+
+#[test]
+fn the_second_objective_is_off_in_every_other_harness() {
+    for name in ["shared-free", "shared-centre", "shared-ghost"] {
+        let harness = Harness::open(&variants().join(name)).expect("the harness loads");
+        let shared = SharedConfig::parse(&harness.facts_toml).expect("the facts file loads");
+        assert_eq!(shared.second, Second::Off, "{name} turns it off");
+    }
+    // And the shipped harness has no facts file at all, so no second
+    // objective and the numbered walk.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/harness/default");
+    let harness = Harness::open(&dir).expect("the shipped harness loads");
+    let shared = SharedConfig::parse(&harness.facts_toml).expect("the facts file loads");
+    assert_eq!(shared.second, Second::Off);
+    assert_eq!(shared.ghost.walk, Walk::Numbered);
+}
+
+#[test]
+fn the_second_objective_is_stated_to_the_squad_that_lost_the_beacon() {
+    let harness = Harness::open(&variants().join("shared-fair")).expect("the harness loads");
+    let shared = SharedConfig::parse(&harness.facts_toml).expect("the facts file loads");
+
+    // The view has beacons 2 and 3 held, one by each squad. The hot
+    // beacon at tick 100 is beacon 0, so the other squad has to hold it
+    // for squad 0 to have lost it.
+    let mut held = view();
+    held.beacons[0].holder = Some(1);
+    let facts = Facts::from_view(
+        &held,
+        &world(),
+        0,
+        &lm_agents::config::AgentsConfig::default(),
+        &shared,
+    );
+    assert!(
+        facts.text.contains(
+            "The other squad holds the shared target, so your second objective is beacon"
+        ),
+        "the loser is told its second objective: {}",
+        facts.text
+    );
+    assert!(facts
+        .text
+        .contains("it is your second objective: the next stop of the zone"));
+    assert!(facts.fields.contains_key("shared.second"));
+
+    // The squad that holds the shared target is not given one: it is
+    // holding the beacon, and there is nothing to fall back from.
+    let mut winner = held.clone();
+    winner.squad_id = 1;
+    let facts = Facts::from_view(
+        &winner,
+        &world(),
+        1,
+        &lm_agents::config::AgentsConfig::default(),
+        &shared,
+    );
+    assert!(
+        !facts.text.contains("your second objective"),
+        "the winner has no second objective: {}",
+        facts.text
+    );
 }

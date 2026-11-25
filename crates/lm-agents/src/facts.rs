@@ -155,6 +155,20 @@ impl Facts {
             );
         }
 
+        // The second objective: the beacon the squad that has lost the
+        // shared target is sent to instead. It is off by default; when it
+        // is on it is stated in one plain sentence, with the condition
+        // that makes it apply in the same sentence, so the model never
+        // has to guess whether the branch is live.
+        let steps_only: Vec<Option<i64>> = paths.iter().map(|(steps, _)| *steps).collect();
+        let second = shared_target
+            .as_ref()
+            .and_then(|target| shared.second_objective(view, target, &steps_only));
+        if let Some(second) = &second {
+            lines.push(second.summary());
+            fields.insert("shared.second".to_string(), i64::from(second.beacon));
+        }
+
         for (i, beacon) in view.beacons.iter().enumerate() {
             let mine = beacon.holder == Some(me_squad);
             let holder_word = match beacon.holder {
@@ -181,6 +195,14 @@ impl Facts {
                 "; it is the nearest beacon your squad does not hold".to_owned()
             } else {
                 "; it is not the nearest beacon your squad does not hold".to_owned()
+            };
+            // The second objective is marked on its own beacon, so the
+            // model can tell the two targets apart: the shared target is
+            // the one both squads fight over, the second objective is the
+            // loser's way to keep scoring.
+            let nearest = match &second {
+                Some(second) => format!("{nearest}{}", second.marker(i as u8)),
+                None => nearest,
             };
             match paths[i] {
                 (Some(steps), bearing) => {
