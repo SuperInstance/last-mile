@@ -121,6 +121,7 @@ Toolchain: Rust 1.99, pinned by `rust-toolchain.toml`. The ProArt-native Bevy ho
 | [`docs/research/forclaude2/`](docs/research/forclaude2/00-overview.md) | Research digests: the MIDI principle, the MIDI Maze source study, utterance scores, EdenLive, pre-render-ahead, self-harnessing agents |
 | [`docs/handoffs/`](docs/handoffs/orin-archive-and-golden.md) | Handoffs to the other boxes: building the archive on the Orin, running the golden check there and on the Thor, and running the service under `systemd --user` |
 | [`docs/research/fleet/`](docs/research/fleet/00-overview.md) | Casey's other repos (COLOR SQUAD, thor-firstline, the whole-house quilt, Syzygy…), decision models, where it all leads |
+| [`docs/research/thor-transfer/`](docs/research/thor-transfer/00-overview.md) | What the Otherhere/Thor lane measured: the generators, the asset tiers, the licences, the hazards; and what each of those means for last-mile |
 | [`docs/research/poc/`](docs/research/poc/) | Proof-of-concept experiments with code and results: presence lanes, adaptive lead, tiles, trainer/student, generation as decisions, Jev/Clef/d1 on our task, Wi-Fi cost, the determinism audit |
 
 ## How this is built
