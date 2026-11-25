@@ -18,6 +18,9 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::io;
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 use lm_core::decision::{Decision, Tick};
@@ -26,10 +29,12 @@ use lm_core::refusal::{RefusalCounts, RefusalKind, Refused};
 use lm_core::sim::Sim;
 use lm_core::view::menu;
 
+use crate::cache::{AnswerCache, CachedBackend};
 use crate::config::AgentsConfig;
 use crate::gates::Pack;
 use crate::harness::Harness;
-use crate::mind::{AskOutcome, Mind, Thinker, ThoughtRecord};
+use crate::ledger::QuestionLedger;
+use crate::mind::{AskOutcome, Mind, Policy, Thinker, ThoughtRecord};
 use crate::queue::{Budgets, LeastUseQueue};
 use crate::sink::DecisionSink;
 use crate::surprise::RoundSurprise;
@@ -49,6 +54,13 @@ pub struct Agents {
     counted: BTreeMap<u16, usize>,
     /// The life of every ask of the round, on the monotonic clock (N1).
     timings: Vec<AskTiming>,
+    /// The answer cache of the round, when the harness turns it on.
+    ///
+    /// One cache for the round: an answer one agent paid for is an answer
+    /// every agent may have. It is in memory only and never hashed.
+    cache: Option<Arc<AnswerCache>>,
+    /// The round's question ledger: what each question cost and answered.
+    ledger: QuestionLedger,
 }
 
 impl Agents {
@@ -64,7 +76,29 @@ impl Agents {
         header: &Header,
         backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
     ) -> Agents {
-        let minds = header
+        // The answer cache is the harness's choice (the `answer_cache`
+        // lever in `policy.toml`), and it is off by default. When it is on,
+        // it sits in front of every backend and is shared by the round: an
+        // answer one agent paid for is an answer every agent may have.
+        let policy = Policy::for_harness(&harness.policy_toml);
+        let cache = policy.answer_cache.then(|| Arc::new(AnswerCache::new()));
+        Agents::new_with_cache(cfg, harness, header, backends, cache)
+    }
+
+    /// The round's agents with a cache of the caller's own.
+    ///
+    /// The cache is shared: a round may hand the next round the cache it
+    /// filled, and the questions the first round paid for are the second
+    /// round's free answers. `None` is no cache at all, which is what the
+    /// harness's `answer_cache` lever being off means.
+    pub fn new_with_cache(
+        cfg: &AgentsConfig,
+        harness: &Harness,
+        header: &Header,
+        backends: BTreeMap<String, Box<dyn SysOne + Send + Sync>>,
+        cache: Option<Arc<AnswerCache>>,
+    ) -> Agents {
+        let minds: BTreeMap<u16, Mind> = header
             .roster
             .iter()
             .map(|entry| {
@@ -80,6 +114,24 @@ impl Agents {
             cfg.budget_calls_per_round,
         );
         let queue = LeastUseQueue::new(squad_weight_permille(cfg.squad_weight));
+        let backends = match &cache {
+            Some(cache) => backends
+                .into_iter()
+                .map(|(name, backend)| {
+                    (
+                        name,
+                        Box::new(CachedBackend::new(backend, Arc::clone(cache)))
+                            as Box<dyn SysOne + Send + Sync>,
+                    )
+                })
+                .collect(),
+            None => backends,
+        };
+        // The ledger names the questions the way the harness wrote them.
+        let mut ledger = QuestionLedger::new();
+        if let Some(mind) = minds.values().next() {
+            ledger.set_slot_identities(&mind.gate_identities());
+        }
         Agents {
             minds,
             queue,
@@ -89,7 +141,29 @@ impl Agents {
             stats: AgentStats::default(),
             counted: BTreeMap::new(),
             timings: Vec::new(),
+            cache,
+            ledger,
         }
+    }
+
+    /// The round's question ledger: what each question cost, and what it
+    /// answered.
+    pub fn ledger(&self) -> &QuestionLedger {
+        &self.ledger
+    }
+
+    /// Write the round's question ledger to a file.
+    ///
+    /// The ledger is harness-adjacent and never hashed: it describes the
+    /// questions, not the world, so it sits beside the round's other
+    /// records and never enters the round log.
+    pub fn write_ledger(&self, path: &Path) -> io::Result<()> {
+        self.ledger.write(path)
+    }
+
+    /// The answer cache's numbers, when the cache is on.
+    pub fn cache_stats(&self) -> Option<crate::cache::CacheStats> {
+        self.cache.as_ref().map(|cache| cache.stats())
     }
 
     /// Give the agents somewhere to send their decisions.
@@ -244,6 +318,11 @@ impl Agents {
             // How the question ended: taken, late, or refused. Every
             // question ends in exactly one of the three, and the round's
             // ledger adds up (N4).
+            // The ledger: what this question cost and what it answered.
+            // It is recorded here, where the answer came home, so the
+            // record and the round's own counters cannot disagree.
+            self.ledger
+                .record(&thought.ask.questions, &thought.result, latency_ms);
             let (made, outcome) = match self.minds.get_mut(&agent) {
                 Some(mind) => mind.on_answer(thought.ask, thought.result),
                 None => {

@@ -401,6 +401,7 @@ fn the_table_entry_round_trips() {
         model: "d1-2b".to_owned(),
         input_tokens: 0,
         latency_ms: 1,
+        questions: BTreeMap::new(),
     };
     for _ in 0..MIN_ASKS {
         table.record(key, &Ok(answers.clone()));

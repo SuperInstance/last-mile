@@ -744,6 +744,7 @@ mod tests {
             unsure: BTreeMap::new(),
             escalated: BTreeMap::new(),
             decomposed: BTreeMap::new(),
+            questions: BTreeMap::new(),
             model: "stub".to_owned(),
             input_tokens: 64,
             latency_ms: 12,

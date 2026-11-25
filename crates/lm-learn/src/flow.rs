@@ -27,6 +27,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use lm_agents::harness::{self, Harness};
+use lm_agents::ledger::QuestionLedger;
 use lm_agents::surprise::{RoundSurprise, SituationCounts};
 use lm_core::header::Header;
 use lm_core::log::RoundLog;
@@ -347,6 +348,13 @@ pub struct FlowConfig {
     /// entries land in the record, where the between-round screen reads
     /// them; `None` — the flow's own reflex-only rounds — records none.
     pub surprise: Option<RoundSurprise>,
+    /// The question ledger of the round the flow is asked about, when the
+    /// caller has one.
+    ///
+    /// The ledger says what each question of the harness cost and what it
+    /// answered (ROADMAP-AHEAD §2.5). It is written beside the round's
+    /// other files and is never hashed: only decisions travel.
+    pub question_ledger: Option<QuestionLedger>,
 }
 
 impl FlowConfig {
@@ -360,6 +368,7 @@ impl FlowConfig {
             eval_seed_count: DEFAULT_EVAL_SEEDS,
             round_id: None,
             surprise: None,
+            question_ledger: None,
         }
     }
 
@@ -372,6 +381,17 @@ impl FlowConfig {
     /// kept, each a one-line, human-readable description.
     pub fn with_surprise(mut self, surprise: RoundSurprise) -> FlowConfig {
         self.surprise = Some(surprise);
+        self
+    }
+
+    /// Hand the flow the round's question ledger, and it is written with
+    /// the round's other files.
+    ///
+    /// The ledger is the seam between the host that played the round with
+    /// live minds and the flow that records it, in the same way the
+    /// surprise table is.
+    pub fn with_question_ledger(mut self, ledger: QuestionLedger) -> FlowConfig {
+        self.question_ledger = Some(ledger);
         self
     }
 
@@ -754,6 +774,17 @@ pub fn run_learning_round(
     let flow_dir = cfg.runs_root.join("flow");
     let ledger_path = cfg.runs_root.join("ledger.jsonl");
     fs::create_dir_all(&flow_dir)?;
+
+    // The question ledger of the round, when the caller played it with live
+    // minds and handed it over. It is written beside the round's other
+    // files: harness-adjacent, and never hashed.
+    if let Some(questions) = &cfg.question_ledger {
+        let dir = cfg.runs_root.join("questions");
+        fs::create_dir_all(&dir)?;
+        questions
+            .write(&dir.join(format!("{round_id}.toml")))
+            .map_err(FlowError::Io)?;
+    }
 
     // 1. The harness, as it is now.
     let harnesses = read_harness_set(&cfg.harness_root)?;

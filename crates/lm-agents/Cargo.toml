@@ -15,6 +15,11 @@ toml = "1"
 # per-agent connection pool, so one client per backend keeps its connections
 # alive (D50). rustls is the pure-Rust TLS stack (no OpenSSL on the Thor).
 ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+# The question identity: SHA-256 over the gate's own bytes (its id, its
+# version and the context digest). The key format is the one scrap-spark
+# uses (docs/research/lucineer-ecosystem.md §13): SHA-256 of the version,
+# the question and the context.
+sha2 = "0.10"
 # Task 1: agents.toml configuration.
 
 [dev-dependencies]

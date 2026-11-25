@@ -10,6 +10,7 @@
 //! byte. That is the whole point of the crate.
 
 pub mod branch;
+pub mod qcache;
 pub mod runner;
 pub mod vibe;
 pub mod voice;
