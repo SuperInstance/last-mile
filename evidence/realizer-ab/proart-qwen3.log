@@ -1,0 +1,628 @@
+    Finished `release` profile [optimized] target(s) in 0.15s
+     Running tests/realizer_on_thor.rs (target/release/deps/realizer_on_thor-f83a24ef15ad56ba)
+
+running 1 test
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+test realizer_on_thor has been running for over 60 seconds
+round 1: 27 lines, 515 decisions, 22 refusals, 19 by the model, 8 by the phrasebook, 8 late
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+round 2: 4 lines, 639 decisions, 24 refusals, 0 by the model, 4 by the phrasebook, 4 late
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model qwen3:0.6b on http://127.0.0.1:11434 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+round 3: 40 lines, 624 decisions, 20 refusals, 29 by the model, 11 by the phrasebook, 11 late
+
+# the realizer on the real Thor
+
+- the arm: qwen3:0.6b on http://127.0.0.1:11434
+- rounds: 3
+- lines: 71
+- words llm 48 / phrasebook 23 / late 23
+- the share that fell back: 32.4%
+- the wordings that never came: 0
+- the wording's latency: p50 111.206 ms, p95 401.534 ms (n=23)
+- the wording's latency: min 37.6 ms, max 416.011 ms
+- the game's wait for a line's wording: max 124 us over 71 lines
+- the distinct plans the rounds used: 8
+- lines checked against their plan: 48
+- lines off their plan: 0
+- lines naming another target: 0
+- the on-plan rate: 100.0%
+- lines the model answered in time and got wrong: 0
+
+## the samples
+
+### 0
+
+```text
+model:
+@agent5 call to=agent5 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@agent5 call to=agent5 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to agent 5, Report, calm, about beacon 3
+
+### 1
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 2
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 3
+
+```text
+model:
+@agent5 call to=agent5 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@agent5 call to=agent5 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to agent 5, Report, calm, about beacon 3
+
+### 4
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 5
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 6
+
+```text
+model:
+@agent5 call to=agent5 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@agent5 call to=agent5 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to agent 5, Report, calm, about beacon 3
+
+### 7
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 8
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 9
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 10
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 11
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 12
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 13
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 14
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 15
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 16
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 17
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 18
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  hold p0 a. l1
+  at p0 a. l1
+  beacon p0 a. l1
+  0 p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon0
+  beacon p0 a. l1
+  0 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 0
+
+### 19
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 20
+
+```text
+model:
+@agent5 call to=agent5 intent=report affect=uncertain subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@agent5 call to=agent5 intent=report affect=uncertain subject=beacon3
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  3 p0 a. l1
+```
+
+- plan: Callout to agent 5, Report, uncertain, about beacon 3
+
+### 21
+
+```text
+model:
+@agent7 call to=agent7 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@agent7 call to=agent7 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to agent 7, Report, calm, about beacon 3
+
+### 22
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 23
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 24
+
+```text
+model:
+@agent7 call to=agent7 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@agent7 call to=agent7 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to agent 7, Report, calm, about beacon 3
+
+### 25
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  we p0 a. l1
+  hold p0 a. l1
+  beacon p0 a. l1
+  2 p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 26
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 27
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+### 28
+
+```text
+model:
+@agent6 call to=agent6 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@agent6 call to=agent6 intent=report affect=calm subject=beacon3
+  beacon p0 a. l1
+  3 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to agent 6, Report, calm, about beacon 3
+
+### 29
+
+```text
+model:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+phrasebook:
+@squad call to=squad intent=report affect=calm subject=beacon2
+  beacon p0 a. l1
+  2 p0 a. l1
+  is p0 a. l1
+  ours p0 a. l1
+```
+
+- plan: Callout to the squad, Report, calm, about beacon 2
+
+- the dump: /tmp/ab/proart-qwen3.json
+test realizer_on_thor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 301.93s
+

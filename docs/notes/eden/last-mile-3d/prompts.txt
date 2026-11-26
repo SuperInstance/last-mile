@@ -1,0 +1,3 @@
+Cinematic stylized 3d game art. A fantasy stone arena seen from a raised third-person camera: dark slate floor, mossy green stone blocks and clipped hedges, warm amber light falling from tall narrow windows in the far wall, soft volumetric haze, painterly PBR game environment materials, crisp readable silhouettes, gentle rim light on the orange characters.
+
+The camera slowly pushes forward over the stone arena while the orange characters hold position between the mossy blocks; warm light shafts drift across the floor.

@@ -1,0 +1,27 @@
+[Unit]
+Description=lm-ears: the Thor's ears, LFM3-Audio-2B speech-to-text and intent probe (port 8102)
+Documentation=file:///home/caseydigennaro/lm-wt/ears/crates/lm-voice-ears/EARS.md
+After=network.target
+
+[Service]
+# The ears of last-mile: LFM3-Audio-2B (GGUF) served by llama-server on
+# 127.0.0.1:8103, behind a proxy on 0.0.0.0:8102 that shapes the answer
+# into {text, words, latency_ms}.
+#
+# The door is on the LAN with no API key, like the d1 servers, so the
+# ProArt can reach it at thor.local:8102. The model server itself is
+# bound to localhost: :8103 is an implementation detail, not a door.
+#
+# The script starts the model on the GPU and falls back to the CPU if the
+# shared GPU has no room for it, so a busy box does not deafen the ears.
+WorkingDirectory=/home/caseydigennaro/lm-wt/ears/service
+Environment=PATH=/home/caseydigennaro/.local/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/caseydigennaro/lm-wt/ears/service/lm-ears.sh
+Restart=on-failure
+RestartSec=10
+# The model is resident: it holds the weights (and the audio projector) in
+# memory on purpose, and it is the thing last-mile asks.
+
+[Install]
+WantedBy=default.target

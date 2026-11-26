@@ -1,0 +1,296 @@
+{
+  "clips": 340,
+  "slope_window_sweep": {
+    "200ms": {
+      "auc_order_vs_question": 0.5373
+    },
+    "250ms": {
+      "auc_order_vs_question": 0.5678
+    },
+    "300ms": {
+      "auc_order_vs_question": 0.5949
+    }
+  },
+  "per_field": {
+    "velocity_db": {
+      "auc_question_vs_order": 0.4466,
+      "auc_by_speaker": {
+        "Aria": 0.45,
+        "Jason": 0.4564,
+        "Mia": 0.4306
+      },
+      "loso_urgency_3class": 0.7,
+      "loso_urgency_binary": 0.9333,
+      "constant": false
+    },
+    "brightness_offset_hz": {
+      "auc_question_vs_order": 0.5679,
+      "auc_by_speaker": {
+        "Aria": 0.5769,
+        "Jason": 0.5836,
+        "Mia": 0.5536
+      },
+      "loso_urgency_3class": 0.65,
+      "loso_urgency_binary": 0.8667,
+      "constant": false
+    },
+    "tempo_syl_per_s": {
+      "auc_question_vs_order": 0.4807,
+      "auc_by_speaker": {
+        "Aria": 0.4564,
+        "Jason": 0.4526,
+        "Mia": 0.5344
+      },
+      "loso_urgency_3class": 0.3778,
+      "loso_urgency_binary": 0.5778,
+      "constant": false
+    },
+    "duration_s": {
+      "auc_question_vs_order": 0.3574,
+      "auc_by_speaker": {
+        "Aria": 0.3008,
+        "Jason": 0.4154,
+        "Mia": 0.35
+      },
+      "loso_urgency_3class": 0.5056,
+      "loso_urgency_binary": 0.5056,
+      "constant": false
+    },
+    "decay_ms": {
+      "auc_question_vs_order": 0.5739,
+      "auc_by_speaker": {
+        "Aria": 0.4733,
+        "Jason": 0.6278,
+        "Mia": 0.6465
+      },
+      "loso_urgency_3class": 0.4611,
+      "loso_urgency_binary": 0.5722,
+      "constant": false
+    },
+    "sustain_db": {
+      "auc_question_vs_order": 0.5376,
+      "auc_by_speaker": {
+        "Aria": 0.4975,
+        "Jason": 0.554,
+        "Mia": 0.5807
+      },
+      "loso_urgency_3class": 0.4,
+      "loso_urgency_binary": 0.6389,
+      "constant": false
+    },
+    "release_ms": {
+      "auc_question_vs_order": 0.4968,
+      "auc_by_speaker": {
+        "Aria": 0.466,
+        "Jason": 0.49,
+        "Mia": 0.5337
+      },
+      "loso_urgency_3class": 0.3333,
+      "loso_urgency_binary": 0.5222,
+      "constant": false
+    },
+    "attack_ms": {
+      "auc_question_vs_order": 0.4223,
+      "auc_by_speaker": {
+        "Aria": 0.4487,
+        "Jason": 0.4386,
+        "Mia": 0.3774
+      },
+      "loso_urgency_3class": 0.2222,
+      "loso_urgency_binary": 0.4667,
+      "constant": false
+    },
+    "contour_norm": {
+      "auc_question_vs_order": 0.7578,
+      "auc_by_speaker": {
+        "Aria": 0.7679,
+        "Jason": 0.7638,
+        "Mia": 0.7453
+      },
+      "loso_urgency_3class": 0.4333,
+      "loso_urgency_binary": 0.5833,
+      "constant": false
+    },
+    "contour_median_norm": {
+      "auc_question_vs_order": 0.7693,
+      "auc_by_speaker": {
+        "Aria": 0.771,
+        "Jason": 0.776,
+        "Mia": 0.7551
+      },
+      "loso_urgency_3class": 0.4,
+      "loso_urgency_binary": 0.5722,
+      "constant": false
+    },
+    "eop_slope_cents_per_s": {
+      "auc_question_vs_order": 0.5678,
+      "auc_by_speaker": {
+        "Aria": 0.5392,
+        "Jason": 0.616,
+        "Mia": 0.5581
+      },
+      "loso_urgency_3class": 0.4611,
+      "loso_urgency_binary": 0.6889,
+      "constant": false
+    },
+    "eop_rise_ratio": {
+      "auc_question_vs_order": 0.6044,
+      "auc_by_speaker": {
+        "Aria": 0.5814,
+        "Jason": 0.6464,
+        "Mia": 0.6021
+      },
+      "loso_urgency_3class": 0.4222,
+      "loso_urgency_binary": 0.6778,
+      "constant": false
+    },
+    "eop_final_offset_ratio": {
+      "auc_question_vs_order": 0.7119,
+      "auc_by_speaker": {
+        "Aria": 0.7382,
+        "Jason": 0.7266,
+        "Mia": 0.6828
+      },
+      "loso_urgency_3class": 0.4,
+      "loso_urgency_binary": 0.4944,
+      "constant": false
+    },
+    "eop_lengthening": {
+      "auc_question_vs_order": 0.5421,
+      "auc_by_speaker": {
+        "Aria": 0.5881,
+        "Jason": 0.5742,
+        "Mia": 0.4682
+      },
+      "loso_urgency_3class": 0.3833,
+      "loso_urgency_binary": 0.5222,
+      "constant": false
+    }
+  },
+  "field_sets": {
+    "order_question": [
+      {
+        "fields": [
+          "contour_median_norm"
+        ],
+        "loso": 0.7089,
+        "by_speaker": {
+          "Aria": 0.6833,
+          "Jason": 0.76,
+          "Mia": 0.6833
+        }
+      },
+      {
+        "fields": [
+          "contour_median_norm",
+          "eop_final_offset_ratio"
+        ],
+        "loso": 0.7111,
+        "by_speaker": {
+          "Aria": 0.7167,
+          "Jason": 0.75,
+          "Mia": 0.6667
+        }
+      },
+      {
+        "fields": [
+          "contour_median_norm",
+          "eop_final_offset_ratio",
+          "eop_slope_cents_per_s"
+        ],
+        "loso": 0.7067,
+        "by_speaker": {
+          "Aria": 0.7,
+          "Jason": 0.77,
+          "Mia": 0.65
+        }
+      },
+      {
+        "fields": [
+          "contour_median_norm",
+          "eop_final_offset_ratio",
+          "eop_rise_ratio"
+        ],
+        "loso": 0.6978,
+        "by_speaker": {
+          "Aria": 0.6917,
+          "Jason": 0.76,
+          "Mia": 0.6417
+        }
+      },
+      {
+        "fields": [
+          "contour_median_norm",
+          "eop_final_offset_ratio",
+          "velocity_db",
+          "brightness_offset_hz",
+          "tempo_syl_per_s"
+        ],
+        "loso": 0.72,
+        "by_speaker": {
+          "Aria": 0.7333,
+          "Jason": 0.76,
+          "Mia": 0.6667
+        }
+      }
+    ],
+    "urgency": [
+      {
+        "fields": [
+          "velocity_db",
+          "brightness_offset_hz"
+        ],
+        "loso": 0.7722,
+        "by_speaker": {
+          "Aria": 0.8667,
+          "Jason": 0.8167,
+          "Mia": 0.6333
+        }
+      },
+      {
+        "fields": [
+          "velocity_db",
+          "tempo_syl_per_s"
+        ],
+        "loso": 0.7389,
+        "by_speaker": {
+          "Aria": 0.7333,
+          "Jason": 0.8167,
+          "Mia": 0.6667
+        }
+      },
+      {
+        "fields": [
+          "velocity_db",
+          "brightness_offset_hz",
+          "tempo_syl_per_s",
+          "duration_s"
+        ],
+        "loso": 0.8389,
+        "by_speaker": {
+          "Aria": 0.8667,
+          "Jason": 0.85,
+          "Mia": 0.8
+        }
+      },
+      {
+        "fields": [
+          "velocity_db",
+          "brightness_offset_hz",
+          "tempo_syl_per_s",
+          "duration_s",
+          "decay_ms",
+          "sustain_db",
+          "release_ms",
+          "attack_ms"
+        ],
+        "loso": 0.8056,
+        "by_speaker": {
+          "Aria": 0.9,
+          "Jason": 0.8167,
+          "Mia": 0.7
+        }
+      }
+    ]
+  }
+}

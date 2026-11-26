@@ -1,0 +1,191 @@
+# The look of last-mile: a toy diorama of a bright, friendly city, with
+# paint as the only loud colour on it.
+#
+# Everything a person can see about the game's appearance is here. The host
+# reads this file once, at startup; the 2D map, the 3D view and the panels
+# around them all take their colours from it, so the world looks the same in
+# every view and a different look is a different file, not a different build.
+#
+# The file may name any subset of the knobs: whatever it leaves out keeps
+# its default. A file that exists but cannot be read is an error, not a
+# silent fallback — a renderer running on defaults nobody asked for is a lie
+# about what is on screen.
+#
+# Colours are sRGB hex, the way a colour picker and a screenshot spell them.
+# The 3D view consumes linear light; the conversion happens once, at the
+# boundary.
+
+# --- the world -------------------------------------------------------------
+[world]
+# The open floor: the sand the blocks stand on. Warm and pale, so that the
+# paint is the only thing on screen that shouts.
+ground = "#e8dec6"
+# The streets: the open floor that lies between two buildings. A shade
+# deeper than the ground, so the street network reads at a glance.
+road = "#cec1a1"
+# The walls of a building.
+building = "#cf8f6b"
+# The roof of a building: a shade lighter, so a block shows its top.
+building_top = "#e2a987"
+# Cover: the crates and the hedges an agent hides behind.
+cover = "#83906a"
+# The lid of a crate.
+cover_top = "#97a37c"
+# The sky the far ground fades into. The fog ramps the distance into this
+# colour, so it is the colour of "far away", not of "up".
+sky = "#a9c9e0"
+# The ground the board stands on: the table the diorama sits on. It is
+# darker than the board and lighter than a hole, so the edge of the world
+# reads as an edge and not as a drop.
+void = "#b3ac9d"
+# A beacon nobody holds, and a beacon a squad holds. A beacon is an
+# objective, not a landmark: it is a cool slate against the warm board, so
+# it reads from across the city without shouting over the paints the
+# squads wear. The held one is deeper, so a change of hands is a change of
+# shade and not a change of hue.
+beacon_free = "#8fb0c6"
+beacon_held = "#2f6690"
+# How tall a beacon stands, in metres: a low plinth with a gem on it. It is
+# a little taller than a figure and lower than a wall — an objective you
+# can see over the rooftops, not a tower.
+beacon_height_m = 2.0
+# How wide the beacon's plinth is, in metres.
+beacon_span_m = 2.2
+# The fog over a cell that has been seen and forgotten, and over a cell
+# nobody has seen. The alpha says how much of what is behind shows through.
+fog_explored = "#2c2a2440"
+fog_unknown = "#191813eb"
+
+# --- the paints ------------------------------------------------------------
+# The four paints of the sandbox. These are the loud colour on the calm
+# world: the figures wear them, and a splat is one of them.
+[paints]
+ochre = "#d97f14"
+teal = "#0fa3a8"
+violet = "#7a4ec8"
+saffron = "#f5c518"
+
+# Which paint each squad wears, in squad order. A round has two teams and
+# the teams take two of the four paints, so the pairing is a parameter and
+# not a constant in the code. The default pairs the warm paint against the
+# cool one, which is the pair two teams can tell apart at a glance.
+[teams]
+paint = ["ochre", "teal", "violet", "saffron"]
+
+# --- the panels ------------------------------------------------------------
+[ui]
+# The surface a panel sits on, and a panel that sits on another panel.
+surface = "#1e2028"
+surface_raised = "#2a2d38"
+# The text on a surface, and the text that is not saying anything.
+text = "#f4efe3"
+text_dim = "#9a958b"
+# The one colour the panels use to point at something.
+accent = "#f5c518"
+# The line between two things.
+divider = "#3a3e4a"
+# Something is wrong.
+danger = "#e0655a"
+# The mark of the agent who leads a squad.
+leader = "#f7f2e4"
+# An agent that is stunned.
+stunned = "#8b8f98"
+
+# --- the light -------------------------------------------------------------
+[light]
+# How much light falls on everything, from everywhere. A diorama is lit
+# from all sides: the figures keep their colour, and the shadow is a
+# contact shadow rather than a long one.
+#
+# The unit is candelas per square metre — the unit the renderer wants — so
+# the number is large: the fill is a whisper next to the sun, not a second
+# sun. Forty is the fill the game has always had.
+ambient_brightness = 40.0
+# The colour of the sun, and how strong it is, in lux.
+sun_color = "#fff4dc"
+sun_illuminance = 10000.0
+# The sun's direction, as Euler angles in radians: pitch, yaw, roll.
+sun_rotation = [-1.099557, 0.785398, 0.0]
+# How much of its own colour a side face carries, beside the top's full
+# colour. This is the shadow of a box in a world with no other: the sides
+# are the top's colour, dimmed.
+side_shade = 0.74
+# How dark the shadow under a figure is.
+shadow_alpha = 0.26
+
+# --- the figures -----------------------------------------------------------
+[figure]
+# How tall a figure stands, in metres. A figure is a game piece: small and
+# chunky, so that it reads against anything the world puts behind it.
+height_m = 1.15
+# The leader wears a hat, because a leader you can only tell by its colour
+# is not a leader you can tell apart at a glance.
+leader_hat = true
+# How wide the leader's hat is, in metres. The hat is a brim: it sits on the
+# head, and its width is the mark — wide enough to be seen at a glance, not
+# so wide that it hides the figure under it.
+leader_hat_m = 0.38
+
+# --- the dark edge ---------------------------------------------------------
+[outline]
+# The ring around a body in the 2D map, in pixels.
+px = 2.0
+# How far the shell stands off a figure in the 3D view, in metres.
+width_m = 0.055
+# The colour of the edge: the ink of the picture.
+color = "#241d16"
+
+# --- one type scale --------------------------------------------------------
+# Five sizes and no sixth: a panel that needs a sixth size is a panel that
+# has stopped saying what it means. The names are what the size is for.
+[type_scale]
+# The number of a round: the score, the winner, the headline.
+huge = 34.0
+# A title: a section, a panel's own name.
+big = 22.0
+# The body: what a label says.
+body = 17.0
+# A quiet note under a label.
+small = 14.0
+# A counter, a tag, a tick on a scale.
+tiny = 12.0
+
+# --- the camera ------------------------------------------------------------
+[camera]
+# How far the 3D camera tilts above the ground, in radians. A diorama is
+# looked at from above, not from the street.
+pitch_rad = 0.45
+# The diorama distance: how far the camera sits from the thing it looks
+# at, in metres. A toy diorama is looked at from close by — a figure has
+# to read as a figure, and two or three of them have to fit in the frame.
+# At 17 m a figure is about ninety pixels tall on a 1080p screen.
+default_distance_m = 17.0
+# How far the camera sits when it is on an agent: the one being played, or
+# the one being watched. A shade closer than the free camera — the piece
+# you are here for is the piece you are close to.
+follow_distance_m = 13.0
+
+# --- the tag moment --------------------------------------------------------
+# The recipe of a hit: the paint that erupts around the piece that was hit,
+# and where it settles. It was a constant in the code; now it is a token,
+# with the rest of the vocabulary.
+[hit]
+# How long the paint of a hit lives, in seconds: the burst, and the stain
+# it settles into.
+life_s = 0.6
+# How long the burst lasts before the paint falls, in seconds.
+burst_s = 0.26
+# How many dabs of paint a hit is made of.
+dabs = 8
+# How far the burst throws the paint from the piece that was hit, in
+# metres. The ring of paint erupts around it, so the hit is seen from any
+# angle and the piece it hit is never covered by it.
+burst_radius_m = 1.1
+# How high the burst hangs, in metres: about the height of the piece's
+# head, so it is above the ground and above the paint it settles into.
+burst_height_m = 0.9
+# How far the paint lands from the piece that was hit, in metres: beside
+# it, so the piece does not stand on its own paint and hide it.
+land_m = 1.4
+# How big a dab of paint is, in metres.
+dab_radius_m = 0.38

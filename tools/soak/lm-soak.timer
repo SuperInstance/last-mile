@@ -1,0 +1,20 @@
+[Unit]
+Description=Run the lm-soak every 3 hours (the interval is a parameter: override with a drop-in)
+
+[Timer]
+# Every third hour, on the hour. To change the interval, do not edit the
+# installed copy (an update would overwrite it) — drop an override in:
+#
+#   systemctl --user edit lm-soak.timer
+#   [Timer]
+#   OnCalendar=*-*-* *-.. (your schedule)
+#   # then: systemctl --user daemon-reload && systemctl --user restart lm-soak.timer
+#
+# A run that was missed (the box was off) fires after the next boot.
+OnCalendar=*-*-* 00/3:00:00
+Persistent=true
+AccuracySec=1m
+Unit=lm-soak.service
+
+[Install]
+WantedBy=timers.target

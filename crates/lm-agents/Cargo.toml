@@ -1,0 +1,34 @@
+[package]
+name = "lm-agents"
+version = "0.1.0"
+edition = "2021"
+description = "last-mile agent cognition: facts, gates, System One client, least-use-first queue (phase 3)"
+
+[dependencies]
+lm-core = { path = "../lm-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Task 2: the gates. `gates.toml` is the harness's own file, parsed with the
+# `toml` crate so the syntax is the real one (no hand-rolled parser).
+toml = "1"
+# Task 3: the System One client. ureq 3.x is a blocking HTTP client with a
+# per-agent connection pool, so one client per backend keeps its connections
+# alive (D50). rustls is the pure-Rust TLS stack (no OpenSSL on the Thor).
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+# The question identity: SHA-256 over the gate's own bytes (its id, its
+# version and the context digest). The key format is the one scrap-spark
+# uses (docs/research/lucineer-ecosystem.md §13): SHA-256 of the version,
+# the question and the context.
+sha2 = "0.10"
+# Task 1: agents.toml configuration.
+
+[dev-dependencies]
+# The think-budget sweep plays whole rounds through the host's own path: the
+# host loop, the agents, the sequencer and the recorder. The host model
+# depends on this crate, so this is a dev-dependency cycle: Cargo allows one,
+# and only the tests here ever see it.
+lm-host-model = { path = "../lm-host-model" }
+# The model-vs-code dial (D25/D40) is measured by the learning flow: it
+# replays a round's log and counts the ticks a decision drove against the
+# ticks the reflex answered for.
+lm-learn = { path = "../lm-learn" }

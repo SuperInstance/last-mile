@@ -1,0 +1,255 @@
+# The `hold` variant's gates: the doctrine the default harness shipped until
+# 2026-10-30, kept whole so it stays comparable to the `advance` variant that
+# replaced it.
+#
+# **Design intent**: a squad camps. Its second branch holds a beacon whenever
+# no enemy is near, so the squad reaches its beacon, the branch fires, and
+# the squad sits there for the rest of the round. That is what froze the
+# game: the engagement measurement found 0 sight ticks and 0 tags over the
+# rounds this doctrine played (crates/lm-agents/tests/engagement.md). The
+# default harness now ships the `advance` doctrine instead, which narrows
+# that branch to the contested case.
+#
+# Everything below is the shipped harness's gates file byte for byte, so the
+# only difference between this variant and the default is the move gate's
+# doctrine. The talk gates are the shipped ones in both.
+#
+# This variant's reflex is the shipped reflex (assets/reflexes/default.rhai),
+# so the headless numbers of this variant are the shipped numbers.
+
+# The default harness's gates: the questions every agent asks its decision
+# model (D37).
+#
+# A gate is a typed question. `choice` picks one of a set of options, `noul`
+# is a yes/no question and `score` is a level. The model answers a
+# probability per option, and the questions are asked over the agent's
+# plain-language facts — never over a grid (D49).
+#
+# The options of a gate with `options_from = "menu"` come from the
+# simulation's legal menu at the moment of the question, so the model always
+# chooses between moves the simulation can carry out. The options of a gate
+# with `options_from = "fixed"` are the ones written here, under
+# `criteria`.
+#
+# A `score` gate is the one exception: its options are an ordered scale,
+# written under `levels`, with each level saying its own score. The API
+# takes a score question's levels as an array of 2 to 10 descriptions,
+# lowest score first, and answers with the index of the level it picked.
+#
+# This file is part of the harness, so it is edited between rounds and
+# pinned into the round log by the harness commit (D27).
+#
+# The move gate below states the squad's doctrine as a rule over the facts
+# the facts builder emits, because that is what the local decision models
+# can actually apply (E4c: d1-3B scored 0.97 on a rule over stated facts
+# and 0.45 on "what would you do?"). The rule is written so that every term
+# in it is a fact the builder states in words:
+#
+#   * "an enemy can see you within 6 cells" — the builder counts the fresh
+#     enemies within 6 cells and how many of them have a clear line of
+#     sight to you (crates/lm-agents/src/facts.rs, ENEMY_NEAR_CELLS);
+#   * "fewer allies within 4 cells than there are enemies within 6 cells" —
+#     both counts are stated ("You have 2 allies within 4 cells of you.",
+#     "3 enemies are within 6 cells of you, and 1 of them can see you.");
+#   * "you are standing on a beacon your squad holds" — the builder says it
+#     in exactly those words ("You are standing on beacon 2, which your
+#     squad holds.");
+#   * "the nearest beacon your squad does not hold" — the builder names it
+#     ("Beacon 0 ... it is the nearest beacon your squad does not hold"),
+#     so the model picks the option whose beacon is named.
+#
+# The numbers in the rule are the doctrine's: 6 cells for an enemy (the
+# facts builder's ENEMY_NEAR_CELLS) and 4 cells for an ally (the agents
+# config's ally_range_cells). Change one, change the other.
+#
+# The talk gates below choose what an agent *says* (Task 4). They are asked
+# in the same call as the move gate, and they are worded the same way: as a
+# rule over the stated facts, never as an open question. The wording of the
+# line itself is not here — that is the phrasebook's business
+# (`phrasebook.toml`), and only the wording.
+
+[[gates]]
+id = "move"
+type = "choice"
+options_from = "menu"
+instructions = "Your squad's doctrine, in order: (1) If an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells, retreat. (2) If you are standing on a beacon your squad holds and no enemy is within 6 cells, hold. (3) Otherwise go to the nearest beacon your squad does not hold, if there is one; if there is none, hold."
+
+# How each kind of menu option is described. The menu decides how many
+# beacon options there are, so the file describes the kinds; `{beacon}` is
+# filled with that beacon's number.
+#
+# Every option says which branch of the doctrine it answers, so the model
+# matches the rule to the option instead of guessing what "what should you
+# do now?" means.
+#
+# The path is spelled out (`gates.criteria`, not `criteria`): a bare
+# `[criteria]` header would land at the top of the file, beside the gates
+# instead of inside one.
+[gates.criteria]
+beacon = "go to beacon {beacon} (the doctrine's third branch: go to the nearest beacon your squad does not hold)"
+hold = "hold position (the doctrine's second branch: you are standing on a beacon your squad holds and no enemy is within 6 cells, or there is no beacon your squad does not hold)"
+follow = "follow the squad leader (no branch of the doctrine says to follow the leader)"
+retreat = "retreat to the squad's spawn (the doctrine's first branch: an enemy can see you within 6 cells and you have fewer allies within 4 cells than there are enemies within 6 cells)"
+
+# ------------------------------------------------------------- the talk gates
+#
+# Five gates choose what a line is, and each of them carries a presence
+# gate: the noul "is this even here?". A noul of about zero means the line
+# is not spoken at all — silence is an outcome, and it costs no airtime
+# (D53). The presence gate of a gate named `x` is named `x_present`.
+
+[[gates]]
+id = "gesture"
+type = "choice"
+options_from = "fixed"
+instructions = "Your squad's doctrine for speaking, in order: (1) If you can see what your squad has to do and it is not doing it, command it. (2) If you need something the facts do not tell you, question it. (3) If the situation itself is the news, state it. (4) If nobody in particular is being addressed, call out."
+
+[gates.criteria]
+command = "a command: your squad is to do something (the doctrine's first branch: you can see what your squad has to do and it is not doing it)"
+question = "a question: you need something the facts do not tell you (the doctrine's second branch)"
+statement = "a statement: the situation itself is the news (the doctrine's third branch)"
+callout = "a callout: nobody in particular is being addressed (the doctrine's fourth branch)"
+
+[[gates]]
+id = "gesture_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a line worth saying at all right now?"
+
+[[gates]]
+id = "attention"
+type = "choice"
+options_from = "fixed"
+# The agent numbers are this round's roster (eight agents in the default
+# round); a harness for another roster names its own. A line may not name
+# an agent that is not in the round: the addressee is checked against the
+# roster, and an answer that names a stranger is refused.
+instructions = "Who the line is for, in order: (1) If the whole squad has to act on it, your squad. (2) If one agent in particular needs it, that agent by number. (3) Only if the whole field must hear it, everybody."
+
+[gates.criteria]
+squad = "your squad (the doctrine's first branch: the whole squad has to act on it)"
+all = "everybody who can hear (the doctrine's third branch: the whole field must hear it)"
+agent0 = "agent 0 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent1 = "agent 1 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent2 = "agent 2 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent3 = "agent 3 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent4 = "agent 4 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent5 = "agent 5 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent6 = "agent 6 in particular (the doctrine's second branch: that agent in particular needs it)"
+agent7 = "agent 7 in particular (the doctrine's second branch: that agent in particular needs it)"
+
+[[gates]]
+id = "attention_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there anyone this line is for?"
+
+[[gates]]
+id = "intention"
+type = "score"
+options_from = "fixed"
+# The urgency gate: how urgent is this moment, on a scale of three.
+#
+# The scale is stated as a rule over the facts the builder states, the
+# way the move gate states its doctrine, because the levels are what the
+# model reads. The levels below used to name "an enemy can see you
+# **within 6 cells**" and "a beacon your squad holds is about to be
+# lost" — and the builder states neither: the count line it states is
+# "no enemy is within 6 cells of you" (the doctrine's own number, for
+# the move gate), and it says which squad holds a beacon, never that a
+# beacon is about to be lost. So the model read the scale against a
+# count line that contradicts it, and answered "idle" for an enemy
+# watching the agent from eleven cells away, and for an agent that had
+# just been tagged (crates/lm-agents/tests/urgency_on_thor.md).
+#
+# The rule is now over the facts that are there: the enemy lines say
+# "can see you (clear line of sight)" at any distance, the stun says
+# "You are stunned.", and an ally's line says "and is stunned". A squad
+# under fire, or a squad that has just been hit, is urgent; a moment
+# with nothing in it is idle.
+instructions = "How urgent is this moment? Answer with the level and its score, where the score is 0 for idle, 1 for an ordinary moment and 2 for urgent. The rule, in order: (1) if an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned, the moment is urgent. (2) if no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned, the moment is idle. (3) otherwise the moment is ordinary."
+
+# A score gate's levels are an ordered scale, not a map of options. The
+# API takes them as an array of 2 to 10 descriptions, lowest score first,
+# and answers with the index of the level it picked — so a score question
+# whose criteria is a map is refused, and the whole pack with it.
+#
+# Each level therefore says its own score here, and the order of the array
+# is decided by that score and never by the order of this file. The index
+# the model answers is the score, which is what the affect of the line is
+# bucketed from (idle 0, ordinary 1, urgent 2).
+#
+# Every level is phrased over the facts the builder states, so that the
+# model matches one of them to what it is told. Measured on the Thor's
+# d1-2B over the game's own facts: a moment with an enemy watching the
+# agent is urgent (p = 0.98), a tagged agent is urgent (p = 0.99), and a
+# quiet moment is calm (p(urgent) = 0.004).
+[[gates.levels]]
+key = "idle"
+score = 0
+description = "idle: no enemy can see you, you are not stunned and no ally within 4 cells of you is stunned"
+
+[[gates.levels]]
+key = "ordinary"
+score = 1
+description = "ordinary: nothing is happening that your squad has to know about now"
+
+[[gates.levels]]
+key = "urgent"
+score = 2
+description = "urgent: an enemy can see you, or you are stunned, or an ally within 4 cells of you is stunned"
+
+[[gates]]
+id = "intention_present"
+type = "noul"
+options_from = "fixed"
+# The presence gate of the intention gate asks the question the gate means:
+# is there something for the squad to hear about this moment at all? It used
+# to ask "is this moment worth an urgent tone?", which is a question about
+# urgency — and the model answered it truthfully: 0.02 in a quiet moment and
+# 0.62 in a fight. Read as "is this even here?", a truthful "no" silenced
+# every line in every quiet moment, and the agents never spoke
+# (crates/lm-agents/tests/talk_on_thor.md).
+#
+# The wording now asks for the moment's news whatever its tone: the model
+# answers 0.15 in a quiet moment, 0.89 in a fight and 0.14 when the agent is
+# alone, so the gate discriminates the moment without muting the squad.
+instructions = "Is there something for your squad to hear about this moment?"
+
+[[gates]]
+id = "intent"
+type = "choice"
+options_from = "fixed"
+instructions = "What the line is for, in order: (1) If the line asks your squad to act, an order. (2) If it says you have heard and understood, an acknowledgement. (3) If it warns of danger, a warning. (4) If it asks for something you do not know, a query. (5) If it reports what has happened, a report."
+
+[gates.criteria]
+order = "an order: the line asks your squad to act (the doctrine's first branch)"
+ack = "an acknowledgement: the line says you have heard and understood (the doctrine's second branch)"
+warn = "a warning: the line warns of danger (the doctrine's third branch)"
+query = "a query: the line asks for something you do not know (the doctrine's fourth branch)"
+report = "a report: the line reports what has happened (the doctrine's fifth branch)"
+
+[[gates]]
+id = "intent_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a point to make?"
+
+[[gates]]
+id = "subject"
+type = "choice"
+options_from = "menu"
+moves = false
+instructions = "What the line is about: the beacon it names, or nothing in particular. The options are the moves you could make, so the beacons are the ones your squad can reach."
+
+[gates.criteria]
+beacon = "beacon {beacon}"
+hold = "nothing in particular"
+follow = "nothing in particular"
+retreat = "nothing in particular"
+
+[[gates]]
+id = "subject_present"
+type = "noul"
+options_from = "fixed"
+instructions = "Is there a thing to talk about?"

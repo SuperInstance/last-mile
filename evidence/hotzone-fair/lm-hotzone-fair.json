@@ -1,0 +1,2240 @@
+{
+  "contact_deltas": [
+    279,
+    -231,
+    -18,
+    -9,
+    640,
+    -78,
+    -160,
+    -244,
+    101,
+    -236,
+    216,
+    325,
+    48,
+    -169,
+    -195,
+    62
+  ],
+  "port": 8104,
+  "rounds": [
+    {
+      "answered": 146,
+      "arm": "default",
+      "asks": 162,
+      "decisions": 109,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 31,
+      "expired": 0,
+      "first_sight_tick": 2380,
+      "margin": 155,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          31
+        ]
+      ],
+      "refusals": 47,
+      "score": 1620,
+      "scores": [
+        1467,
+        1312
+      ],
+      "seed": 1000000,
+      "sight_ticks": 620,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          20
+        ],
+        [
+          1,
+          21
+        ],
+        [
+          2,
+          21
+        ],
+        [
+          3,
+          20
+        ],
+        [
+          4,
+          20
+        ],
+        [
+          5,
+          20
+        ],
+        [
+          6,
+          20
+        ],
+        [
+          7,
+          20
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 134,
+      "arm": "shared-fair",
+      "asks": 142,
+      "decisions": 94,
+      "draw": false,
+      "end_tick": 2739,
+      "escalations": 22,
+      "expired": 0,
+      "first_sight_tick": 1740,
+      "margin": 1792,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          2
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          22
+        ]
+      ],
+      "refusals": 40,
+      "score": 899,
+      "scores": [
+        1801,
+        9
+      ],
+      "seed": 1000000,
+      "sight_ticks": 199,
+      "tags": 7,
+      "ticks": 2740,
+      "usage": [
+        [
+          0,
+          19
+        ],
+        [
+          1,
+          17
+        ],
+        [
+          2,
+          16
+        ],
+        [
+          3,
+          16
+        ],
+        [
+          4,
+          19
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          6,
+          19
+        ],
+        [
+          7,
+          18
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 177,
+      "arm": "default",
+      "asks": 191,
+      "decisions": 133,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 47,
+      "expired": 0,
+      "first_sight_tick": 2155,
+      "margin": 26,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          47
+        ]
+      ],
+      "refusals": 63,
+      "score": 1845,
+      "scores": [
+        881,
+        907
+      ],
+      "seed": 1000001,
+      "sight_ticks": 845,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          25
+        ],
+        [
+          1,
+          19
+        ],
+        [
+          2,
+          25
+        ],
+        [
+          3,
+          25
+        ],
+        [
+          4,
+          25
+        ],
+        [
+          5,
+          24
+        ],
+        [
+          6,
+          24
+        ],
+        [
+          7,
+          24
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 144,
+      "arm": "shared-fair",
+      "asks": 151,
+      "decisions": 96,
+      "draw": false,
+      "end_tick": 2733,
+      "escalations": 30,
+      "expired": 0,
+      "first_sight_tick": 1725,
+      "margin": 1777,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          2
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          30
+        ]
+      ],
+      "refusals": 48,
+      "score": 614,
+      "scores": [
+        24,
+        1801
+      ],
+      "seed": 1000001,
+      "sight_ticks": 214,
+      "tags": 4,
+      "ticks": 2734,
+      "usage": [
+        [
+          0,
+          10
+        ],
+        [
+          1,
+          19
+        ],
+        [
+          2,
+          20
+        ],
+        [
+          3,
+          22
+        ],
+        [
+          4,
+          23
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          6,
+          21
+        ],
+        [
+          7,
+          18
+        ]
+      ],
+      "winner": 1
+    },
+    {
+      "answered": 178,
+      "arm": "default",
+      "asks": 194,
+      "decisions": 130,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 40,
+      "expired": 0,
+      "first_sight_tick": 2269,
+      "margin": 276,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          40
+        ]
+      ],
+      "refusals": 56,
+      "score": 1731,
+      "scores": [
+        1000,
+        1276
+      ],
+      "seed": 1000002,
+      "sight_ticks": 731,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          25
+        ],
+        [
+          1,
+          24
+        ],
+        [
+          2,
+          24
+        ],
+        [
+          3,
+          25
+        ],
+        [
+          4,
+          24
+        ],
+        [
+          5,
+          24
+        ],
+        [
+          6,
+          24
+        ],
+        [
+          7,
+          24
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 109,
+      "arm": "shared-fair",
+      "asks": 118,
+      "decisions": 61,
+      "draw": false,
+      "end_tick": 2765,
+      "escalations": 31,
+      "expired": 0,
+      "first_sight_tick": 1786,
+      "margin": 1779,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          2
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          31
+        ]
+      ],
+      "refusals": 49,
+      "score": 713,
+      "scores": [
+        1801,
+        22
+      ],
+      "seed": 1000002,
+      "sight_ticks": 213,
+      "tags": 5,
+      "ticks": 2766,
+      "usage": [
+        [
+          0,
+          15
+        ],
+        [
+          1,
+          14
+        ],
+        [
+          2,
+          15
+        ],
+        [
+          3,
+          15
+        ],
+        [
+          4,
+          15
+        ],
+        [
+          5,
+          14
+        ],
+        [
+          6,
+          15
+        ],
+        [
+          7,
+          15
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 131,
+      "arm": "default",
+      "asks": 144,
+      "decisions": 96,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 24,
+      "expired": 0,
+      "first_sight_tick": 2193,
+      "margin": 154,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          24
+        ]
+      ],
+      "refusals": 40,
+      "score": 1807,
+      "scores": [
+        1269,
+        1423
+      ],
+      "seed": 1000003,
+      "sight_ticks": 807,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          20
+        ],
+        [
+          1,
+          20
+        ],
+        [
+          2,
+          20
+        ],
+        [
+          3,
+          15
+        ],
+        [
+          4,
+          16
+        ],
+        [
+          5,
+          20
+        ],
+        [
+          6,
+          14
+        ],
+        [
+          7,
+          19
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 105,
+      "arm": "shared-fair",
+      "asks": 117,
+      "decisions": 65,
+      "draw": false,
+      "end_tick": 2694,
+      "escalations": 22,
+      "expired": 0,
+      "first_sight_tick": 1741,
+      "margin": 1801,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          2
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          22
+        ]
+      ],
+      "refusals": 40,
+      "score": 798,
+      "scores": [
+        1801,
+        0
+      ],
+      "seed": 1000003,
+      "sight_ticks": 198,
+      "tags": 6,
+      "ticks": 2695,
+      "usage": [
+        [
+          0,
+          16
+        ],
+        [
+          1,
+          15
+        ],
+        [
+          2,
+          14
+        ],
+        [
+          3,
+          14
+        ],
+        [
+          4,
+          14
+        ],
+        [
+          5,
+          15
+        ],
+        [
+          6,
+          14
+        ],
+        [
+          7,
+          15
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 126,
+      "arm": "default",
+      "asks": 140,
+      "decisions": 96,
+      "draw": false,
+      "end_tick": 2543,
+      "escalations": 20,
+      "expired": 0,
+      "first_sight_tick": 2203,
+      "margin": 749,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          20
+        ]
+      ],
+      "refusals": 36,
+      "score": 1244,
+      "scores": [
+        1051,
+        1800
+      ],
+      "seed": 1000004,
+      "sight_ticks": 144,
+      "tags": 1,
+      "ticks": 2544,
+      "usage": [
+        [
+          0,
+          18
+        ],
+        [
+          1,
+          18
+        ],
+        [
+          2,
+          16
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          4,
+          19
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          6,
+          15
+        ],
+        [
+          7,
+          18
+        ]
+      ],
+      "winner": 1
+    },
+    {
+      "answered": 194,
+      "arm": "shared-fair",
+      "asks": 202,
+      "decisions": 166,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 11,
+      "expired": 0,
+      "first_sight_tick": 1755,
+      "margin": 1130,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          1
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          11
+        ]
+      ],
+      "refusals": 28,
+      "score": 884,
+      "scores": [
+        5,
+        1135
+      ],
+      "seed": 1000004,
+      "sight_ticks": 184,
+      "tags": 7,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          25
+        ],
+        [
+          1,
+          25
+        ],
+        [
+          2,
+          27
+        ],
+        [
+          3,
+          25
+        ],
+        [
+          4,
+          26
+        ],
+        [
+          5,
+          25
+        ],
+        [
+          6,
+          25
+        ],
+        [
+          7,
+          24
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 150,
+      "arm": "default",
+      "asks": 158,
+      "decisions": 116,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 27,
+      "expired": 0,
+      "first_sight_tick": 2323,
+      "margin": 205,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          1
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          27
+        ]
+      ],
+      "refusals": 44,
+      "score": 1677,
+      "scores": [
+        1354,
+        1149
+      ],
+      "seed": 1000005,
+      "sight_ticks": 677,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          22
+        ],
+        [
+          1,
+          18
+        ],
+        [
+          2,
+          27
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          4,
+          19
+        ],
+        [
+          5,
+          20
+        ],
+        [
+          6,
+          17
+        ],
+        [
+          7,
+          17
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 120,
+      "arm": "shared-fair",
+      "asks": 128,
+      "decisions": 80,
+      "draw": false,
+      "end_tick": 2736,
+      "escalations": 21,
+      "expired": 0,
+      "first_sight_tick": 1740,
+      "margin": 1771,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          3
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          21
+        ]
+      ],
+      "refusals": 40,
+      "score": 599,
+      "scores": [
+        1801,
+        30
+      ],
+      "seed": 1000005,
+      "sight_ticks": 199,
+      "tags": 4,
+      "ticks": 2737,
+      "usage": [
+        [
+          0,
+          18
+        ],
+        [
+          1,
+          16
+        ],
+        [
+          2,
+          16
+        ],
+        [
+          3,
+          16
+        ],
+        [
+          4,
+          16
+        ],
+        [
+          5,
+          15
+        ],
+        [
+          6,
+          14
+        ],
+        [
+          7,
+          17
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 141,
+      "arm": "default",
+      "asks": 155,
+      "decisions": 102,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 31,
+      "expired": 0,
+      "first_sight_tick": 2242,
+      "margin": 109,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          1
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          31
+        ]
+      ],
+      "refusals": 48,
+      "score": 1758,
+      "scores": [
+        1397,
+        1288
+      ],
+      "seed": 1000006,
+      "sight_ticks": 758,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          21
+        ],
+        [
+          1,
+          16
+        ],
+        [
+          2,
+          20
+        ],
+        [
+          3,
+          21
+        ],
+        [
+          4,
+          21
+        ],
+        [
+          5,
+          21
+        ],
+        [
+          6,
+          20
+        ],
+        [
+          7,
+          15
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 128,
+      "arm": "shared-fair",
+      "asks": 141,
+      "decisions": 79,
+      "draw": false,
+      "end_tick": 2694,
+      "escalations": 33,
+      "expired": 0,
+      "first_sight_tick": 1741,
+      "margin": 1801,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          33
+        ]
+      ],
+      "refusals": 49,
+      "score": 598,
+      "scores": [
+        1801,
+        0
+      ],
+      "seed": 1000006,
+      "sight_ticks": 198,
+      "tags": 4,
+      "ticks": 2695,
+      "usage": [
+        [
+          0,
+          19
+        ],
+        [
+          1,
+          18
+        ],
+        [
+          2,
+          17
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          4,
+          18
+        ],
+        [
+          5,
+          17
+        ],
+        [
+          6,
+          17
+        ],
+        [
+          7,
+          17
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 170,
+      "arm": "default",
+      "asks": 186,
+      "decisions": 130,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 39,
+      "expired": 0,
+      "first_sight_tick": 2157,
+      "margin": 137,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          39
+        ]
+      ],
+      "refusals": 55,
+      "score": 1843,
+      "scores": [
+        694,
+        831
+      ],
+      "seed": 1000007,
+      "sight_ticks": 843,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          24
+        ],
+        [
+          1,
+          23
+        ],
+        [
+          2,
+          23
+        ],
+        [
+          3,
+          22
+        ],
+        [
+          4,
+          24
+        ],
+        [
+          5,
+          24
+        ],
+        [
+          6,
+          23
+        ],
+        [
+          7,
+          23
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 129,
+      "arm": "shared-fair",
+      "asks": 143,
+      "decisions": 80,
+      "draw": false,
+      "end_tick": 2700,
+      "escalations": 33,
+      "expired": 0,
+      "first_sight_tick": 1740,
+      "margin": 1795,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          33
+        ]
+      ],
+      "refusals": 49,
+      "score": 599,
+      "scores": [
+        6,
+        1801
+      ],
+      "seed": 1000007,
+      "sight_ticks": 199,
+      "tags": 4,
+      "ticks": 2701,
+      "usage": [
+        [
+          0,
+          18
+        ],
+        [
+          1,
+          18
+        ],
+        [
+          2,
+          18
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          4,
+          17
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          6,
+          18
+        ],
+        [
+          7,
+          18
+        ]
+      ],
+      "winner": 1
+    },
+    {
+      "answered": 158,
+      "arm": "default",
+      "asks": 174,
+      "decisions": 112,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 43,
+      "expired": 0,
+      "first_sight_tick": 2279,
+      "margin": 173,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          43
+        ]
+      ],
+      "refusals": 59,
+      "score": 1721,
+      "scores": [
+        1152,
+        979
+      ],
+      "seed": 1000008,
+      "sight_ticks": 721,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          22
+        ],
+        [
+          1,
+          22
+        ],
+        [
+          2,
+          22
+        ],
+        [
+          3,
+          21
+        ],
+        [
+          4,
+          22
+        ],
+        [
+          5,
+          22
+        ],
+        [
+          6,
+          21
+        ],
+        [
+          7,
+          22
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 126,
+      "arm": "shared-fair",
+      "asks": 141,
+      "decisions": 75,
+      "draw": false,
+      "end_tick": 2733,
+      "escalations": 35,
+      "expired": 0,
+      "first_sight_tick": 1711,
+      "margin": 1796,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          35
+        ]
+      ],
+      "refusals": 51,
+      "score": 822,
+      "scores": [
+        5,
+        1801
+      ],
+      "seed": 1000008,
+      "sight_ticks": 222,
+      "tags": 6,
+      "ticks": 2734,
+      "usage": [
+        [
+          0,
+          18
+        ],
+        [
+          1,
+          18
+        ],
+        [
+          2,
+          17
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          4,
+          18
+        ],
+        [
+          5,
+          17
+        ],
+        [
+          6,
+          17
+        ],
+        [
+          7,
+          18
+        ]
+      ],
+      "winner": 1
+    },
+    {
+      "answered": 159,
+      "arm": "default",
+      "asks": 174,
+      "decisions": 120,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 36,
+      "expired": 0,
+      "first_sight_tick": 2165,
+      "margin": 933,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          36
+        ]
+      ],
+      "refusals": 52,
+      "score": 1835,
+      "scores": [
+        1774,
+        841
+      ],
+      "seed": 1000009,
+      "sight_ticks": 835,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          22
+        ],
+        [
+          1,
+          22
+        ],
+        [
+          2,
+          22
+        ],
+        [
+          3,
+          22
+        ],
+        [
+          4,
+          22
+        ],
+        [
+          5,
+          22
+        ],
+        [
+          6,
+          21
+        ],
+        [
+          7,
+          21
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 121,
+      "arm": "shared-fair",
+      "asks": 134,
+      "decisions": 75,
+      "draw": false,
+      "end_tick": 2730,
+      "escalations": 28,
+      "expired": 0,
+      "first_sight_tick": 1740,
+      "margin": 1779,
+      "refusal_kinds": [
+        [
+          "the model did not answer before the deadline",
+          2
+        ],
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          28
+        ]
+      ],
+      "refusals": 46,
+      "score": 599,
+      "scores": [
+        21,
+        1800
+      ],
+      "seed": 1000009,
+      "sight_ticks": 199,
+      "tags": 4,
+      "ticks": 2731,
+      "usage": [
+        [
+          0,
+          16
+        ],
+        [
+          1,
+          16
+        ],
+        [
+          2,
+          16
+        ],
+        [
+          3,
+          17
+        ],
+        [
+          4,
+          18
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          6,
+          17
+        ],
+        [
+          7,
+          16
+        ]
+      ],
+      "winner": 1
+    },
+    {
+      "answered": 145,
+      "arm": "default",
+      "asks": 161,
+      "decisions": 98,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 42,
+      "expired": 0,
+      "first_sight_tick": 2317,
+      "margin": 189,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          42
+        ]
+      ],
+      "refusals": 58,
+      "score": 1683,
+      "scores": [
+        1301,
+        1112
+      ],
+      "seed": 1000010,
+      "sight_ticks": 683,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          20
+        ],
+        [
+          1,
+          20
+        ],
+        [
+          2,
+          20
+        ],
+        [
+          3,
+          20
+        ],
+        [
+          4,
+          20
+        ],
+        [
+          5,
+          21
+        ],
+        [
+          6,
+          20
+        ],
+        [
+          7,
+          20
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 105,
+      "arm": "shared-fair",
+      "asks": 120,
+      "decisions": 57,
+      "draw": false,
+      "end_tick": 2738,
+      "escalations": 32,
+      "expired": 0,
+      "first_sight_tick": 1740,
+      "margin": 1795,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          32
+        ]
+      ],
+      "refusals": 48,
+      "score": 899,
+      "scores": [
+        5,
+        1800
+      ],
+      "seed": 1000010,
+      "sight_ticks": 199,
+      "tags": 7,
+      "ticks": 2739,
+      "usage": [
+        [
+          0,
+          15
+        ],
+        [
+          1,
+          15
+        ],
+        [
+          2,
+          15
+        ],
+        [
+          3,
+          15
+        ],
+        [
+          4,
+          16
+        ],
+        [
+          5,
+          15
+        ],
+        [
+          6,
+          15
+        ],
+        [
+          7,
+          14
+        ]
+      ],
+      "winner": 1
+    },
+    {
+      "answered": 154,
+      "arm": "default",
+      "asks": 170,
+      "decisions": 111,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 38,
+      "expired": 0,
+      "first_sight_tick": 2401,
+      "margin": 195,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          38
+        ]
+      ],
+      "refusals": 54,
+      "score": 1599,
+      "scores": [
+        1295,
+        1490
+      ],
+      "seed": 1000011,
+      "sight_ticks": 599,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          21
+        ],
+        [
+          1,
+          21
+        ],
+        [
+          2,
+          21
+        ],
+        [
+          3,
+          21
+        ],
+        [
+          4,
+          22
+        ],
+        [
+          5,
+          22
+        ],
+        [
+          6,
+          21
+        ],
+        [
+          7,
+          21
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 131,
+      "arm": "shared-fair",
+      "asks": 145,
+      "decisions": 82,
+      "draw": false,
+      "end_tick": 2796,
+      "escalations": 33,
+      "expired": 0,
+      "first_sight_tick": 1769,
+      "margin": 1792,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          33
+        ]
+      ],
+      "refusals": 49,
+      "score": 924,
+      "scores": [
+        1801,
+        9
+      ],
+      "seed": 1000011,
+      "sight_ticks": 224,
+      "tags": 7,
+      "ticks": 2797,
+      "usage": [
+        [
+          0,
+          19
+        ],
+        [
+          1,
+          19
+        ],
+        [
+          2,
+          18
+        ],
+        [
+          3,
+          19
+        ],
+        [
+          4,
+          15
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          6,
+          18
+        ],
+        [
+          7,
+          19
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 168,
+      "arm": "default",
+      "asks": 184,
+      "decisions": 128,
+      "draw": false,
+      "end_tick": 2866,
+      "escalations": 34,
+      "expired": 0,
+      "first_sight_tick": 2315,
+      "margin": 834,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          34
+        ]
+      ],
+      "refusals": 50,
+      "score": 1552,
+      "scores": [
+        1800,
+        966
+      ],
+      "seed": 1000012,
+      "sight_ticks": 552,
+      "tags": 0,
+      "ticks": 2867,
+      "usage": [
+        [
+          0,
+          23
+        ],
+        [
+          1,
+          23
+        ],
+        [
+          2,
+          23
+        ],
+        [
+          3,
+          23
+        ],
+        [
+          4,
+          23
+        ],
+        [
+          5,
+          23
+        ],
+        [
+          6,
+          23
+        ],
+        [
+          7,
+          23
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 109,
+      "arm": "shared-fair",
+      "asks": 119,
+      "decisions": 68,
+      "draw": false,
+      "end_tick": 2699,
+      "escalations": 25,
+      "expired": 0,
+      "first_sight_tick": 1739,
+      "margin": 1795,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          25
+        ]
+      ],
+      "refusals": 41,
+      "score": 600,
+      "scores": [
+        1800,
+        5
+      ],
+      "seed": 1000012,
+      "sight_ticks": 200,
+      "tags": 4,
+      "ticks": 2700,
+      "usage": [
+        [
+          0,
+          14
+        ],
+        [
+          1,
+          17
+        ],
+        [
+          2,
+          13
+        ],
+        [
+          3,
+          17
+        ],
+        [
+          4,
+          15
+        ],
+        [
+          5,
+          16
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          7,
+          15
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 172,
+      "arm": "default",
+      "asks": 188,
+      "decisions": 127,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 38,
+      "expired": 0,
+      "first_sight_tick": 2233,
+      "margin": 150,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          38
+        ]
+      ],
+      "refusals": 54,
+      "score": 1767,
+      "scores": [
+        1155,
+        1305
+      ],
+      "seed": 1000013,
+      "sight_ticks": 767,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          24
+        ],
+        [
+          1,
+          23
+        ],
+        [
+          2,
+          23
+        ],
+        [
+          3,
+          24
+        ],
+        [
+          4,
+          24
+        ],
+        [
+          5,
+          24
+        ],
+        [
+          6,
+          23
+        ],
+        [
+          7,
+          23
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 121,
+      "arm": "shared-fair",
+      "asks": 133,
+      "decisions": 74,
+      "draw": false,
+      "end_tick": 2694,
+      "escalations": 31,
+      "expired": 0,
+      "first_sight_tick": 1741,
+      "margin": 1801,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          31
+        ]
+      ],
+      "refusals": 47,
+      "score": 598,
+      "scores": [
+        1801,
+        0
+      ],
+      "seed": 1000013,
+      "sight_ticks": 198,
+      "tags": 4,
+      "ticks": 2695,
+      "usage": [
+        [
+          0,
+          18
+        ],
+        [
+          1,
+          17
+        ],
+        [
+          2,
+          17
+        ],
+        [
+          3,
+          16
+        ],
+        [
+          4,
+          13
+        ],
+        [
+          5,
+          17
+        ],
+        [
+          6,
+          17
+        ],
+        [
+          7,
+          18
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 165,
+      "arm": "default",
+      "asks": 181,
+      "decisions": 120,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 41,
+      "expired": 0,
+      "first_sight_tick": 2206,
+      "margin": 40,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          41
+        ]
+      ],
+      "refusals": 57,
+      "score": 1794,
+      "scores": [
+        1112,
+        1072
+      ],
+      "seed": 1000014,
+      "sight_ticks": 794,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          23
+        ],
+        [
+          1,
+          23
+        ],
+        [
+          2,
+          23
+        ],
+        [
+          3,
+          23
+        ],
+        [
+          4,
+          23
+        ],
+        [
+          5,
+          22
+        ],
+        [
+          6,
+          22
+        ],
+        [
+          7,
+          22
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 128,
+      "arm": "shared-fair",
+      "asks": 144,
+      "decisions": 81,
+      "draw": false,
+      "end_tick": 2736,
+      "escalations": 31,
+      "expired": 0,
+      "first_sight_tick": 1740,
+      "margin": 1771,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          31
+        ]
+      ],
+      "refusals": 47,
+      "score": 599,
+      "scores": [
+        1801,
+        30
+      ],
+      "seed": 1000014,
+      "sight_ticks": 199,
+      "tags": 4,
+      "ticks": 2737,
+      "usage": [
+        [
+          0,
+          19
+        ],
+        [
+          1,
+          18
+        ],
+        [
+          2,
+          17
+        ],
+        [
+          3,
+          18
+        ],
+        [
+          4,
+          18
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          6,
+          18
+        ],
+        [
+          7,
+          18
+        ]
+      ],
+      "winner": 0
+    },
+    {
+      "answered": 167,
+      "arm": "default",
+      "asks": 182,
+      "decisions": 125,
+      "draw": false,
+      "end_tick": null,
+      "escalations": 38,
+      "expired": 0,
+      "first_sight_tick": 2347,
+      "margin": 188,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          38
+        ]
+      ],
+      "refusals": 54,
+      "score": 1653,
+      "scores": [
+        1279,
+        1467
+      ],
+      "seed": 1000015,
+      "sight_ticks": 653,
+      "tags": 0,
+      "ticks": 3000,
+      "usage": [
+        [
+          0,
+          23
+        ],
+        [
+          1,
+          23
+        ],
+        [
+          2,
+          23
+        ],
+        [
+          3,
+          23
+        ],
+        [
+          4,
+          22
+        ],
+        [
+          5,
+          23
+        ],
+        [
+          6,
+          23
+        ],
+        [
+          7,
+          22
+        ]
+      ],
+      "winner": null
+    },
+    {
+      "answered": 122,
+      "arm": "shared-fair",
+      "asks": 138,
+      "decisions": 74,
+      "draw": false,
+      "end_tick": 2716,
+      "escalations": 32,
+      "expired": 0,
+      "first_sight_tick": 1724,
+      "margin": 1788,
+      "refusal_kinds": [
+        [
+          "the answer did not match the schema",
+          16
+        ],
+        [
+          "the second opinion did not answer in time",
+          32
+        ]
+      ],
+      "refusals": 48,
+      "score": 715,
+      "scores": [
+        12,
+        1800
+      ],
+      "seed": 1000015,
+      "sight_ticks": 215,
+      "tags": 5,
+      "ticks": 2717,
+      "usage": [
+        [
+          0,
+          17
+        ],
+        [
+          1,
+          17
+        ],
+        [
+          2,
+          18
+        ],
+        [
+          3,
+          17
+        ],
+        [
+          4,
+          18
+        ],
+        [
+          5,
+          17
+        ],
+        [
+          6,
+          17
+        ],
+        [
+          7,
+          17
+        ]
+      ],
+      "winner": 1
+    }
+  ],
+  "seeds": [
+    1000000,
+    1000001,
+    1000002,
+    1000003,
+    1000004,
+    1000005,
+    1000006,
+    1000007,
+    1000008,
+    1000009,
+    1000010,
+    1000011,
+    1000012,
+    1000013,
+    1000014,
+    1000015
+  ],
+  "survival_deltas": [
+    -1303,
+    -857,
+    -978,
+    -1269,
+    -1046,
+    -1119,
+    -1288,
+    -688,
+    -974,
+    -820,
+    -1107,
+    -1286,
+    -961,
+    -1155,
+    -1042,
+    -1267
+  ],
+  "ticks": 3000
+}

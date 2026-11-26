@@ -1,0 +1,33 @@
+[workspace]
+members = ["crates/*"]
+# `lm-host` is Windows-only: Bevy needs alsa, udev and x11 to build on Linux
+# and this WSL toolchain has none of them, so bare `cargo` commands here
+# (build/test/clippy with no package flags) skip it via default-members.
+# Build it on Windows instead: `bash scripts/win-build.sh build -p lm-host`.
+# Details: docs/notes/bevy-0.20.md, "Building lm-host".
+#
+# Everything else is in: the agents, the host model and the voice service are
+# pure logic too, and they belong in the gate.
+default-members = [
+    "crates/lm-core",
+    "crates/lm-proto",
+    "crates/lm-tools",
+    "crates/lm-agents",
+    "crates/lm-host-model",
+    "crates/lm-voice",
+    "crates/lm-vox",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+
+# Overflow is a bug, never silent: the checks stay on in every profile.
+[profile.dev]
+overflow-checks = true
+
+[profile.release]
+overflow-checks = true

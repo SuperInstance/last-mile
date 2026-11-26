@@ -1,0 +1,61 @@
+# The vibe gate's policy pack (Vibe Dictionary part 3, M2b).
+#
+# When a kid speaks, Bench — the game's co-developer — turns their words
+# into one typed proposal by asking the decision server two closed
+# questions (docs/design/sandbox-on-otherhere.md §3): never free text, and
+# never a program. The model's output is an index into the Vibe Dictionary
+# (`vibe.toml`), and the dictionary's own bounds and steps are checked
+# before and after the model is asked.
+#
+# This file is the gate's little policy pack, on the pattern of the agent
+# gates in `gates.toml`: the questions are declared here as data, the
+# options come from elsewhere (the dictionary, not this file), and the
+# policy names the model that answers. It is deliberately NOT part of
+# `gates.toml`: those are the agents' in-round questions, asked on every
+# think or every talk trigger (D70); this one is asked only when a kid
+# speaks, which is a different moment with a different budget — the
+# sandbox's interpret step, budgeted at <= 120 ms against the radio's
+# 1-3 s of cover (§2).
+#
+# The two questions:
+#
+#   1. `vibe` — which change is the kid asking for? One option per
+#      dictionary entry (keyed by the entry's stable id, the index the
+#      model answers with), plus `none`: the words match nothing, which is
+#      an outcome, not an error.
+#   2. `vibe_value` — how much? The options are the chosen entry's own
+#      bounded `steps` from `vibe.toml` (a little / a lot / back to
+#      normal), keyed by the step's value.
+#
+# The confidence rule is per question, the D72 gate-floor mechanism: an
+# answer below `min_confidence` is a named refusal that asks the kid to
+# say it another way — never a guess, and never a clamp.
+
+# The first question: the entry.
+[gate]
+id = "vibe"
+type = "choice"                    # a closed choice; the only kind this gate asks
+instructions = "Which change is the kid asking for? In order: (1) if the kid's words ask for one of the changes in the list, pick that change by its id. (2) If the kid's words ask for something else — a change not in the list, a question, or nothing to change — pick none."
+# The wording of the `none` option — the closed vocabulary's honest edge.
+# A kid asking for something outside the dictionary hears "I don't have a
+# word for that one yet", and the ask goes to the request pile; this
+# option is how the gate says so.
+none = "none of these: the words ask for a change the dictionary does not hold, or for nothing at all"
+
+# The second question: the amount, from the entry's own bounded steps.
+[value]
+id = "vibe_value"
+type = "choice"
+instructions = "How much of the change does the kid want? Pick the one step whose wording matches how much the kid asked for: a little, a lot, or back to normal."
+
+[policy]
+# The model that answers, by its name in the agents' config (which is the
+# one place that says where the Thor is and which port each model serves).
+model = "d1-2b"
+# The D72 floor for this gate, from the d1-2B's measured calibration
+# (0.30; below it the answer is unsure and the gate refuses by name).
+min_confidence = 0.30
+# The deadline for one question. The design budget for the whole interpret
+# step is 120 ms on a quiet Thor (about 11 ms per option); this is the
+# ceiling the game stands for, inside the radio's 1-3 s of cover.
+timeout_ms = 2000

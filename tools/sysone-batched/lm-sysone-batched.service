@@ -1,0 +1,25 @@
+[Unit]
+Description=lm-sysone-batched: the Thor's batched System One server (port 8104)
+Documentation=file:///home/caseydigennaro/lm-wt/batched/crates/lm-agents/tests/batched_sysone.md
+After=network.target
+
+[Service]
+# The same door as the d1-2B's, on port 8104: POST /v1/systemone with the
+# same body and the same answer, for the same weights and the same answers.
+#
+# The service runs from ~/lm-services/sysone-batched and not from any
+# worktree: the worktree is deleted after a merge, and a unit that points
+# into one would stop serving with it.
+#
+# It does not take the d1-2B's port: the two run side by side, so the old
+# one can be measured against the new one on the same packs.
+WorkingDirectory=/home/caseydigennaro/lm-services/sysone-batched
+Environment=PATH=/home/caseydigennaro/.local/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/caseydigennaro/lm-services/sysone-batched/lm-sysone-batched.sh
+Restart=on-failure
+RestartSec=10
+# The model is resident: it holds the weights in memory on purpose, and it
+# is the thing the agents ask.
+
+[Install]
+WantedBy=default.target

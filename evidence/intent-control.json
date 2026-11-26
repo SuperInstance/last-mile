@@ -1,0 +1,18 @@
+{
+ "hold": {
+  "urgency": "urgent",
+  "order": "order"
+ },
+ "fall back": {
+  "urgency": "urgent",
+  "order": "order"
+ },
+ "hold?": {
+  "urgency": "urgent",
+  "order": "order"
+ },
+ "should we hold?": {
+  "urgency": "urgent",
+  "order": "order"
+ }
+}

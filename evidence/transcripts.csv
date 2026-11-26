@@ -1,0 +1,61 @@
+id,phrasebook_entry,reference,voice,wav,seconds,bytes,hypothesis,reference_words,substitutions,deletions,insertions,errors,wer,wer_numbers_spelled,exact,exact_numbers_spelled,latency_ms
+0,Command.Order,move up now,mia,wavs/00_Command-Order_mia.wav,0.743,32812,Move up now.,3,0,0,0,0,0.0,0.0,True,True,158.1
+0,Command.Order,move up now,jason,wavs/00_Command-Order_jason.wav,0.743,32812,Move up now.,3,0,0,0,0,0.0,0.0,True,True,117.7
+0,Command.Order,move up now,aria,wavs/00_Command-Order_aria.wav,0.836,36908,Move up now.,3,0,0,0,0,0.0,0.0,True,True,117.6
+1,Command.Order,hold the line,mia,wavs/01_Command-Order_mia.wav,0.697,30764,Hold the line.,3,0,0,0,0,0.0,0.0,True,True,114.8
+1,Command.Order,hold the line,jason,wavs/01_Command-Order_jason.wav,0.743,32812,Hold the line.,3,0,0,0,0,0.0,0.0,True,True,116.7
+1,Command.Order,hold the line,aria,wavs/01_Command-Order_aria.wav,0.743,32812,Hold the line.,3,0,0,0,0,0.0,0.0,True,True,120.0
+2,Command.Order,take it,mia,wavs/02_Command-Order_mia.wav,0.511,22572,Take it.,2,0,0,0,0,0.0,0.0,True,True,103.5
+2,Command.Order,take it,jason,wavs/02_Command-Order_jason.wav,0.511,22572,Take it.,2,0,0,0,0,0.0,0.0,True,True,99.4
+2,Command.Order,take it,aria,wavs/02_Command-Order_aria.wav,0.511,22572,Take it.,2,0,0,0,0,0.0,0.0,True,True,95.3
+3,Command.Order.Beacon,take beacon 2 now,mia,wavs/03_Command-Order-Beacon_mia.wav,1.068,47148,Take bacon too now.,4,2,0,0,2,0.5,0.5,False,False,121.4
+3,Command.Order.Beacon,take beacon 2 now,jason,wavs/03_Command-Order-Beacon_jason.wav,1.161,51244,Take beacon two now.,4,1,0,0,1,0.25,0.0,False,True,133.1
+3,Command.Order.Beacon,take beacon 2 now,aria,wavs/03_Command-Order-Beacon_aria.wav,1.3,57388,Take Beacon 2 now.,4,0,0,0,0,0.0,0.0,True,True,147.8
+4,Command.Order.Beacon,move to beacon 2,mia,wavs/04_Command-Order-Beacon_mia.wav,0.975,43052,Move to Beacon 2.,4,0,0,0,0,0.0,0.0,True,True,145.3
+4,Command.Order.Beacon,move to beacon 2,jason,wavs/04_Command-Order-Beacon_jason.wav,1.068,47148,Move to Beacon 2.,4,0,0,0,0,0.0,0.0,True,True,143.2
+4,Command.Order.Beacon,move to beacon 2,aria,wavs/04_Command-Order-Beacon_aria.wav,1.207,53292,Move to Beacon 2.,4,0,0,0,0,0.0,0.0,True,True,143.4
+5,Command.Order.Beacon,beacon 2 is yours,mia,wavs/05_Command-Order-Beacon_mia.wav,1.3,57388,Weekend 2 is yours.,4,1,0,0,1,0.25,0.25,False,False,145.2
+5,Command.Order.Beacon,beacon 2 is yours,jason,wavs/05_Command-Order-Beacon_jason.wav,1.347,59436,Egan 2 is yours.,4,1,0,0,1,0.25,0.25,False,False,147.1
+5,Command.Order.Beacon,beacon 2 is yours,aria,wavs/05_Command-Order-Beacon_aria.wav,1.207,53292,Weekend 2 is yours.,4,1,0,0,1,0.25,0.25,False,False,145.0
+6,Command.Order.Enemy,watch enemy 4,mia,wavs/06_Command-Order-Enemy_mia.wav,1.022,45100,Watch enemy 4.,3,0,0,0,0,0.0,0.0,True,True,123.4
+6,Command.Order.Enemy,watch enemy 4,jason,wavs/06_Command-Order-Enemy_jason.wav,1.161,51244,Watch Enemy 4.,3,0,0,0,0,0.0,0.0,True,True,132.1
+6,Command.Order.Enemy,watch enemy 4,aria,wavs/06_Command-Order-Enemy_aria.wav,1.068,47148,Watch enemy 4.,3,0,0,0,0,0.0,0.0,True,True,124.7
+7,Command.Order.Direction,head north now,mia,wavs/07_Command-Order-Direction_mia.wav,0.836,36908,Head north now.,3,0,0,0,0,0.0,0.0,True,True,112.6
+7,Command.Order.Direction,head north now,jason,wavs/07_Command-Order-Direction_jason.wav,0.836,36908,Head north now.,3,0,0,0,0,0.0,0.0,True,True,114.7
+7,Command.Order.Direction,head north now,aria,wavs/07_Command-Order-Direction_aria.wav,0.836,36908,Head north now.,3,0,0,0,0,0.0,0.0,True,True,114.6
+8,Command.Order.Direction,go east,mia,wavs/08_Command-Order-Direction_mia.wav,0.65,28716,Go east.,2,0,0,0,0,0.0,0.0,True,True,99.7
+8,Command.Order.Direction,go east,jason,wavs/08_Command-Order-Direction_jason.wav,0.65,28716,Go east.,2,0,0,0,0,0.0,0.0,True,True,104.1
+8,Command.Order.Direction,go east,aria,wavs/08_Command-Order-Direction_aria.wav,0.65,28716,Go east.,2,0,0,0,0,0.0,0.0,True,True,100.8
+9,Command.Ack,yes,mia,wavs/09_Command-Ack_mia.wav,0.511,22572,Yes.,1,0,0,0,0,0.0,0.0,True,True,88.6
+9,Command.Ack,yes,jason,wavs/09_Command-Ack_jason.wav,0.65,28716,Yes.,1,0,0,0,0,0.0,0.0,True,True,87.5
+9,Command.Ack,yes,aria,wavs/09_Command-Ack_aria.wav,0.464,20524,Yes.,1,0,0,0,0,0.0,0.0,True,True,85.3
+10,Command.Ack,on it,mia,wavs/10_Command-Ack_mia.wav,0.511,22572,On it.,2,0,0,0,0,0.0,0.0,True,True,97.6
+10,Command.Ack,on it,jason,wavs/10_Command-Ack_jason.wav,0.464,20524,On it.,2,0,0,0,0,0.0,0.0,True,True,94.8
+10,Command.Ack,on it,aria,wavs/10_Command-Ack_aria.wav,0.511,22572,On it.,2,0,0,0,0,0.0,0.0,True,True,96.1
+11,Command.Ack,understood,mia,wavs/11_Command-Ack_mia.wav,0.697,30764,Understood.,1,0,0,0,0,0.0,0.0,True,True,102.0
+11,Command.Ack,understood,jason,wavs/11_Command-Ack_jason.wav,0.65,28716,Understood.,1,0,0,0,0,0.0,0.0,True,True,100.5
+11,Command.Ack,understood,aria,wavs/11_Command-Ack_aria.wav,0.65,28716,Understood.,1,0,0,0,0,0.0,0.0,True,True,100.9
+12,Command.Warn,stop,mia,wavs/12_Command-Warn_mia.wav,0.511,22572,Stop.,1,0,0,0,0,0.0,0.0,True,True,87.0
+12,Command.Warn,stop,jason,wavs/12_Command-Warn_jason.wav,0.464,20524,Stop.,1,0,0,0,0,0.0,0.0,True,True,85.3
+12,Command.Warn,stop,aria,wavs/12_Command-Warn_aria.wav,0.418,18476,Stop.,1,0,0,0,0,0.0,0.0,True,True,86.8
+13,Command.Warn,look out,mia,wavs/13_Command-Warn_mia.wav,0.604,26668,look out.,2,0,0,0,0,0.0,0.0,True,True,98.5
+13,Command.Warn,look out,jason,wavs/13_Command-Warn_jason.wav,0.604,26668,Look out.,2,0,0,0,0,0.0,0.0,True,True,99.7
+13,Command.Warn,look out,aria,wavs/13_Command-Warn_aria.wav,0.604,26668,Look out.,2,0,0,0,0,0.0,0.0,True,True,104.1
+14,Command.Warn.Beacon,leave beacon 2,mia,wavs/14_Command-Warn-Beacon_mia.wav,1.022,45100,Leaf beacon too.,3,2,0,0,2,0.6667,0.6667,False,False,125.7
+14,Command.Warn.Beacon,leave beacon 2,jason,wavs/14_Command-Warn-Beacon_jason.wav,0.975,43052,Leave Beacon 2.,3,0,0,0,0,0.0,0.0,True,True,134.9
+14,Command.Warn.Beacon,leave beacon 2,aria,wavs/14_Command-Warn-Beacon_aria.wav,1.115,49196,Leave beacon too.,3,1,0,0,1,0.3333,0.3333,False,False,124.6
+15,Command.Warn.Enemy,enemy 4 is coming,mia,wavs/15_Command-Warn-Enemy_mia.wav,1.161,51244,Enemy 4 is coming.,4,0,0,0,0,0.0,0.0,True,True,135.0
+15,Command.Warn.Enemy,enemy 4 is coming,jason,wavs/15_Command-Warn-Enemy_jason.wav,1.3,57388,Enemy 4 is coming.,4,0,0,0,0,0.0,0.0,True,True,137.5
+15,Command.Warn.Enemy,enemy 4 is coming,aria,wavs/15_Command-Warn-Enemy_aria.wav,1.207,53292,Enemy 4 is coming.,4,0,0,0,0,0.0,0.0,True,True,134.7
+16,Command.Query.Beacon,where is beacon 2,mia,wavs/16_Command-Query-Beacon_mia.wav,1.115,49196,Where is Beacon to?,4,1,0,0,1,0.25,0.25,False,False,135.8
+16,Command.Query.Beacon,where is beacon 2,jason,wavs/16_Command-Query-Beacon_jason.wav,1.022,45100,Where is Beacon to?,4,1,0,0,1,0.25,0.25,False,False,137.3
+16,Command.Query.Beacon,where is beacon 2,aria,wavs/16_Command-Query-Beacon_aria.wav,1.022,45100,Where is Beacon to?,4,1,0,0,1,0.25,0.25,False,False,136.3
+17,Command.Report,reporting,mia,wavs/17_Command-Report_mia.wav,0.65,28716,Reporting.,1,0,0,0,0,0.0,0.0,True,True,103.7
+17,Command.Report,reporting,jason,wavs/17_Command-Report_jason.wav,0.604,26668,reporting.,1,0,0,0,0,0.0,0.0,True,True,103.7
+17,Command.Report,reporting,aria,wavs/17_Command-Report_aria.wav,0.836,36908,Reporting.,1,0,0,0,0,0.0,0.0,True,True,104.9
+18,Callout.Order,"squad, on me",mia,wavs/18_Callout-Order_mia.wav,1.022,45100,Squad on knee.,3,1,0,0,1,0.3333,0.3333,False,False,123.3
+18,Callout.Order,"squad, on me",jason,wavs/18_Callout-Order_jason.wav,1.161,51244,"Squad, on me.",3,0,0,0,0,0.0,0.0,True,True,134.4
+18,Callout.Order,"squad, on me",aria,wavs/18_Callout-Order_aria.wav,1.161,51244,Squad on me.,3,0,0,0,0,0.0,0.0,True,True,127.9
+19,Callout.Warn.Enemy,they are at enemy 4,mia,wavs/19_Callout-Warn-Enemy_mia.wav,1.207,53292,They are at enemy for,5,1,0,0,1,0.2,0.2,False,False,125.2
+19,Callout.Warn.Enemy,they are at enemy 4,jason,wavs/19_Callout-Warn-Enemy_jason.wav,1.486,65580,They are at enemy four.,5,1,0,0,1,0.2,0.0,False,True,136.5
+19,Callout.Warn.Enemy,they are at enemy 4,aria,wavs/19_Callout-Warn-Enemy_aria.wav,1.207,53292,They are at enemy four.,5,1,0,0,1,0.2,0.0,False,True,135.9

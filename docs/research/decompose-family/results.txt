@@ -1,0 +1,111 @@
+==============================================================================
+CORPUS A -- the Thor's real answers to the shipped `attention` gate
+==============================================================================
+60 answers captured, 60 distinct
+
+A1. attention gate, roster r8 (10 options), ALL 20 answers
+     grad=1.161408e+02 curl=3.441098e-30 harm=1.192705e-29 | h0=1.000000 h1=0.000000 h2=0.000000 | maxcirc=0.000000 tris=120 comp=1 edges=45
+
+A2. attention gate, roster r8, d1-2b only (10 answers)
+     grad=4.979091e+01 curl=5.283837e-31 harm=5.729408e-30 | h0=1.000000 h1=0.000000 h2=0.000000 | maxcirc=0.000000 tris=120 comp=1 edges=45
+
+A3. attention gate, roster r8, situation 'contested', both models (4 answers)
+     grad=7.306756e+00 curl=5.490826e-32 harm=1.825859e-30 | h0=1.000000 h1=0.000000 h2=0.000000 | maxcirc=0.000000 tris=120 comp=1 edges=45
+
+A4. attention gate, ALL rosters (r8/r4/r2) -- the option sets differ
+     grad=4.468506e+02 curl=1.111328e+02 harm=4.744016e-29 | h0=0.800831 h1=0.199169 h2=0.000000 | maxcirc=9.307372 tris=120 comp=1 edges=45
+
+A5. attention gate, rosters r8+r4 (r2's agents drop out)
+     grad=2.828511e+02 curl=3.249653e+01 harm=2.809162e-29 | h0=0.896950 h1=0.103050 h2=0.000000 | maxcirc=4.461091 tris=120 comp=1 edges=45
+
+A6. every single answer on its own (60 of them): the largest curl
+     max curl over all 60 single answers: 8.201452e-33
+     (that answer: roster r8, holding_beacon, clef-flash)
+
+==============================================================================
+THE BIPARTITE (HodgeRank heterogeneous) FORM: agents vs candidates
+==============================================================================
+Every answer is an AGENT; every option is a CANDIDATE. The curl then
+measures whether the AGENTS disagree about the ORDER of the options.
+
+roster  situation         agents  cands  h1 ratio  h2 ratio  comp  same choice  same order
+r8      contested              4     10  0.103030  0.000000     1           NO          NO
+r8      holding_beacon         4     10  0.127273  0.000000     1           NO          NO
+r8      last_standing          4     10  0.036364  0.000000     1           NO          NO
+r8      retreat_danger         4     10  0.157576  0.000000     1          yes          NO
+r8      scout_alone            4     10  0.236364  0.000000     1           NO          NO
+r4      contested              4      6  0.085714  0.000000     1           NO          NO
+r4      holding_beacon         4      6  0.257143  0.000000     1          yes          NO
+r4      last_standing          4      6  0.314286  0.000000     1          yes          NO
+r4      retreat_danger         4      6  0.400000  0.000000     1          yes          NO
+r4      scout_alone            4      6  0.428571  0.000000     1          yes          NO
+r2      contested              4      4  0.200000  0.000000     1           NO          NO
+r2      holding_beacon         4      4  0.100000  0.000000     1          yes          NO
+r2      last_standing          4      4  0.400000  0.000000     1          yes          NO
+r2      retreat_danger         4      4  0.700000  0.000000     1           NO          NO
+r2      scout_alone            4      4  0.300000  0.000000     1          yes          NO
+
+  (the two models are the only agents when both answered that situation;
+   the repeats are byte-identical so they add agents, not information)
+  'same choice' compares the argmax; 'same order' compares the whole
+  ranking of the shared options. The curl tracks the second, not the
+  first -- it measures whether the two models lie on ONE scale, which
+  is a stricter thing than whether they happen to agree on top.
+
+==============================================================================
+COULD THE SHIPPED hodge-consensus RUN ON THIS GATE AT ALL?
+==============================================================================
+hodge-consensus enumerates simple cycles by DFS with max_depth = 8
+(src/decomposition.rs: dfs_cycles(..., 8)) and then projects the
+residual onto each one (project_onto_cycles, O(cycles x edges)).
+The attention gate has 10 options; a dense candidate graph on 10
+nodes is K_10. Counting the cycles of K_10:
+    simple cycles of length 3..10 in K_10 : 556,014
+    of those, length 3..8 (the DFS cap)  : 172,974
+    edges in the dense candidate graph  : 45 undirected (90 directed)
+    projection work at O(cycles x edges) : 15,567,660 inner operations, and 172,974 cycle vectors
+
+==============================================================================
+THE ESCALATION POLICY vs THE HODGE SIGNAL
+==============================================================================
+Policy (D71): primary confidence < 0.5 -> ask clef-flash, use its answer.
+
+roster  situation        d1 choice  clef choice  d1 conf escal?  agree  kendall
+r8      contested        squad      agent1         0.295    YES     NO     0.60
+r8      holding_beacon   agent0     squad          0.304    YES     NO     0.56
+r8      last_standing    squad      agent7         0.392    YES     NO     0.78
+r8      retreat_danger   agent3     agent3         0.332    YES    yes     0.51
+r8      scout_alone      squad      agent5         0.460    YES     NO     0.38
+r4      contested        squad      agent1         0.331    YES     NO     0.60
+r4      holding_beacon   squad      squad          0.306    YES    yes     0.33
+r4      last_standing    squad      squad          0.415    YES    yes     0.33
+r4      retreat_danger   agent3     agent3         0.438    YES    yes     0.07
+r4      scout_alone      squad      squad          0.687     no    yes     0.20
+r2      contested        squad      agent1         0.402    YES     NO     0.33
+r2      holding_beacon   squad      squad          0.387    YES    yes     0.67
+r2      last_standing    squad      squad          0.431    YES    yes     0.00
+r2      retreat_danger   all        squad          0.392    YES     NO    -0.33
+r2      scout_alone      squad      squad          0.758     no    yes     0.33
+
+Situations compared: 15
+MODELS DISAGREE but the policy does NOT escalate: 0
+MODELS AGREE but the policy escalates anyway (a wasted second call): 6
+    r8 retreat_danger: both say agent3, d1 confidence 0.332
+    r4 holding_beacon: both say squad, d1 confidence 0.306
+    r4 last_standing: both say squad, d1 confidence 0.415
+    r4 retreat_danger: both say agent3, d1 confidence 0.438
+    r2 holding_beacon: both say squad, d1 confidence 0.387
+    r2 last_standing: both say squad, d1 confidence 0.431
+
+Confidence distribution (the escalation threshold is 0.5):
+    d1-2b       n= 30 min=0.295 median=0.392 max=0.758  below 0.5: 26/30
+    clef-flash  n= 30 min=0.116 median=0.256 max=0.347  below 0.5: 30/30
+
+==============================================================================
+CORPUS B -- the repo's own logged Thor answers (E4 poc)
+==============================================================================
+/home/caseydigennaro/lm-wt/resdec/docs/research/poc/thor/e4-d1-3B-log.json: 160 logged scenes
+  gate 'action': n=160  grad=1.569841e+03 curl=3.455375e-28 harm=3.286920e-32 | h0=1.000000 h1=0.000000 h2=0.000000 | maxcirc=0.000000 tris=1 comp=1 edges=3
+      max curl over the 160 single answers taken alone: 9.244e-33
+  gate 'beacon_bearing': n=160  grad=3.266758e+03 curl=3.108112e-28 harm=3.234330e-28 | h0=1.000000 h1=0.000000 h2=0.000000 | maxcirc=0.000000 tris=4 comp=1 edges=6
+      max curl over the 160 single answers taken alone: 4.622e-33

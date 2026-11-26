@@ -1,0 +1,15 @@
+[package]
+name = "lm-core"
+description = "Deterministic fixed-point simulation core for last-mile M1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The dependency rule allows only serde, postcard, rhai and thiserror. Task 2
+# needs serde (Params/Header are part of the round header and the log) and
+# Task 12 needs postcard (the canonical byte encoding of the round log).
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+rhai = { version = "1", default-features = false, features = ["no_float", "sync", "std"] }

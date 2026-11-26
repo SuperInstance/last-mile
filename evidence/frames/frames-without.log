@@ -1,0 +1,208 @@
+   Compiling lm-agents v0.1.0 (C:\Users\casey\src\last-mile-build-localwords\crates\lm-agents)
+   Compiling lm-learn v0.1.0 (C:\Users\casey\src\last-mile-build-localwords\crates\lm-learn)
+   Compiling lm-tools v0.1.0 (C:\Users\casey\src\last-mile-build-localwords\crates\lm-tools)
+   Compiling lm-host-model v0.1.0 (C:\Users\casey\src\last-mile-build-localwords\crates\lm-host-model)
+   Compiling lm-host v0.1.0 (C:\Users\casey\src\last-mile-build-localwords\crates\lm-host)
+    Finished `release` profile [optimized] target(s) in 1m 00s
+     Running `target\release\lm-host.exe --agents stub --talk on --ticks 3000 --seed 7`
+lm-host: the ears hear with the auto backend
+lm-host: the agents think with the stub model
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-host: between rounds the stub reviewer looks at what changed
+lm-host: the round speaks in the skald voices — daemon http://localhost:8000, bank C:\Users\casey\AppData\Local\last-mile\voice-bank (cap 64 MB)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+lm-agents: utter: the model LFM2-1.2B on http://192.168.0.78:8092 is serving, so it words the lines and the phrasebook words the ones it misses (utter.realizer = auto)
+[2m2026-10-30T12:33:07.580945Z[0m [32m INFO[0m [2mbevy_diagnostic::system_information_diagnostics_plugin::internal[0m[2m:[0m SystemInfo { os: "Windows 11 Home", kernel: "26300", cpu: "AMD Ryzen AI 9 HX 370 w/ Radeon 890M", core_count: "12", memory: "31.1 GiB" }
+lm-host: the prewarm asked the bank for 7 unique 477 lines
+[2m2026-10-30T12:33:09.165468Z[0m [32m INFO[0m [2mbevy_render::renderer[0m[2m:[0m AdapterInfo { name: "NVIDIA GeForce RTX 4050 Laptop GPU", vendor: 4318, device: 10401, device_type: DiscreteGpu, device_pci_bus_id: "0000:c4:00.0", driver: "NVIDIA", driver_info: "616.92", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: Some(false), limit_bucket: None }
+[2m2026-10-30T12:33:12.351321Z[0m [32m INFO[0m [2mbevy_pbr::cluster[0m[2m:[0m GPU clustering is supported on this device.
+[2m2026-10-30T12:33:12.351454Z[0m [32m INFO[0m [2mbevy_render::batching::gpu_preprocessing[0m[2m:[0m GPU preprocessing is fully supported on this device.
+[2m2026-10-30T12:33:12.352863Z[0m [32m INFO[0m [2mbevy_egui::render[0m[2m:[0m Using bindless_mode_array_size 16 (Device maximum 1048576)
+[2m2026-10-30T12:33:12.353416Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Creating new window last-mile (67v0)
+lm-host: the frames so far: 570 drawn, p50 16.7 ms, p95 20.8 ms, max 33.2 ms
+lm-host: the frames so far: 1170 drawn, p50 16.7 ms, p95 19.5 ms, max 33.2 ms
+lm-host: the frames so far: 1770 drawn, p50 16.7 ms, p95 18.8 ms, max 33.2 ms
+lm-host: the frames so far: 2370 drawn, p50 16.7 ms, p95 18.7 ms, max 33.2 ms
+lm-host: the frames so far: 2970 drawn, p50 16.7 ms, p95 18.4 ms, max 33.2 ms
+lm-host: the frames so far: 3570 drawn, p50 16.7 ms, p95 18.3 ms, max 33.2 ms
+lm-host: the frames so far: 4170 drawn, p50 16.7 ms, p95 18.2 ms, max 33.2 ms
+lm-host: the frames so far: 4770 drawn, p50 16.7 ms, p95 18.1 ms, max 33.2 ms
+lm-host: the frames so far: 5370 drawn, p50 16.7 ms, p95 18.1 ms, max 33.2 ms
+lm-host: voice hit 2 tone 94 pending 5 — rendered 0 failed 105 — gate played 96 cut 0
+lm-host: recorded runs\7-1793363587.lml
+lm-host: the learning flow is running (the round is measured and the proposal tested)
+lm-host: the frames so far: 5970 drawn, p50 16.7 ms, p95 18.1 ms, max 744.3 ms
+lm-host: the frames so far: 6570 drawn, p50 16.7 ms, p95 18.0 ms, max 744.3 ms
+lm-host: the frames so far: 7170 drawn, p50 16.7 ms, p95 18.0 ms, max 744.3 ms
+lm-host: the frames so far: 7770 drawn, p50 16.7 ms, p95 18.0 ms, max 744.3 ms
+lm-host: the frames so far: 8370 drawn, p50 16.7 ms, p95 18.0 ms, max 744.3 ms
+lm-host: the frames so far: 8970 drawn, p50 16.7 ms, p95 17.9 ms, max 744.3 ms
+lm-host: the frames so far: 9570 drawn, p50 16.7 ms, p95 17.9 ms, max 744.3 ms
+lm-host: the frames so far: 10170 drawn, p50 16.7 ms, p95 17.9 ms, max 744.3 ms
+lm-host: the frames so far: 10770 drawn, p50 16.7 ms, p95 17.9 ms, max 744.3 ms
+lm-host: the frames so far: 11370 drawn, p50 16.7 ms, p95 17.9 ms, max 744.3 ms
+lm-host: the frames so far: 11970 drawn, p50 16.7 ms, p95 17.9 ms, max 744.3 ms
+lm-host: the frames so far: 12570 drawn, p50 16.7 ms, p95 17.9 ms, max 744.3 ms
+lm-host: the frames so far: 13170 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 13770 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 14370 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 14970 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 15570 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 16170 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 16770 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 17370 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 17970 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 18570 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 19170 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 19770 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 20370 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 20970 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 21570 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 22170 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 22770 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 23370 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 23970 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 24570 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 25170 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 25770 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 26370 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 26970 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 27570 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 28170 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 28770 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 29370 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 29970 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 30570 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 31170 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 31770 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 32370 drawn, p50 16.7 ms, p95 17.8 ms, max 744.3 ms
+lm-host: the frames so far: 32970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 33570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 34170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 34770 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 35370 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 35970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 36570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 37170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 37770 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 38370 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 38970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 39570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 40170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 40770 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 41370 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 41970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 42570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 43170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 43770 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 44370 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 44970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 45570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 46170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 46770 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 47370 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 47970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 48570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 49170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 49770 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 50370 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 50970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 51570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 52170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 52770 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 53370 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 53970 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 54570 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 55170 drawn, p50 16.7 ms, p95 17.7 ms, max 744.3 ms
+lm-host: the frames so far: 55770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 56370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 56970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 57570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 58170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 58770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 59370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 59970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 60570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 61170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 61770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 62370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 62970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 63570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 64170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 64770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 65370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 65970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 66570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 67170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 67770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 68370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 68970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 69570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 70170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 70770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 71370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 71970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 72570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 73170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 73770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 74370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 74970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 75570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 76170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 76770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 77370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 77970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 78570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 79170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 79770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 80370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 80970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 81570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 82170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 82770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 83370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 83970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 84570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 85170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 85770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 86370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 86970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 87570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 88170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 89370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 89970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 90570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 91170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 91770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 92370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 92970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 93570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 94170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 94770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 95370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 95970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 96570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 97170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 97770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 97771 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 98370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 98970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 99570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 100170 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 100770 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 101370 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 101970 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms
+lm-host: the frames so far: 102570 drawn, p50 16.7 ms, p95 17.6 ms, max 744.3 ms

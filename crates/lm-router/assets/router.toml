@@ -1,0 +1,105 @@
+# router.toml — the cloud purse's settings.
+#
+# Base URLs, model names, allotments and the exchange table live here, not in
+# Rust source. Keys never live here: they are read at runtime from the
+# secrets file named under [router].
+#
+# The shipped file is the fallback. A user config at
+# ~/.config/last-mile/router.toml replaces it.
+
+[router]
+# Where the keys are read from, at the moment a pool is used.
+secrets_path = "~/.config/last-mile/secrets.env"
+# How long an allotment window lasts.
+window_seconds = 3600
+
+# --- Z.AI (GLM): OpenAI-compatible chat completions -----------------------
+
+[pools.zai]
+kind = "openai"
+base_url = "https://api.z.ai/api/paas/v4"
+model = "glm-4.6"
+key_name = "ZAI_API_KEY"
+timeout_ms = 30000
+cooldown_ms = 60000
+
+[pools.zai.allotment]
+tokens = 500000
+requests = 500
+
+# --- MiniMax: OpenAI-compatible chat completions --------------------------
+
+[pools.minimax]
+kind = "openai"
+base_url = "https://api.minimax.io/v1"
+model = "MiniMax-M2"
+key_name = "MINIMAX_API_KEY"
+timeout_ms = 30000
+cooldown_ms = 60000
+
+[pools.minimax.allotment]
+tokens = 500000
+requests = 500
+
+# --- Kimi (Moonshot): OpenAI-compatible chat completions ------------------
+
+[pools.kimi]
+kind = "openai"
+base_url = "https://api.moonshot.ai/v1"
+model = "kimi-k2-turbo-preview"
+key_name = "KIMI_API_KEY"
+timeout_ms = 30000
+cooldown_ms = 60000
+
+[pools.kimi.allotment]
+tokens = 300000
+requests = 300
+
+# --- Claude: the Anthropic Messages API -----------------------------------
+
+[pools.claude]
+kind = "anthropic"
+base_url = "https://api.anthropic.com"
+model = "claude-sonnet-4-5"
+key_name = "ANTHROPIC_API_KEY"
+timeout_ms = 60000
+cooldown_ms = 300000
+
+[pools.claude.allotment]
+tokens = 200000
+requests = 200
+
+# --- Jev: System One ------------------------------------------------------
+
+[pools.jev]
+kind = "systemone"
+base_url = "https://api.typesafe.ai"
+model = "jev-latest"
+key_name = "TYPESAFE_API_KEY"
+timeout_ms = 30000
+cooldown_ms = 60000
+
+[pools.jev.allotment]
+tokens = 100000
+requests = 100
+
+# --- The stub: no network, no key, no cost --------------------------------
+
+[pools.stub]
+kind = "stub"
+model = "stub"
+stub_text = "stub: no provider answered"
+
+# --- The exchange table ----------------------------------------------------
+#
+# Credits per 1000 tokens. One credit is what 1000 tokens cost at the
+# cheapest pool, so the numbers below are relative prices: Claude costs the
+# most, the stub is free.
+
+[exchange]
+zai = 2
+minimax = 1
+kimi = 1
+claude = 10
+jev = 3
+stub = 0

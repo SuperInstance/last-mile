@@ -1,0 +1,19 @@
+# The agents' configuration for the frame-time measurement: the wording
+# model lives on this machine's own GPU (Ollama in WSL, which the Windows
+# game reaches at its own localhost), so the renderer and the wording
+# share the card. Every field not named here is the default; the arms of
+# the measurement are this file and its absence (the default wording
+# model is on the Thor, and nothing local runs).
+#
+# Used as: lm-host --agents stub --talk on --agents-config <this file>
+
+[utter]
+llm_base = "http://127.0.0.1"
+llm_port = 11434
+llm_model = "gemma2:2b"
+# The startup probe gets ten seconds, not the default two: the wording
+# crosses WSL's localhost relay into Ollama, and the relay's first
+# connection pays for itself. The wording deadline proper is untouched --
+# it is the default 1000 ms, and it is what keeps the game from ever
+# waiting on a line.
+probe_ms = 10_000

@@ -1,0 +1,428 @@
+{
+  "l2-v3": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.45,
+      "per_voice": {
+        "Mia": 0.4667,
+        "Jason": 0.4333,
+        "Aria": 0.45
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.9056,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.4533
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.4432
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.5,
+      "per_voice": {
+        "Mia": 0.5,
+        "Jason": 0.5,
+        "Aria": 0.5
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.5603
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.5122
+      }
+    }
+  },
+  "l2-v3+words": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.3444,
+      "per_voice": {
+        "Mia": 0.4167,
+        "Jason": 0.2667,
+        "Aria": 0.35
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.8111,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.3333
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.3352
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.9941,
+      "per_voice": {
+        "Mia": 0.9917,
+        "Jason": 1.0,
+        "Aria": 0.9917
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 1.0
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 1.0
+      }
+    }
+  },
+  "l2-v3-cls": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.4,
+      "per_voice": {
+        "Mia": 0.4333,
+        "Jason": 0.3333,
+        "Aria": 0.4333
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.8556,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.4
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.392
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.5,
+      "per_voice": {
+        "Mia": 0.5,
+        "Jason": 0.5,
+        "Aria": 0.5
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.5603
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.5122
+      }
+    }
+  },
+  "l2-v3-field+words": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.3222,
+      "per_voice": {
+        "Mia": 0.3833,
+        "Jason": 0.25,
+        "Aria": 0.3333
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.7833,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.3067
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.3182
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.9971,
+      "per_voice": {
+        "Mia": 1.0,
+        "Jason": 1.0,
+        "Aria": 0.9917
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 1.0
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 1.0
+      }
+    }
+  },
+  "l2-v3-json": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.35,
+      "per_voice": {
+        "Mia": 0.4,
+        "Jason": 0.3,
+        "Aria": 0.35
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.8,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.36
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.3466
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.5,
+      "per_voice": {
+        "Mia": 0.5,
+        "Jason": 0.5,
+        "Aria": 0.5
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.4397
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.4878
+      }
+    }
+  },
+  "l2-v3-nocontour": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.4333,
+      "per_voice": {
+        "Mia": 0.45,
+        "Jason": 0.4,
+        "Aria": 0.45
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.8889,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.44
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.4261
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.5,
+      "per_voice": {
+        "Mia": 0.5,
+        "Jason": 0.5,
+        "Aria": 0.5
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.5603
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.5122
+      }
+    }
+  },
+  "l2-v3-num": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.4278,
+      "per_voice": {
+        "Mia": 0.4667,
+        "Jason": 0.3833,
+        "Aria": 0.4333
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.8833,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.4333
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.4205
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.5,
+      "per_voice": {
+        "Mia": 0.5,
+        "Jason": 0.5,
+        "Aria": 0.5
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.5603
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.5122
+      }
+    }
+  },
+  "l2-v3-read": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.45,
+      "per_voice": {
+        "Mia": 0.4667,
+        "Jason": 0.4333,
+        "Aria": 0.45
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.9056,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.4533
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.4432
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.5,
+      "per_voice": {
+        "Mia": 0.5,
+        "Jason": 0.5,
+        "Aria": 0.5
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.5603
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.5122
+      }
+    },
+    "pitch_end": {
+      "n": 340,
+      "accuracy": 0.8824,
+      "per_voice": {
+        "Mia": 0.8833,
+        "Jason": 0.94,
+        "Aria": 0.8333
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.8723
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.878
+      }
+    }
+  },
+  "l2-v3-vocab": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.45,
+      "per_voice": {
+        "Mia": 0.4667,
+        "Jason": 0.4333,
+        "Aria": 0.45
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.9056,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.4533
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.4432
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.6559,
+      "per_voice": {
+        "Mia": 0.6,
+        "Jason": 0.7,
+        "Aria": 0.675
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.6241
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.6494
+      }
+    },
+    "pitch_end": {
+      "n": 340,
+      "accuracy": 0.0,
+      "per_voice": {
+        "Mia": 0.0,
+        "Jason": 0.0,
+        "Aria": 0.0
+      },
+      "answered": 0,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 0.0
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 0.0
+      }
+    }
+  },
+  "words": {
+    "urgency": {
+      "n": 180,
+      "accuracy": 0.3389,
+      "per_voice": {
+        "Mia": 0.3333,
+        "Jason": 0.35,
+        "Aria": 0.3333
+      },
+      "answered": 180,
+      "binary_urgent_vs_not": 0.6222,
+      "word_identical_groups": {
+        "n": 150,
+        "accuracy": 0.3333
+      },
+      "word_identical_clips": {
+        "n": 176,
+        "accuracy": 0.3409
+      }
+    },
+    "order_or_question": {
+      "n": 340,
+      "accuracy": 0.9853,
+      "per_voice": {
+        "Mia": 0.9833,
+        "Jason": 0.98,
+        "Aria": 0.9917
+      },
+      "answered": 340,
+      "word_identical_groups": {
+        "n": 282,
+        "accuracy": 1.0
+      },
+      "word_identical_clips": {
+        "n": 328,
+        "accuracy": 1.0
+      }
+    }
+  }
+}

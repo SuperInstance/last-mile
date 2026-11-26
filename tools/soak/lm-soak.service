@@ -1,0 +1,37 @@
+[Unit]
+Description=lm-soak: fetch the trunk tip, build it, run the whole lane (golden, check, live) on the Thor
+Documentation=file:///home/caseydigennaro/lm-soak/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# The standing soak on last-mile's trunk. One run: git fetch + reset to
+# origin/m1-integration in the dedicated clone, a release build, lm golden,
+# scripts/check.sh and scripts/live.sh, and the record (history.csv,
+# latest.md, status.json) that the Thor index serves.
+#
+# It runs from ~/lm-soak and never from a seat's worktree: the clone is
+# reset to the trunk tip before each run, so the soak measures the trunk
+# and only the trunk. A second run while one is going is skipped inside
+# the script (a lock in the clone), so the timer can fire as often as it
+# likes without piling runs on the box.
+#
+# The Thor is a shared box — the seats build here and the d1 servers live
+# here — so the run is niced and capped to half the cores (the live tests
+# pace themselves at the round's own rate and lose nothing to the cap).
+Type=oneshot
+WorkingDirectory=/home/caseydigennaro/lm-soak
+Environment=PATH=/home/caseydigennaro/.cargo/bin:/home/caseydigennaro/.local/bin:/usr/local/cuda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=LM_SOAK_JOBS=7
+Environment=HOME=/home/caseydigennaro
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# A full run (build + the two test lanes + the live rounds at 30 Hz) takes
+# on the order of an hour on this box. The timer fires every three; a run
+# that would outlast that is killed so the next slot starts clean.
+TimeoutStartSec=2h30m
+ExecStart=/home/caseydigennaro/lm-soak/scripts/soak.sh
+
+[Install]
+WantedBy=default.target

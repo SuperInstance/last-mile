@@ -1,0 +1,251 @@
+# The vibe gate's measurement fixture: kid-style phrasings, labelled with
+# the change each one means (Vibe Dictionary part 3).
+#
+# 10 phrasings per dictionary entry (40), 10 that match nothing the
+# dictionary holds, and 5 that are honestly ambiguous between two entries
+# (`any` names every entry a fair hearing could pick). The live test runs
+# every case through the vibe gate against the Thor's decision server and
+# prints the accuracy table in docs/design/vibe-gate.md; the offline test
+# checks that this file is the measurement it claims to be (10 per entry,
+# 10 none, the ambiguous few, all distinct, all short enough to hear).
+#
+# The wording is a middle-schooler's: short, imperative, repetitive, with
+# the game's own words (tag, stun, see) and without the dictionary's
+# (units, parameters, view_range_cells). The exact `says` phrases of an
+# entry are in its ten, and so are phrasings the dictionary never wrote
+# down — the gate is measured on hearing, not on matching.
+
+# ------------------------------------------------------------ unit.vision
+[[case]]
+words = "let them see farther"
+entry = "unit.vision"
+
+[[case]]
+words = "they should see farther"
+entry = "unit.vision"
+
+[[case]]
+words = "wider eyes"
+entry = "unit.vision"
+
+[[case]]
+words = "I want them to see more"
+entry = "unit.vision"
+
+[[case]]
+words = "make them notice things from far away"
+entry = "unit.vision"
+
+[[case]]
+words = "they should see across the whole map"
+entry = "unit.vision"
+
+[[case]]
+words = "their eyes should be better"
+entry = "unit.vision"
+
+[[case]]
+words = "let my team see the other team sooner"
+entry = "unit.vision"
+
+[[case]]
+words = "everyone keeps sneaking up, make them see it coming"
+entry = "unit.vision"
+
+[[case]]
+words = "give them bigger vision"
+entry = "unit.vision"
+
+# ------------------------------------------------------------- unit.speed
+[[case]]
+words = "make them faster"
+entry = "unit.speed"
+
+[[case]]
+words = "they should be quicker"
+entry = "unit.speed"
+
+[[case]]
+words = "speed them up"
+entry = "unit.speed"
+
+[[case]]
+words = "everyone is so slow, make them zoom"
+entry = "unit.speed"
+
+[[case]]
+words = "make them run faster"
+entry = "unit.speed"
+
+[[case]]
+words = "I want them to move quicker"
+entry = "unit.speed"
+
+[[case]]
+words = "faster units please"
+entry = "unit.speed"
+
+[[case]]
+words = "can they go speedier"
+entry = "unit.speed"
+
+[[case]]
+words = "let them sprint"
+entry = "unit.speed"
+
+[[case]]
+words = "make my guys quicker"
+entry = "unit.speed"
+
+# --------------------------------------------------------- unit.tag_range
+[[case]]
+words = "let them tag from farther away"
+entry = "unit.tag_range"
+
+[[case]]
+words = "longer arms"
+entry = "unit.tag_range"
+
+[[case]]
+words = "let them reach farther when they tag"
+entry = "unit.tag_range"
+
+[[case]]
+words = "they should tag from across the room"
+entry = "unit.tag_range"
+
+[[case]]
+words = "give them a longer tag reach"
+entry = "unit.tag_range"
+
+[[case]]
+words = "let them paint from farther away"
+entry = "unit.tag_range"
+
+[[case]]
+words = "I want them to tag people without getting close"
+entry = "unit.tag_range"
+
+[[case]]
+words = "make the tagging distance bigger"
+entry = "unit.tag_range"
+
+[[case]]
+words = "their arms are too short, make them longer"
+entry = "unit.tag_range"
+
+[[case]]
+words = "let them splat from far away"
+entry = "unit.tag_range"
+
+# --------------------------------------------------------- unit.stun_time
+[[case]]
+words = "make the stun shorter"
+entry = "unit.stun_time"
+
+[[case]]
+words = "they should get up faster"
+entry = "unit.stun_time"
+
+[[case]]
+words = "the stun takes forever, make it quick"
+entry = "unit.stun_time"
+
+[[case]]
+words = "make being frozen shorter"
+entry = "unit.stun_time"
+
+[[case]]
+words = "they should unfreeze sooner"
+entry = "unit.stun_time"
+
+[[case]]
+words = "shorter stuns"
+entry = "unit.stun_time"
+
+[[case]]
+words = "make the stun go by faster"
+entry = "unit.stun_time"
+
+[[case]]
+words = "let them get back in the game quicker after being tagged"
+entry = "unit.stun_time"
+
+[[case]]
+words = "the frozen time is too long"
+entry = "unit.stun_time"
+
+[[case]]
+words = "make being stunned not last so long"
+entry = "unit.stun_time"
+
+# ---------------------------------------------------------------- the none
+# Ten asks the dictionary honestly does not hold: five are sandbox blocks
+# that exist only in the design (docs/design/sandbox-on-otherhere.md §3),
+# and five are not changes at all. The right answer for every one is
+# `none` — Bench has no word for it yet.
+
+[[case]]
+words = "make the paint bouncy"
+entry = "none"
+
+[[case]]
+words = "let's play somewhere else"
+entry = "none"
+
+[[case]]
+words = "make the game longer"
+entry = "none"
+
+[[case]]
+words = "give me another squad"
+entry = "none"
+
+[[case]]
+words = "more crates please"
+entry = "none"
+
+[[case]]
+words = "make the team more nervous"
+entry = "none"
+
+[[case]]
+words = "change our color to yellow"
+entry = "none"
+
+[[case]]
+words = "quiet match, no talking"
+entry = "none"
+
+[[case]]
+words = "who is winning"
+entry = "none"
+
+[[case]]
+words = "make the map bigger"
+entry = "none"
+
+# ----------------------------------------------------------- the ambiguous
+# Five asks a fair hearing could land on either side of. `any` names every
+# entry that counts as right; anything else the gate picks from the
+# dictionary is a confusion worth reporting.
+
+[[case]]
+words = "make it easier to catch people"
+any = ["unit.speed", "unit.tag_range"]
+
+[[case]]
+words = "they should be better at tagging"
+any = ["unit.speed", "unit.tag_range"]
+
+[[case]]
+words = "let them see the other team from farther away"
+any = ["unit.vision", "unit.tag_range"]
+
+[[case]]
+words = "make them get up and run faster"
+any = ["unit.stun_time", "unit.speed"]
+
+[[case]]
+words = "the game is too slow"
+any = ["unit.speed"]

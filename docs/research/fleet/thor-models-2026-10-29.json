@@ -1,0 +1,239 @@
+{
+  "format": "last-mile.thor-models.v1",
+  "generatedAt": "2026-10-29T16:55:00-0800",
+  "host": "thor (Jetson AGX Thor, aarch64, Blackwell sm_110, 122 GiB unified memory)",
+  "method": [
+    "~/lm-services/last-mile.sh status",
+    "sudo ss -ltnp",
+    "nvidia-smi",
+    "systemctl --user / systemctl list-units",
+    "sudo docker images / docker inspect skald-riva",
+    "du -x --max-depth=3 ~ (and full walk of the external drive)",
+    "file-level census: find ~ -xdev -size +200M with weight extensions",
+    "du / cat of /usr/share/ollama and cold-shelf ollama-store"
+  ],
+  "drives": {
+    "nvme": { "mount": "/", "sizeGiB": 936, "usedGiB": 655, "freeGiB": 234, "tier": "warm" },
+    "usbHdd": { "mount": "/media/caseydigennaro/TOSHIBA EXT", "sizeGiB": 1900, "usedGiB": 378, "freeGiB": 1500, "tier": "cold" },
+    "memory": { "totalGiB": 122, "usedGiB": 45, "availableGiB": 76 }
+  },
+  "totalsGiB": {
+    "hotWeightsOnDisk": 19.9,
+    "hotServingImage": 32.2,
+    "hotGpuMemoryItemized": 19.2,
+    "nvmeWeightsAndServingImages": 497,
+    "ofWhichHot": 52.1,
+    "warmOnly": 445,
+    "coldTotal": 377.2,
+    "proposals": { "deleteGiB": 108, "deleteGiBWithOptionalCaches": 130, "goColdGiB": 122 }
+  },
+  "hot": [
+    { "name": "d1-2B", "path": "/home/caseydigennaro/models/d1-2B", "drive": "nvme", "sizeGiB": 2.0, "format": "GGUF (llama-server)", "quantization": "Q8_0 + mmproj Q8_0", "purpose": "System One reflex decisions (D62 default fast tier)", "license": "LFM Open License v1.0 (commercial only under $10M revenue)", "gpuMemMiB": 2516, "port": 8094, "service": "d1-2b.service", "lastMileUse": true },
+    { "name": "clef-flash (Cloudflare, 9B Qwen3.5 base)", "path": "/home/caseydigennaro/models/clef-flash", "drive": "nvme", "sizeGiB": 7.2, "format": "GGUF (llama-server)", "quantization": "Q4_K_M + BF16 mmproj", "purpose": "decision escalation champion (D71 second opinion)", "license": "Apache-2.0 (per docs/research/fleet/04-decision-models.md)", "gpuMemMiB": 7590, "port": 8096, "service": "clef-flash.service", "lastMileUse": true },
+    { "name": "LFM2-1.2B", "path": "/home/caseydigennaro/models/LFM2-1.2B", "drive": "nvme", "sizeGiB": 1.2, "format": "GGUF (llama-server)", "quantization": "Q8_0", "purpose": "wording realizer for agent lines", "license": "LFM Open License v1.0", "gpuMemMiB": 1476, "port": 8092, "service": "lm-realizer.service", "lastMileUse": true },
+    { "name": "LFM3-Audio-2B", "path": "/home/caseydigennaro/models/LFM3-Audio-2B", "drive": "nvme", "sizeGiB": 2.1, "format": "GGUF (llama-server behind lm-ears)", "quantization": "Q8_0 + mmproj Q8_0", "purpose": "speech-to-text + intent probe (the Thor's ears)", "license": "LFM Open License v1.0", "gpuMemMiB": 3719, "port": 8103, "service": "lm-ears.service (uvicorn :8102)", "lastMileUse": true },
+    { "name": "d1-3B", "path": "/home/caseydigennaro/models/d1-3B", "drive": "nvme", "sizeGiB": 3.3, "format": "GGUF (llama-server)", "quantization": "Q8_0 + mmproj Q8_0", "purpose": "decision model; 'slower than d1-2B and no better here' (thor index)", "license": "LFM Open License v1.0", "gpuMemMiB": 3930, "port": 8093, "service": "d1-3b.service", "lastMileUse": false, "note": "not in last-mile's AgentsConfig port map; unload candidate (+3.9 GiB GPU)" },
+    { "name": "Riva Magpie TTS Multilingual 357M", "path": "/home/caseydigennaro/src/skald-riva/model-repo-official", "drive": "nvme", "sizeGiB": 4.1, "format": "Riva RMIR / Triton model repo (encoder.plan/.onnx, model.ckpt)", "quantization": "n/a", "purpose": "TTS for agent voices via skald (D73 pre-rendered voice bank)", "license": "NVIDIA Riva/NGC terms; production deployment requires NVIDIA AI Enterprise", "gpuMemMiB": null, "port": "50000/50051 via skald-riva container -> skald :8000", "service": "skald-daemon.service + docker skald-riva", "lastMileUse": true },
+    { "name": "(serving image) riva-speech:2.26.0-l4t-aarch64", "path": "docker://nvcr.io/nvidia/riva/riva-speech:2.26.0-l4t-aarch64", "drive": "nvme", "sizeGiB": 32.2, "format": "docker", "quantization": "n/a", "purpose": "the Riva/Triton server hosting Magpie", "license": "NVIDIA container license", "lastMileUse": true }
+  ],
+  "warm": [
+    { "name": "Qwen3-Coder-30B-A3B-Instruct", "path": "/home/caseydigennaro/models/Qwen3-Coder-30B-A3B-Instruct-GGUF", "drive": "nvme", "sizeGiB": 18.1, "format": "GGUF", "quantization": "Q4_K_M", "purpose": "the coder seat (:8001, down at measure time; 82 tok/s)", "license": "Apache-2.0", "lastMileUse": false },
+    { "name": "d1-omni-600M", "path": "/home/caseydigennaro/models/d1-omni-600M", "drive": "nvme", "sizeGiB": 0.6, "format": "GGUF", "quantization": "Q8_0 + mmproj", "purpose": "decision triage gate (D-series)", "license": "LFM Open License v1.0", "lastMileUse": false },
+    { "name": "Qwen3-0.6B (tiny-smoke)", "path": "/home/caseydigennaro/models/tiny-smoke", "drive": "nvme", "sizeGiB": 0.4, "format": "GGUF", "quantization": "Q4_K_M", "purpose": "smoke-test model", "license": "Apache-2.0", "lastMileUse": false },
+    { "name": "LFM2.5-8B-A1B", "path": "/home/caseydigennaro/liquid-lab/models/LFM2.5-8B-A1B-Q4_K_M.gguf", "drive": "nvme", "sizeGiB": 4.8, "format": "GGUF", "quantization": "Q4_K_M", "purpose": "Liquid trial", "license": "LFM Open License v1.0", "lastMileUse": false },
+    { "name": "diffusiongemma-26B-A4B-it", "path": "/home/caseydigennaro/diffusion-lab/models", "drive": "nvme", "sizeGiB": 16.8, "format": "GGUF", "quantization": "Q4_K_M", "purpose": "diffusion-LM trial", "license": "Gemma terms", "lastMileUse": false },
+    { "name": "gemma-3-1b-it", "path": "/home/caseydigennaro/diffusion-lab/models", "drive": "nvme", "sizeGiB": 0.8, "format": "GGUF", "quantization": "Q4_K_M", "purpose": "small wording trial", "license": "Gemma terms", "lastMileUse": false },
+    { "name": "MoGe ViT-L", "path": "/home/caseydigennaro/models/moge-vitl", "drive": "nvme", "sizeGiB": 1.2, "format": "PyTorch .pt", "quantization": "fp32", "purpose": "photo -> depth + intrinsics (geometry :8099, down; 72 ms warm)", "license": "MIT (model card)", "lastMileUse": false },
+    { "name": "Depth Anything V2 ViT-L", "path": "/home/caseydigennaro/models/depth-anything", "drive": "nvme", "sizeGiB": 1.3, "format": "PyTorch .pth", "quantization": "fp32", "purpose": "monocular depth", "license": "Apache-2.0 (verify large-variant terms before shipping)", "lastMileUse": false },
+    { "name": "DINOv2-giant", "path": "/home/caseydigennaro/models/dinov2-giant-local", "drive": "nvme", "sizeGiB": 4.3, "format": "safetensors", "quantization": "fp32", "purpose": "vision features (sitka experiments)", "license": "Apache-2.0", "lastMileUse": false },
+    { "name": "DINOv2-large", "path": "/home/caseydigennaro/.cache/huggingface/hub/models--facebook--dinov2-large", "drive": "nvme", "sizeGiB": 2.3, "format": "safetensors", "quantization": "fp32", "purpose": "vision features", "license": "Apache-2.0", "lastMileUse": false },
+    { "name": "VGGT-1B", "path": "/home/caseydigennaro/sitka-distill/lab/ff-recon/vggt-1b-model.pt", "drive": "nvme", "sizeGiB": 4.7, "format": "PyTorch .pt", "quantization": "n/a", "purpose": "feed-forward geometry (ff-recon)", "license": "CC-BY-NC 4.0 (non-commercial)", "lastMileUse": false },
+    { "name": "I-JEPA ViT-H", "path": "/home/caseydigennaro/jev-rack/weights/ijepa_vith14_1k", "drive": "nvme", "sizeGiB": 2.5, "format": "safetensors", "quantization": "fp32", "purpose": "perception experiments (:8077, down)", "license": "CC-BY-NC 4.0 (Meta JEPA weights)", "lastMileUse": false },
+    { "name": "V-JEPA 2 ViT-L", "path": "/home/caseydigennaro/jev-rack/weights/vjepa2-vitl-fpc64-256", "drive": "nvme", "sizeGiB": 1.3, "format": "safetensors", "quantization": "fp32", "purpose": "video perception experiments", "license": "CC-BY-NC 4.0", "lastMileUse": false },
+    { "name": "Bria RMBG 1.4", "path": "/home/caseydigennaro/.rembg/models/bria-rmbg.onnx", "drive": "nvme", "sizeGiB": 1.0, "format": "ONNX", "quantization": "n/a", "purpose": "background removal", "license": "bria-rmbg license (non-commercial for 1.4)", "lastMileUse": false },
+    { "name": "CLIP ViT-L/14-336", "path": "/home/caseydigennaro/.cache/clip", "drive": "nvme", "sizeGiB": 0.9, "format": "PyTorch .pt", "quantization": "n/a", "purpose": "embeddings (older experiments)", "license": "MIT", "lastMileUse": false },
+    { "name": "Hunyuan3D-2", "path": "/home/caseydigennaro/models/Hunyuan3D-2", "drive": "nvme", "sizeGiB": 14.0, "format": "PyTorch ckpt/safetensors", "quantization": "fp16", "purpose": "image -> mesh + texture + delight", "license": "Tencent Hunyuan Community License", "lastMileUse": false },
+    { "name": "Hunyuan3D-2.1", "path": "/home/caseydigennaro/models/Hunyuan3D-2.1", "drive": "nvme", "sizeGiB": 14.0, "format": "PyTorch ckpt/safetensors", "quantization": "fp16", "purpose": "image -> mesh + PBR texture", "license": "Tencent Hunyuan 3D 2.1 Community License: <=1M MAU free; excluded in EU/UK/South Korea", "lastMileUse": false },
+    { "name": "TRELLIS-image-large", "path": "/home/caseydigennaro/models/TRELLIS-image-large", "drive": "nvme", "sizeGiB": 3.1, "format": "safetensors (fp16)", "quantization": "fp16", "purpose": "image -> 3D structured latents", "license": "MIT", "lastMileUse": false },
+    { "name": "TripoSG", "path": "/home/caseydigennaro/models/TripoSG", "drive": "nvme", "sizeGiB": 7.5, "format": "safetensors (transformer + DINOv2 + VAE)", "quantization": "n/a", "purpose": "image -> mesh", "license": "MIT", "lastMileUse": false },
+    { "name": "stable-fast-3d (SF3D)", "path": "/home/caseydigennaro/models/stable-fast-3d", "drive": "nvme", "sizeGiB": 3.8, "format": "safetensors", "quantization": "n/a", "purpose": "fast image -> textured mesh", "license": "Stability AI Community License (free commercial under $1M revenue)", "lastMileUse": false },
+    { "name": "stable-point-aware-3d (SPAR3D)", "path": "/home/caseydigennaro/models/stable-point-aware-3d", "drive": "nvme", "sizeGiB": 6.9, "format": "safetensors", "quantization": "n/a", "purpose": "image -> 3D with point-stage editing", "license": "Stability AI Community License ($1M cap)", "lastMileUse": false },
+    { "name": "TripoSR", "path": "/home/caseydigennaro/models/TripoSR", "drive": "nvme", "sizeGiB": 1.6, "format": "PyTorch ckpt", "quantization": "n/a", "purpose": "instant draft meshes", "license": "MIT", "lastMileUse": false },
+    { "name": "Qwen-Image bf16", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/diffusion_models/qwen_image_bf16.safetensors", "drive": "nvme", "sizeGiB": 38.0, "format": "safetensors", "quantization": "bf16", "purpose": "text -> image (studio)", "license": "Apache-2.0", "lastMileUse": false },
+    { "name": "Qwen-Image-Edit bf16", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/diffusion_models/qwen_image_edit_bf16.safetensors", "drive": "nvme", "sizeGiB": 38.0, "format": "safetensors", "quantization": "bf16", "purpose": "image editing / retexture (studio)", "license": "Apache-2.0", "lastMileUse": false },
+    { "name": "FLUX.1-dev", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/diffusion_models/flux1-dev.safetensors", "drive": "nvme", "sizeGiB": 22.2, "format": "safetensors", "quantization": "bf16", "purpose": "image generation (studio)", "license": "FLUX.1-dev Non-Commercial License (dead end for shipping)", "lastMileUse": false },
+    { "name": "FLUX.1-schnell", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/diffusion_models/flux1-schnell.safetensors", "drive": "nvme", "sizeGiB": 22.2, "format": "safetensors", "quantization": "bf16", "purpose": "fast drafts (studio)", "license": "Apache-2.0", "lastMileUse": false },
+    { "name": "FLUX.2-klein-4b", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/diffusion_models/flux-2-klein-4b.safetensors", "drive": "nvme", "sizeGiB": 7.2, "format": "safetensors", "quantization": "bf16", "purpose": "image generation trial", "license": "FLUX.2 klein non-commercial free tier", "lastMileUse": false },
+    { "name": "Z-Image turbo NVFP4", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/diffusion_models/z_image_turbo_nvfp4.safetensors", "drive": "nvme", "sizeGiB": 4.2, "format": "safetensors", "quantization": "NVFP4", "purpose": "fast drafts", "license": "verify model card (2026 release)", "lastMileUse": false },
+    { "name": "SDXL base 1.0 + SDXL Turbo", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/checkpoints", "drive": "nvme", "sizeGiB": 13.0, "format": "safetensors", "quantization": "fp16", "purpose": "workhorse image generation", "license": "CreativeML Open RAIL++-M (no revenue cap)", "lastMileUse": false },
+    { "name": "text encoders (qwen2.5-vl-7b, qwen3-4b, t5xxl-fp8, clip-l)", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/text_encoders", "drive": "nvme", "sizeGiB": 27.8, "format": "safetensors", "quantization": "mixed", "purpose": "diffusion text conditioning", "license": "mostly Apache/MIT", "lastMileUse": false },
+    { "name": "controlnets + clip_vision + loras + vae + ipadapter + upscale", "path": "/home/caseydigennaro/image-studio/ComfyUI/models/{controlnet,clip_vision,loras,vae,ipadapter,upscale_models}", "drive": "nvme", "sizeGiB": 15.7, "format": "safetensors", "quantization": "mixed", "purpose": "ComfyUI support models", "license": "mixed (mostly permissive; check LoRAs individually)", "lastMileUse": false },
+    { "name": "EdenLive (VAST-AI)", "path": "/home/caseydigennaro/eden-trial/models/EdenLive", "drive": "nvme", "sizeGiB": 41.1, "format": "safetensors (dit-5b, umt5, vae, vision-encoder, clip)", "quantization": "n/a", "purpose": "interactive live-video trial", "license": "unknown (gated trial; likely non-commercial)", "lastMileUse": false },
+    { "name": "skald-riva model-repo (Magpie-Opensource, superseded)", "path": "/home/caseydigennaro/src/skald-riva/model-repo", "drive": "nvme", "sizeGiB": 2.1, "format": "Triton repo (ckpt/onnx/plan)", "quantization": "n/a", "purpose": "earlier self-built Magpie TTS repo", "license": "NVIDIA Riva terms", "lastMileUse": false },
+    { "name": "skald-riva models (build inputs)", "path": "/home/caseydigennaro/src/skald-riva/models", "drive": "nvme", "sizeGiB": 2.4, "format": "NeMo .nemo", "quantization": "n/a", "purpose": "magpie_tts_multilingual_357m.nemo + 2 codecs (RMIR build inputs)", "license": "NVIDIA Riva terms", "lastMileUse": false },
+    { "name": "skald-riva prebuilt engines tarball", "path": "/home/caseydigennaro/src/skald-riva/prebuilt", "drive": "nvme", "sizeGiB": 3.3, "format": "TRT-LLM tar.gz (Jetson)", "quantization": "n/a", "purpose": "spare copy of deployed Magpie engines", "license": "NVIDIA", "lastMileUse": false },
+    { "name": "skald-riva work (RMIR intermediates)", "path": "/home/caseydigennaro/src/skald-riva/work", "drive": "nvme", "sizeGiB": 2.9, "format": "rmir + logs", "quantization": "n/a", "purpose": "build intermediates", "license": "n/a", "lastMileUse": false },
+    { "name": "(docker, unused) magpie-tts-multilingual NIM", "path": "docker://nvcr.io/nim/nvidia/magpie-tts-multilingual:latest", "drive": "nvme", "sizeGiB": 50.1, "format": "docker", "quantization": "n/a", "purpose": "first TTS attempt, superseded by riva-speech deployment", "license": "NVIDIA NIM terms", "lastMileUse": false },
+    { "name": "(docker, unused) nv-embedqa-e5-v5 NIM", "path": "docker://nvcr.io/nim/nvidia/nv-embedqa-e5-v5:latest", "drive": "nvme", "sizeGiB": 6.9, "format": "docker", "quantization": "n/a", "purpose": "embedding NIM, never referenced by last-mile", "license": "NVIDIA NIM terms", "lastMileUse": false },
+    { "name": "(docker, unused infra)", "path": "docker://qdrant,qdrant + nats + cuda-base + busybox + curl", "drive": "nvme", "sizeGiB": 0.8, "format": "docker", "quantization": "n/a", "purpose": "infra images", "license": "various", "lastMileUse": false },
+    { "name": "(system ollama) llama3.2", "path": "/usr/share/ollama/.ollama/models", "drive": "nvme", "sizeGiB": 20.0, "format": "ollama blobs", "quantization": "Q4 (default tags)", "purpose": "unused; ollama daemon idles on :11434", "license": "Llama license", "lastMileUse": false }
+  ],
+  "cold": [
+    { "name": "GLiDE", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/GLiDE", "drive": "usbHdd", "sizeGiB": 48.6, "format": "weights", "quantization": "unknown", "purpose": "2026 trial weights; purpose unverified", "license": "unknown" },
+    { "name": "Qwen3-Coder-Next NVFP4", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/Qwen3-Coder-Next-NVFP4", "drive": "usbHdd", "sizeGiB": 44.4, "format": "NVFP4 checkpoint", "quantization": "NVFP4", "purpose": "next-gen coder model (TRT Edge-LLM)", "license": "Apache-2.0" },
+    { "name": "Nemotron-3-Nano-Omni-30B-A3B-Reasoning NVFP4", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4", "drive": "usbHdd", "sizeGiB": 20.9, "format": "NVFP4 checkpoint", "quantization": "NVFP4", "purpose": "omni reasoning model trial", "license": "NVIDIA Open Model License" },
+    { "name": "Nanbeige4.3-33B NVFP4", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/Nanbeige4.3-33B-NVFP4", "drive": "usbHdd", "sizeGiB": 20.5, "format": "NVFP4 checkpoint", "quantization": "NVFP4", "purpose": "LLM trial", "license": "unknown (verify)" },
+    { "name": "Qwen3.6-27B NVFP4", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/Qwen3.6-27B-NVFP4", "drive": "usbHdd", "sizeGiB": 20.4, "format": "NVFP4 checkpoint", "quantization": "NVFP4", "purpose": "Qwen3.6 weights (director-tier candidate)", "license": "Apache-2.0" },
+    { "name": "iLLaDA-8B-Instruct", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/iLLaDA-8B-Instruct", "drive": "usbHdd", "sizeGiB": 15.4, "format": "weights", "quantization": "unknown", "purpose": "diffusion-LM trial", "license": "unknown" },
+    { "name": "Sumi-7B", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/Sumi-7B", "drive": "usbHdd", "sizeGiB": 14.5, "format": "weights", "quantization": "unknown", "purpose": "LLM trial", "license": "unknown" },
+    { "name": "Cola-DLM", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/Cola-DLM", "drive": "usbHdd", "sizeGiB": 8.7, "format": "weights", "quantization": "unknown", "purpose": "diffusion-LM trial", "license": "unknown" },
+    { "name": "HybridDiffusion-2B", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/models/HybridDiffusion-2B", "drive": "usbHdd", "sizeGiB": 4.5, "format": "weights", "quantization": "unknown", "purpose": "diffusion model trial", "license": "unknown" },
+    { "name": "TensorRT Edge-LLM engines for Qwen3.6 (edgellm-work/qwen36)", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/coder-stack/edgellm-work", "drive": "usbHdd", "sizeGiB": 37.6, "format": "TRT engines", "quantization": "n/a", "purpose": "prebuilt TRT Edge-LLM engines for this box; come-warm candidate when the director tier is built" },
+    { "name": "ollama store: qwen3.5, nemotron-3.5-lightning, nemotron-3-nano", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/ollama-store", "drive": "usbHdd", "sizeGiB": 69.7, "format": "ollama blobs", "quantization": "default", "purpose": "parked LLM store", "license": "Apache-2.0 / NVIDIA OML" },
+    { "name": "docker image tarballs (vllm 26.03, vllm-openai 0.20.0, deepstream 9.2, cuda, node, busybox, curl)", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/docker-images", "drive": "usbHdd", "sizeGiB": 23.4, "format": "docker tar", "quantization": "n/a", "purpose": "parked images", "license": "various" },
+    { "name": "LFM2.5-24B-A2B Q4", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/liquid-lab/models/LFM2.5-24B-A2B-Q4_K_M.gguf", "drive": "usbHdd", "sizeGiB": 13.5, "format": "GGUF", "quantization": "Q4_K_M", "purpose": "parked Liquid trial", "license": "LFM Open License v1.0" },
+    { "name": "sitka-streetview.tar (corpus, not a model)", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/sitka-streetview.tar", "drive": "usbHdd", "sizeGiB": 19.6, "format": "tar", "quantization": "n/a", "purpose": "streetview captures" },
+    { "name": "nvidia-stack (venvs.tar + IsaacLab stalled partial)", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/nvidia-stack", "drive": "usbHdd", "sizeGiB": 13.7, "format": "tar + partial clone", "quantization": "n/a", "purpose": "parked toolchain; the IsaacLab clone is a dead partial" },
+    { "name": "image-studio + backup + sitka-distill (old copies)", "path": "/media/caseydigennaro/TOSHIBA EXT/cold-shelf/home/caseydigennaro/{image-studio,../backup,sitka-distill}", "drive": "usbHdd", "sizeGiB": 1.9, "format": "mixed", "quantization": "n/a", "purpose": "older copies and document backup" }
+  ],
+  "duplicates": [
+    { "what": "Magpie TTS weights", "where": ["docker NIM image (50.1 GiB, unused)", "riva-speech container repo mount model-repo-official (4.1 GiB, live)", "model-repo (2.1 GiB, superseded)", "prebuilt engine tarball (3.3 GiB)", "models/ nemo build inputs (2.4 GiB)"], "note": "~58 GiB of redundancy around one 357M model" },
+    { "what": "LFM2-1.2B", "where": ["~/models/LFM2-1.2B Q8_0 (serving, 1.2 GiB)", "~/liquid-lab/models Q4_K_M (0.7 GiB)"] },
+    { "what": "Qwen3.6-27B", "where": ["cold NVFP4 weights (20.4 GiB)", "cold TRT engines edgellm-work/qwen36 (37.6 GiB)"] },
+    { "what": "liquid-lab / image-studio", "where": ["warm copies under ~", "older cold copies on the external drive"] }
+  ],
+  "deadFiles": [
+    "~/liquid-lab/models/stray-partial.gguf (7 MB partial)",
+    "~/.cache/huggingface stubs: models--briaai--RMBG-1.4, --nvidia--GR00T-N1.7-3B, --VAST-AI--EdenLive, --GadflyII--Qwen3-Coder-Next-NVFP4, --cyankiwi--Qwen3-Coder-30B-A3B-Instruct-AWQ-4bit, --facebook--dino-vitb16, --facebook--ijepa_vith14_1k, --facebook--VGGT-1B, --Ruicheng--moge-vitl (refs only, no blobs)",
+    "~/.cache/huggingface/hub/models--Systran--faster-whisper-tiny.en (2.5 MB partial)",
+    "~/src/skald-riva/models/magpie_deployable_1.0.download (404-JSON body saved as a file)",
+    "cold: nvidia-stack/IsaacLab-gitclone-stalled-partial (stalled git clone)"
+  ],
+  "proposals": {
+    "note": "nothing executed; all moves/deletes for the reviewer to approve",
+    "delete": [
+      { "path": "docker image nvcr.io/nim/nvidia/magpie-tts-multilingual:latest", "sizeGiB": 50.1, "reason": "superseded by the riva-speech deployment; re-pullable from NGC" },
+      { "path": "docker image nvcr.io/nim/nvidia/nv-embedqa-e5-v5:latest", "sizeGiB": 6.9, "reason": "never referenced by last-mile" },
+      { "path": "/usr/share/ollama/.ollama/models (llama3.2) + disable ollama.service", "sizeGiB": 20.0, "reason": "nothing on the box uses ollama; frees daemon memory too" },
+      { "path": "~/src/skald-riva/{model-repo,prebuilt,work}", "sizeGiB": 8.3, "reason": "superseded build artifacts; live repo + nemo inputs retained" },
+      { "path": "~/image-studio/ComfyUI/models/diffusion_models/flux1-dev.safetensors", "sizeGiB": 22.2, "reason": "non-commercial license; dead weight for a game that may ship" },
+      { "path": "~/liquid-lab/models/{LFM2-1.2B-Q4_K_M.gguf,stray-partial.gguf} + HF stubs + faster-whisper partial", "sizeGiB": 0.8, "reason": "duplicate quant of the serving Q8; dead partials" },
+      { "path": "(optional caches) ~/.cache/uv 7.7 + ~/.cache/pip 1.4 + ~/diffusion-lab/flare-cache 12.8", "sizeGiB": 21.9, "reason": "re-creatable caches" }
+    ],
+    "goCold": [
+      { "path": "~/image-studio/ComfyUI/models/diffusion_models/qwen_image_edit_bf16.safetensors", "sizeGiB": 38.0, "reason": "half of a 76 GiB bf16 pair; fp8/GGUF re-download is cheap" },
+      { "path": "~/eden-trial/models/EdenLive", "sizeGiB": 41.1, "reason": "trial concluded; license unpromising for shipping" },
+      { "path": "~/diffusion-lab/models/diffusiongemma-26B-A4B-it-Q4_K_M.gguf", "sizeGiB": 16.8, "reason": "trial, rarely loaded" },
+      { "path": "~/models/Hunyuan3D-2", "sizeGiB": 14.0, "reason": "superseded by 2.1; both carry territory-limited Tencent license" },
+      { "path": "~/models/d1-3B + stop d1-3b.service", "sizeGiB": 3.3, "reason": "'slower and no better' (thor index); not in last-mile's port map; frees ~3.9 GiB GPU" },
+      { "path": "~/sitka-distill/lab/ff-recon/vggt-1b-model.pt + ~/models/dinov2-giant-local", "sizeGiB": 9.0, "reason": "experiment weights; VGGT is CC-BY-NC; TripoSG bundles its own DINOv2" }
+    ],
+    "comeWarm": [
+      { "path": "cold coder-stack/edgellm-work/qwen36 (TRT engines)", "sizeGiB": 37.6, "reason": "when the System Two director tier is built on Qwen3.6, these engines are already compiled for this box", "when": "on demand" }
+    ]
+  },
+  "recommendedMix": {
+    "note": "research-sourced 2026-10-29; nothing downloaded; full reasoning and sources in 12-thor-models.md Part 2",
+    "hot": [
+      { "slot": "System One decisions", "today": "d1-2B Q8", "pick": "open-weight d1-3B/d1-2B (Liquid 2026-10-07)", "sizeGiB": 2, "gpuGiB": 3.5, "license": "LFM Open v1.0 ($10M cap)", "evidence": "16 ms/decision on AGX Thor, 262 decisions/s (vendor)" },
+      { "slot": "decision escalation", "today": "clef-flash Q4", "pick": "keep clef-flash until open d1 is measured", "sizeGiB": 7.2, "gpuGiB": 7.4, "license": "Apache-2.0" },
+      { "slot": "wording realizer", "today": "LFM2-1.2B", "pick": "LFM3-1.7B", "sizeGiB": 1, "gpuGiB": 1.5, "license": "LFM Open v1.0", "evidence": "~25% faster than LFM2-1.2B at 8K ctx" },
+      { "slot": "speech-to-text", "today": "LFM3-Audio-2B", "pick": "keep + add Nemotron-3.5-ASR-streaming-0.6B", "sizeGiB": 1, "gpuGiB": 1, "license": "NVIDIA Open Model License", "evidence": "prompt-biasable vocabulary; GGML port RTF 0.0066 (RTX 5090)" },
+      { "slot": "TTS", "today": "Riva Magpie 357M", "pick": "keep for skald pre-render; plan Kokoro-82M + Chatterbox Turbo for runtime before shipping (Riva production needs NVIDIA AI Enterprise)", "sizeGiB": 2, "license": "Apache-2.0 / MIT" },
+      { "slot": "agents' sight", "today": "none", "pick": "Qwen3-VL-2B-Instruct GGUF", "sizeGiB": 1.6, "gpuGiB": 1, "license": "Apache-2.0", "evidence": "151 tok/s decode, 916 MB GPU on Thor (TRT)" },
+      { "slot": "audio surprise (Vox Score)", "today": "none", "pick": "CLAP (Apache checkpoint)", "sizeGiB": 0.15, "license": "Apache-2.0" },
+      { "slot": "face/pose/gaze staves", "today": "none", "pick": "MediaPipe Tasks Face+Pose Landmarker (iris gaze)", "sizeGiB": 0.05, "license": "Apache-2.0", "evidence": "30+ FPS CPU-class; 52 blendshapes maps to §12" },
+      { "slot": "depth", "today": "MoGe (geometry svc, down)", "pick": "Depth Anything V2 Small (TRT) + DA3-SMALL pilot; keep MoGe for metric intrinsics", "sizeGiB": 0.3, "license": "Apache-2.0 (small only)", "evidence": "29.3 ms median on Thor (TRT)" },
+      { "slot": "segmentation/tracking", "today": "none", "pick": "EfficientTAM-S", "sizeGiB": 0.2, "license": "Apache-2.0", "evidence": "126.8 FPS tracking on Thor (TRT)" },
+      { "slot": "canon RAG embeddings", "today": "none", "pick": "Qwen3-Embedding-0.6B GGUF", "sizeGiB": 0.4, "license": "Apache-2.0" },
+      { "slot": "drop from hot", "today": "d1-3B", "pick": "unload (+3.9 GiB GPU)" }
+    ],
+    "hotTotals": { "gpuGiB": "24-30 steady state (19.2 today, minus d1-3B, plus small vision/audio models + Riva)", "leavesForGame": ">85 GiB" },
+    "warm": [
+      { "slot": "System Two director", "pick": "Qwen3.6-35B-A3B (Q8 37 GiB or Q4 21 GiB; local NVFP4 engines already on cold shelf)", "license": "Apache-2.0", "evidence": "Qwen3-30B-A3B NVFP4 = 84 tok/s on Thor (TRT Edge-LLM)" },
+      { "slot": "System Two authoring (offline)", "pick": "Qwen3.5-122B-A10B Q5 (~85 GiB); GLM-4.5-Air Q6 (~89 GiB, MIT) second; gpt-oss-120b MXFP4 (63 GiB) reserve", "license": "Apache-2.0 / MIT", "evidence": "GPQA 85.5, SWE-V 72.0; GLM-5.x/DeepSeek-V4/Kimi do not fit 122 GiB" },
+      { "slot": "image generation", "pick": "FLUX.3 klein FP8 (~14 GiB) + SDXL (on disk) + SANA-Sprint", "license": "FLUX Kommunity (<$5M revenue free) / Open RAIL++-M / NVIDIA OML" },
+      { "slot": "image editing", "pick": "Qwen-Image-Edit 1.0 (on disk; prefer fp8 copy) — do NOT move to Qwen-Image-2.1 (research-NC)", "license": "Apache-2.0" },
+      { "slot": "3D mesh", "pick": "TRELLIS.2-4B (~10 GiB, needs sm_110 porting sprint); TripoSG fallback (on disk)", "license": "MIT" },
+      { "slot": "texture/PBR", "pick": "MV-Adapter + StableMaterials + Marigold V2", "license": "Apache-2.0 / OpenRAIL" },
+      { "slot": "skybox", "pick": "SDXL + MultiDiffusion/tiled + 360 LoRA (local)", "license": "Open RAIL++-M" },
+      { "slot": "motion", "pick": "Kimodo (1.1 GiB) + MoMask", "license": "Apache-2.0 code / NVIDIA OML weights; MIT" },
+      { "slot": "voice design (consent-only)", "pick": "Chatterbox Turbo (MIT) + CosyVoice 3 (Apache-2.0)", "license": "MIT / Apache-2.0; XTTS-v2, F5-TTS base, Fish are NC dead ends" },
+      { "slot": "music", "pick": "ACE-Step 1.5 (MIT); MiniMax Music 3.0 top quality (community license); DiffRhythm 2 (Apache)", "license": "MIT / community / Apache-2.0; MusicGen + YuE weights are NC" },
+      { "slot": "SFX", "pick": "Stable Audio Open Small/1.0", "license": "Stability Community ($1M cap); MMAudio/AudioLDM2/AudioGen are NC" },
+      { "slot": "keep warm", "pick": "Qwen3-Coder-30B, MoGe, TripoSR/SF3D/SPAR3D, LFM2.5-8B, d1-omni-600M" }
+    ],
+    "warmTotalsGiB": 230,
+    "cold": ["everything archived in Part 1 cold table, plus displaced incumbents after adoption (clef-flash GGUF, LFM2-1.2B, Magpie build tree, Hunyuan3D pair if TRELLIS.2 lands)"],
+    "downloadFirst": [
+      { "rank": 1, "model": "open d1-3B/d1-2B GGUF", "sizeGiB": 2, "value": "decision tier is the game's spine; 16 ms/decision measured on this box" },
+      { "rank": 2, "model": "Qwen3-VL-2B-Instruct GGUF + mmproj", "sizeGiB": 1.6, "value": "agents' sight; Apache, Thor-proven" },
+      { "rank": 3, "model": "Qwen3-Embedding-0.6B GGUF", "sizeGiB": 0.4, "value": "canon RAG" },
+      { "rank": 4, "model": "Nemotron-3.5-ASR-streaming-0.6B + Parakeet TDT v3", "sizeGiB": 1.8, "value": "vocabulary-biasable ears" },
+      { "rank": 5, "model": "EfficientTAM-S + Depth Anything V2 Small", "sizeGiB": 0.4, "value": "world perception, both Thor-benchmarked" },
+      { "rank": 6, "model": "CLAP audio tower", "sizeGiB": 0.15, "value": "Vox Score surprise channel" },
+      { "rank": 7, "model": "MediaPipe Tasks landmarker models", "sizeGiB": 0.05, "value": "face/gaze/body staves (§12)" },
+      { "rank": 8, "model": "Qwen3.6-35B-A3B GGUF", "sizeGiB": 21, "value": "System Two director; try local NVFP4 engines first" },
+      { "rank": 9, "model": "FLUX.3 klein FP8", "sizeGiB": 14, "value": "studio image quality step" },
+      { "rank": 10, "model": "TRELLIS.2", "sizeGiB": 10, "value": "3D with PBR, MIT-clean (needs porting sprint)" },
+      { "rank": 11, "model": "Kimodo + MoMask", "sizeGiB": 2, "value": "motion packs (§13)" },
+      { "rank": 12, "model": "ACE-Step 1.5", "sizeGiB": 8, "value": "music" },
+      { "rank": 13, "model": "Chatterbox Turbo + CosyVoice 3", "sizeGiB": 5, "value": "consent-only voice design" },
+      { "rank": 14, "model": "Qwen3.5-122B-A10B Q5", "sizeGiB": 85, "value": "offline authoring whale" },
+      { "rank": 15, "model": "gpt-oss-20b (optional)", "sizeGiB": 13, "value": "cheap fallback tier for the router" }
+    ]
+  },
+  "licenseTripwires": {
+    "note": "docs/research/thor-transfer/03-licences.md is referenced by the brief but does not exist in this repo",
+    "onDiskNonCommercial": ["flux1-dev (FLUX.1-dev NC)", "I-JEPA / V-JEPA 2 (CC-BY-NC)", "RMBG-1.4 (NC)", "VGGT (CC-BY-NC)", "EdenLive (unknown/gated)"],
+    "onDiskRevenueOrTerritoryCapped": ["Hunyuan3D-2/2.1 (<=1M MAU + EU/UK/SK exclusion)", "SPAR3D + SF3D (Stability $1M cap)", "everything Liquid (LFM Open v1.0, $10M cap)"],
+    "runtimeLicensing": ["Riva/Magpie production deployment requires NVIDIA AI Enterprise (~$4.5k/GPU/yr); dev free"],
+    "fullyCommercialLane": ["Qwen3.5/3.6, Qwen3-VL, Qwen-Image 1.0, TRELLIS(.2), TripoSG/TripoSR, SDXL (Open RAIL++-M), Chatterbox (MIT), Kokoro (Apache), ACE-Step (MIT), Kimodo (NVIDIA OML), MediaPipe (Apache), CLAP (Apache checkpoint)"]
+  },
+  "sources": {
+    "platformBenchmarks": [
+      "https://nvidia.github.io/TensorRT-Edge-LLM/latest/user_guide/performance/performance-benchmarks.html",
+      "https://www.jetson-ai-lab.com",
+      "https://antmicro.com/blog/2025/12/testing-ai-models-on-jetson-thor-with-kenning"
+    ],
+    "runtimeModels": [
+      "https://huggingface.co/LiquidAI/d1-3B",
+      "https://www.liquid.ai/blog/lfm3",
+      "https://huggingface.co/LiquidAI/LFM3-1.7B",
+      "https://github.com/LAION-AI/CLAP",
+      "https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker",
+      "https://embedl.com/depth-anything/Depth-Anything-V2-Small-hf/thor",
+      "https://github.com/yunyangx/efficient-track-anything",
+      "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF"
+    ],
+    "speech": [
+      "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b",
+      "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3",
+      "https://huggingface.co/LiquidAI/LFM3-Audio-2B",
+      "https://docs.nvidia.com/nim/speech/26.05.0/reference/performances/tts/tts-performance-table.html",
+      "https://huggingface.co/hexgrad/Kokoro-82M",
+      "https://github.com/resemble-ai/chatterbox",
+      "https://huggingface.co/FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+      "https://github.com/kyutai-labs/pocket-tts"
+    ],
+    "studio": [
+      "https://bfl.ai/blog/flux-3-image-klein",
+      "https://huggingface.co/Qwen/Qwen-Image",
+      "https://github.com/microsoft/TRELLIS.2",
+      "https://github.com/VAST-AI-Research/TripoSG",
+      "https://github.com/huanngzh/MV-Adapter",
+      "https://huggingface.co/gvecchio/StableMaterials",
+      "https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1",
+      "https://github.com/EricGuo5513/momask-codes"
+    ],
+    "musicAndLLM": [
+      "https://github.com/ace-step/ACE-Step-1.5",
+      "https://huggingface.co/MiniMaxAI/MiniMax-Music3",
+      "https://huggingface.co/stabilityai/stable-audio-open-1.0",
+      "https://huggingface.co/Qwen/Qwen3.6-35B-A3B",
+      "https://huggingface.co/Qwen/Qwen3.5-122B-A10B",
+      "https://huggingface.co/zai-org/GLM-4.5-Air",
+      "https://huggingface.co/openai/gpt-oss-120b"
+    ]
+  }
+}
