@@ -3,8 +3,8 @@
 Branch `consolidate`, started at `86a4bd9` (PR #3's head). Written
 2026-11-24 by the consolidation lead.
 
-> **Status: draft — the merge and gate sections are filled in as the clusters
-> land.** The final committed version of this file ends with a `STATUS:` line.
+> Completed 2026-11-25 by the director after the consolidation seat's run was
+> cut off by its time limit (after the six merges, before the gate).
 
 ## What this was
 
@@ -122,7 +122,14 @@ close that gap — this is a report of what is there.
 
 ## The merges
 
-*(filled in below as the clusters land)*
+Six `--no-ff` merges, oldest first:
+
+- `18e3136` merge(main): the Thor-lane research (thor-transfer) and its README pointer
+- `d182bc2` merge(si-survey): the SuperInstance survey
+- `5d8c558` merge(hotzone2-r): a fair hot zone with a second objective, as a harness variant (still not the doctrine)
+- `1102bcb` merge(qcache2-r): question identity, the question ledger and the answer cache (off by default)
+- `e467e80` merge(local-words): the utter pass, the realizer A/B harness, and the evidence they produced
+- `32bf51d` merge(look2): the look and feel pass - a sunlit toy diorama, readable teams, the tag moment
 
 ## The gate
 
@@ -137,7 +144,25 @@ merged but **not** compile-verified here. The Windows gate
 The `crates/lm-host/src/keys.rs` test — "one key, one job" — also only runs in
 the Windows build and was checked by eye only.
 
-*(the exact file list is filled in below)*
+The lm-host / lm-host-model changes merged unverified (from `look2` and `local-words`):
+
+```
+crates/lm-host-model/src/map.rs       |   8 +
+ crates/lm-host-model/tests/between.rs |   1 +
+ crates/lm-host/src/between_plugin.rs  |  45 ++--
+ crates/lm-host/src/hud_plugin.rs      | 125 +++++++--
+ crates/lm-host/src/look.rs            | 107 ++++++++
+ crates/lm-host/src/look_effects.rs    | 462 ++++++++++++++++++++++++++++++++++
+ crates/lm-host/src/main.rs            | 310 +++++++++++++++++++++--
+ crates/lm-host/src/map_plugin.rs      | 382 ++++++++++++++++++++++------
+ crates/lm-host/src/roll_plugin.rs     |  17 +-
+ crates/lm-host/src/score_plugin.rs    |  27 +-
+ crates/lm-host/src/view3d/agents.rs   | 168 ++++++++++---
+ crates/lm-host/src/view3d/effects.rs  | 297 ++++++++++++++++++++++
+ crates/lm-host/src/view3d/mod.rs      | 167 +++++++++---
+ crates/lm-host/src/view3d/warmup.rs   | 186 +++++++++-----
+ 14 files changed, 2036 insertions(+), 266 deletions(-)
+```
 
 ## Hard limits honoured
 
@@ -150,3 +175,5 @@ the Windows build and was checked by eye only.
   consolidation forced a genuinely new cross-cutting decision, so no D-row was
   appended.
 - **`tests/golden.toml` was not re-pinned.** The world did not move.
+
+STATUS: DONE
