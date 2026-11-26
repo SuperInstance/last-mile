@@ -133,7 +133,11 @@ Six `--no-ff` merges, oldest first:
 
 ## The gate
 
-*(filled in below)*
+`bash scripts/check.sh` on `consolidate` (2026-11-25, the ProArt, WSL2, Rust 1.99,
+15 min 19 s wall): `cargo fmt --check`, `cargo clippy -D warnings` (every crate
+but lm-host), the no-float guard, the tests in debug and in release
+(**2,383 passed, 0 failed**), the ignored fairness guard and Rhai oracle, `lm
+golden`, and the scripted acceptance session — ending `==> all checks passed`.
 
 ## lm-host, unverified
 
